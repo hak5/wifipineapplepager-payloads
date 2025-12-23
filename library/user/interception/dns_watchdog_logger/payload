@@ -1,0 +1,79 @@
+#!/bin/bash
+# Title: DNS Watchdog Logger
+# Description: Monitors DNS queries and responses, flags suspicious domains, and keeps rotating pcaps for later analysis.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Interception
+# Net Mode: NAT
+#
+# LED State Descriptions
+# Magenta Solid  - initializing capture
+# Blue Blink     - logging DNS traffic
+# Cyan Blink     - suspicious domain observed
+# Green Solid    - capture stopped
+# Red Blink      - dependency or interface error
+#
+# Options
+SNIFF_INTERFACE="${SNIFF_INTERFACE:-br-lan}"
+OUTPUT_DIR="${OUTPUT_DIR:-/root/loot/dns-watchdog}"
+CAPTURE_DURATION="${CAPTURE_DURATION:-300}"
+SUSPICIOUS_DOMAINS="${SUSPICIOUS_DOMAINS:-example.biz;internal.test;badcorp.com}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+mkdir -p "$OUTPUT_DIR"
+LOG_FILE="$OUTPUT_DIR/dns-watchdog-$(date +%F-%H%M%S).log"
+PCAP_FILE="$OUTPUT_DIR/dns-watchdog-$(date +%F-%H%M%S).pcap"
+touch "$LOG_FILE"
+
+if ! command -v tcpdump >/dev/null 2>&1; then
+    log "tcpdump missing"
+    _led FAIL
+    exit 1
+fi
+
+if ! ip link show "$SNIFF_INTERFACE" >/dev/null 2>&1; then
+    log "Interface $SNIFF_INTERFACE not found"
+    _led FAIL
+    exit 1
+fi
+
+_led MAGENTA
+log "Starting DNS watchdog on $SNIFF_INTERFACE for ${CAPTURE_DURATION}s"
+
+_led BLUE
+timeout "$CAPTURE_DURATION" tcpdump -i "$SNIFF_INTERFACE" -s 0 -w "$PCAP_FILE" port 53 2>>"$LOG_FILE" \
+    | stdbuf -o0 awk '
+        BEGIN { split("'"$SUSPICIOUS_DOMAINS"'", watch, ";"); for (i in watch) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", watch[i])} }
+        /A\? / || /AAAA\? / {
+            domain=$5; gsub(/\.$/, "", domain);
+            now=strftime("%Y-%m-%dT%H:%M:%S");
+            hit="no";
+            for (i in watch) {
+                if (tolower(domain)==tolower(watch[i]) || domain ~ ("\\." watch[i] "$")) { hit="yes" }
+            }
+            print now, domain >>"'"$OUTPUT_DIR"'/dns-queries.log";
+            if (hit=="yes") {
+                print now, domain, "WATCHLIST" >>"'"$OUTPUT_DIR"'/dns-alerts.log";
+                system("command -v LED >/dev/null 2>&1 && LED CYAN || echo [LED:CYAN]");
+            }
+        }
+    ' >>"$LOG_FILE"
+
+if [ -s "$OUTPUT_DIR/dns-alerts.log" ]; then
+    _led CYAN
+    log "Suspicious domains observed; see dns-alerts.log"
+fi
+
+log "DNS watchdog finished. Logs: $LOG_FILE, PCAP: $PCAP_FILE"
+_led GREEN

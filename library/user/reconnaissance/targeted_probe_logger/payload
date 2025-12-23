@@ -1,0 +1,89 @@
+#!/bin/bash
+# Title: Targeted Probe Logger
+# Description: Monitors probe requests to spot roaming client devices and highlights matches against a watchlist of SSIDs or OUIs.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Reconnaissance
+# Net Mode: MONITOR
+#
+# LED State Descriptions
+# Magenta Solid  - configuring monitor capture
+# Blue Blink     - sniffing probe requests
+# Cyan Blink     - watchlist hit detected
+# Green Solid    - capture saved
+# Red Blink      - interface or dependency error
+#
+# Options
+MONITOR_INTERFACE="${MONITOR_INTERFACE:-wlan1mon}"
+CAPTURE_DURATION="${CAPTURE_DURATION:-120}"
+OUTPUT_DIR="${OUTPUT_DIR:-/root/loot/probe-logger}"
+WATCHLIST_SSIDS="${WATCHLIST_SSIDS:-CorpWiFi;GuestNet;VOIP-phones}"
+WATCHLIST_OUIS="${WATCHLIST_OUIS:-00:11:22;AA:BB:CC}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+mkdir -p "$OUTPUT_DIR"
+LOG_FILE="$OUTPUT_DIR/probes-$(date +%F-%H%M%S).log"
+TOUCH_FILE="$OUTPUT_DIR/watchlist-hits-$(date +%F-%H%M%S).log"
+touch "$LOG_FILE" "$TOUCH_FILE"
+
+if ! command -v tcpdump >/dev/null 2>&1; then
+    echo "tcpdump missing" | tee -a "$LOG_FILE"
+    _led FAIL
+    exit 1
+fi
+
+if ! ip link show "$MONITOR_INTERFACE" >/dev/null 2>&1; then
+    echo "Monitor interface $MONITOR_INTERFACE not present. Create it first (e.g., with airmon-ng)." | tee -a "$LOG_FILE"
+    _led FAIL
+    exit 1
+fi
+
+_led MAGENTA
+log "Starting probe logger on $MONITOR_INTERFACE for ${CAPTURE_DURATION}s"
+_led BLUE
+timeout "$CAPTURE_DURATION" tcpdump -l -i "$MONITOR_INTERFACE" -e -s 256 type mgt subtype probe-req 2>>"$LOG_FILE" \
+    | stdbuf -o0 awk '
+        BEGIN {
+            split("'"$WATCHLIST_SSIDS"'", watch_ssids, ";")
+            split("'"$WATCHLIST_OUIS"'", watch_ouis, ";")
+            for (i in watch_ssids) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", watch_ssids[i])}
+            for (i in watch_ouis) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", watch_ouis[i])}
+        }
+        {
+            ts=$1 " " $2
+            mac=$3
+            ssid=""
+            for (i=1; i<=NF; i++) {
+                if ($i=="Probe") { ssid=$(i+2); gsub(/"/,"",ssid) }
+            }
+            hit="no"
+            for (i in watch_ssids) if (tolower(ssid)==tolower(watch_ssids[i])) hit="yes"
+            oui=substr(mac,1,8)
+            for (i in watch_ouis) if (toupper(oui)==toupper(watch_ouis[i])) hit="yes"
+            print ts, mac, ssid
+            if (hit=="yes") {
+                print ts, mac, ssid, "WATCHLIST" >>"'"$TOUCH_FILE"'";
+                system("echo WATCHLIST hit: " ssid " " mac " >> "'"$LOG_FILE"'");
+                system("command -v LED >/dev/null 2>&1 && LED CYAN || echo [LED:CYAN]");
+            }
+        }
+    ' >>"$LOG_FILE"
+
+if [ -s "$TOUCH_FILE" ]; then
+    _led CYAN
+    log "Watchlist hits recorded in $TOUCH_FILE"
+fi
+
+log "Probe logging complete: $LOG_FILE"
+_led GREEN

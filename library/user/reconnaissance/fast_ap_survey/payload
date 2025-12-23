@@ -1,0 +1,77 @@
+#!/bin/bash
+# Title: Fast AP Survey
+# Description: Quick passive survey that summarizes the loudest nearby access points and channels for rapid site assessments.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Reconnaissance
+# Net Mode: WIFI_CLIENT
+#
+# LED State Descriptions
+# Magenta Solid  - preparing scan
+# Blue Blink     - running survey
+# Green Solid    - survey written to loot
+# Red Blink      - interface or tool error
+#
+# Options
+SCAN_INTERFACE="${SCAN_INTERFACE:-wlan1}"
+SCAN_DURATION="${SCAN_DURATION:-25}"
+OUTPUT_DIR="${OUTPUT_DIR:-/root/loot/fast-ap-survey}"
+MIN_SIGNAL_DBM="${MIN_SIGNAL_DBM:--90}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+_netmode() {
+    if command -v NETMODE >/dev/null 2>&1; then
+        NETMODE "$@"
+    else
+        echo "NETMODE $* (command not available, skipping)"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+_led MAGENTA
+_netmode WIFI_CLIENT
+mkdir -p "$OUTPUT_DIR"
+LOG_FILE="$OUTPUT_DIR/survey-$(date +%F-%H%M%S).log"
+CSV_FILE="$OUTPUT_DIR/survey-$(date +%F-%H%M%S).csv"
+touch "$LOG_FILE" "$CSV_FILE"
+
+if ! ip link show "$SCAN_INTERFACE" >/dev/null 2>&1; then
+    log "Interface $SCAN_INTERFACE is unavailable"
+    _led FAIL
+    exit 1
+fi
+
+log "Starting fast AP survey on $SCAN_INTERFACE for ${SCAN_DURATION}s"
+_led BLUE
+timeout "$SCAN_DURATION" iw "$SCAN_INTERFACE" scan >>"$LOG_FILE" 2>&1
+
+log "Parsing results (signal >= ${MIN_SIGNAL_DBM} dBm)"
+awk '
+    /BSS / {gsub(/[()]/, "", $2); bssid=$2}
+    /signal: / {signal=$2}
+    /freq: / {freq=$2}
+    /DS Parameter set: channel/ {channel=$5}
+    /SSID: / {ssid=substr($0, index($0, "SSID: ")+6)}
+    /^$/ { if (signal!="" && signal>='"$MIN_SIGNAL_DBM"') {
+            printf("%s,%s,%s,%s,%s\n", signal, ssid, bssid, channel, freq) } 
+            ssid=""; bssid=""; signal=""; channel=""; freq="" }
+' "$LOG_FILE" | sort -t, -n | sed '1i signal_dbm,ssid,bssid,channel,freq_mhz' >"$CSV_FILE"
+
+log "Top 15 APs by signal"
+head -n 16 "$CSV_FILE" >>"$LOG_FILE"
+
+log "Channel utilization snapshot"
+cut -d, -f4 "$CSV_FILE" | tail -n +2 | sort | uniq -c | sort -nr >>"$LOG_FILE"
+
+log "Survey complete. Raw log: $LOG_FILE | CSV: $CSV_FILE"
+_led GREEN

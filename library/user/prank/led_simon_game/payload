@@ -1,0 +1,71 @@
+#!/bin/bash
+# Title: LED Simon Game
+# Description: Quick boredom buster for operators — mimic the LED color sequence using keyboard input to keep skills sharp between ops.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Prank
+# Net Mode: OFFLINE
+#
+# LED State Descriptions
+# Blue Blink     - playing back sequence
+# Green Solid    - you matched the round
+# Red Blink      - wrong answer; game over
+#
+# Options
+ROUND_LENGTH="${ROUND_LENGTH:-5}"
+DISPLAY_DELAY="${DISPLAY_DELAY:-0.6}"
+INPUT_TIMEOUT="${INPUT_TIMEOUT:-3}"
+
+COLORS=("RED" "GREEN" "BLUE" "YELLOW")
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+prompt_input() {
+    local expected="$1"
+    read -rsn1 -t "$INPUT_TIMEOUT" input
+    case "$input" in
+        r|R) guess="RED" ;;
+        g|G) guess="GREEN" ;;
+        b|B) guess="BLUE" ;;
+        y|Y) guess="YELLOW" ;;
+        *) guess="" ;;
+    esac
+    [[ "$guess" == "$expected" ]]
+}
+
+sequence=()
+for ((i=0; i<ROUND_LENGTH; i++)); do
+    sequence+=("${COLORS[$RANDOM % ${#COLORS[@]}]}")
+done
+
+echo "LED Simon Game: watch the LEDs, then press (r)ed/(g)reen/(b)lue/(y)ellow in order."
+sleep 1
+
+for color in "${sequence[@]}"; do
+    _led "$color"
+    sleep "$DISPLAY_DELAY"
+    _led OFF
+    sleep 0.2
+done
+
+for idx in "${!sequence[@]}"; do
+    expected="${sequence[$idx]}"
+    _led BLUE
+    if prompt_input "$expected"; then
+        _led GREEN
+        sleep 0.2
+    else
+        _led RED
+        echo "Wrong answer on step $((idx+1)). Sequence was: ${sequence[*]}"
+        exit 1
+    fi
+done
+
+_led GREEN
+echo "Flawless victory! Sequence: ${sequence[*]}"

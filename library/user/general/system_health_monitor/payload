@@ -1,0 +1,105 @@
+#!/bin/bash
+# Title: System Health Monitor
+# Description: Collects interface, power, storage, and service health data for quick situational awareness and writes structured logs to loot.
+# Author: ChatGPT
+# Version: 1.0
+# Category: General
+# Net Mode: NAT
+#
+# LED State Descriptions
+# Magenta Solid  - configuring interfaces and directories
+# Blue Blink     - gathering system and radio telemetry
+# Green Solid    - log written successfully
+# Red Blink      - missing dependency or interface
+#
+# Options
+LOG_DIR="${LOG_DIR:-/root/loot/system-health}"
+WIFI_INTERFACE="${WIFI_INTERFACE:-wlan0}"
+SECONDARY_INTERFACE="${SECONDARY_INTERFACE:-wlan1}"
+PING_TARGET="${PING_TARGET:-1.1.1.1}"
+PING_COUNT="${PING_COUNT:-4}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+_netmode() {
+    if command -v NETMODE >/dev/null 2>&1; then
+        NETMODE "$@"
+    else
+        echo "NETMODE $* (command not available, skipping)"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+_led MAGENTA
+_netmode NAT
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/system-health-$(date +%F-%H%M%S).log"
+touch "$LOG_FILE"
+
+log "Starting system health monitor"
+
+check_interface() {
+    local iface="$1"
+    if [ -z "$iface" ] || ! ip link show "$iface" >/dev/null 2>&1; then
+        log "Interface $iface is unavailable"
+        _led FAIL
+        exit 1
+    fi
+}
+
+check_interface "$WIFI_INTERFACE"
+[ -n "$SECONDARY_INTERFACE" ] && ip link show "$SECONDARY_INTERFACE" >/dev/null 2>&1 && log "Secondary interface $SECONDARY_INTERFACE detected"
+
+_led BLUE
+log "Interface summary"
+{
+    ip -brief addr show "$WIFI_INTERFACE"
+    [ -n "$SECONDARY_INTERFACE" ] && ip -brief addr show "$SECONDARY_INTERFACE"
+} >>"$LOG_FILE"
+
+log "Radio details for $WIFI_INTERFACE"
+iw "$WIFI_INTERFACE" info >>"$LOG_FILE" 2>&1
+
+log "Recent WiFi survey (top 15 by signal)"
+iw "$WIFI_INTERFACE" scan 2>/dev/null | awk '/SSID: /{ssid=$0} /signal: /{sig=$2} /channel/ {print sig, ssid, $0}' | sort -n | head -n 15 >>"$LOG_FILE"
+
+log "Default routes"
+ip route show default >>"$LOG_FILE"
+
+log "DNS configuration"
+cat /etc/resolv.conf >>"$LOG_FILE"
+
+log "Storage usage"
+df -h >>"$LOG_FILE"
+
+log "Memory and CPU snapshot"
+free -h >>"$LOG_FILE"
+top -b -n 1 | head -n 20 >>"$LOG_FILE"
+
+log "Listening services"
+netstat -tulpen >>"$LOG_FILE"
+
+log "Clock sync status"
+if command -v timedatectl >/dev/null 2>&1; then
+    timedatectl status >>"$LOG_FILE"
+else
+    date --iso-8601=seconds >>"$LOG_FILE"
+fi
+
+log "Connectivity check to $PING_TARGET ($PING_COUNT pings)"
+ping -c "$PING_COUNT" "$PING_TARGET" >>"$LOG_FILE" 2>&1 || log "Ping failed"
+
+log "Recent kernel messages (tail)"
+dmesg | tail -n 50 >>"$LOG_FILE"
+
+log "Completed system health log at $LOG_FILE"
+_led GREEN

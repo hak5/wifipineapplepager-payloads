@@ -1,0 +1,80 @@
+#!/bin/bash
+# Title: Radio Freeze & Collect
+# Description: Locks down wireless interfaces, snapshots volatile data, and preserves logs for incident response triage.
+# Author: ChatGPT
+# Version: 1.0
+# Category: Incident-Response
+# Net Mode: NONE
+#
+# LED State Descriptions
+# Magenta Solid  - shutting down radios
+# Blue Blink     - collecting evidence
+# Green Solid    - collection finished
+# Red Blink      - failure to disable interfaces or write logs
+#
+# Options
+OUTPUT_DIR="${OUTPUT_DIR:-/root/loot/ir-freeze}"
+PRIMARY_IFACE="${PRIMARY_IFACE:-wlan0}"
+SECONDARY_IFACE="${SECONDARY_IFACE:-wlan1}"
+PCAP_DURATION="${PCAP_DURATION:-60}"
+PCAP_INTERFACE="${PCAP_INTERFACE:-wlan0}"
+
+_led() {
+    if command -v LED >/dev/null 2>&1; then
+        LED "$@"
+    else
+        echo "[LED:$*]"
+    fi
+}
+
+log() {
+    echo "[$(date --iso-8601=seconds)] $*" | tee -a "$LOG_FILE"
+}
+
+disable_iface() {
+    local iface="$1"
+    if ip link show "$iface" >/dev/null 2>&1; then
+        ip link set "$iface" down
+        log "Interface $iface downed"
+    fi
+}
+
+_led MAGENTA
+mkdir -p "$OUTPUT_DIR"
+LOG_FILE="$OUTPUT_DIR/ir-freeze-$(date +%F-%H%M%S).log"
+touch "$LOG_FILE"
+
+log "Starting radio freeze"
+disable_iface "$PRIMARY_IFACE"
+disable_iface "$SECONDARY_IFACE"
+
+log "Capturing routing and ARP tables"
+ip route show >>"$LOG_FILE"
+ip neigh show >>"$LOG_FILE"
+
+log "Capturing DHCP leases and resolv.conf"
+[ -f /tmp/dhcp.leases ] && cp /tmp/dhcp.leases "$OUTPUT_DIR/dhcp.leases"
+cp /etc/resolv.conf "$OUTPUT_DIR/resolv.conf"
+
+log "Recording active processes and sockets"
+ps w >>"$LOG_FILE"
+netstat -tulpen >>"$LOG_FILE"
+
+log "Snapshotting kernel ring buffer tail"
+dmesg | tail -n 100 >>"$LOG_FILE"
+
+log "Collecting firewall rules"
+iptables-save >"$OUTPUT_DIR/iptables.save" 2>/dev/null
+
+if command -v tcpdump >/dev/null 2>&1; then
+    log "Passive pcap on $PCAP_INTERFACE for ${PCAP_DURATION}s"
+    timeout "$PCAP_DURATION" tcpdump -i "$PCAP_INTERFACE" -s 0 -w "$OUTPUT_DIR/post-incident.pcap" >>"$LOG_FILE" 2>&1
+else
+    log "tcpdump missing; skipping pcap"
+fi
+
+log "Compressing evidence bundle"
+tar -czf "$OUTPUT_DIR/ir-bundle-$(date +%F-%H%M%S).tar.gz" -C "$OUTPUT_DIR" . >>"$LOG_FILE" 2>&1
+
+log "Radio freeze and evidence collection complete. Bundle stored in $OUTPUT_DIR"
+_led GREEN
