@@ -1,7 +1,7 @@
 #!/bin/bash
 # Name: Install Evil Portal on Pager
 # Description: Complete Evil Portal installation for WiFi Pineapple Pager (OpenWrt 24.10.1)
-# Author: alobe
+# Author: PentestPlaybook
 # Version: 1.0
 # Category: Evil Portal
 
