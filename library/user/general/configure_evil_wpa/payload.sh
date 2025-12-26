@@ -1,7 +1,7 @@
 #!/bin/bash
 # Name: Configure Evil WPA
 # Description: Sets up and enables the WPA evil portal interface (wlan0wpa)
-# Author: alobe
+# Author: PentestPlaybook
 # Version: 1.0
 # Category: Wireless
 
