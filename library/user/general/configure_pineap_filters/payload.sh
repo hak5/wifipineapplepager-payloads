@@ -1,7 +1,7 @@
 #!/bin/bash
 # Name: Configure PineAP Filters
 # Description: Sets PineAP SSID and Client filters to deny mode
-# Author: alobe
+# Author: PentestPlaybook
 # Version: 1.0
 # Category: PineAP
 
