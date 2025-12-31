@@ -33,10 +33,10 @@ Connects the Pineapple to an existing WiFi network for internet access:
 
 ### evil_wpa
 Configures the Evil WPA access point (wlan0wpa) with:
-- Custom SSID (prompted during execution)
-- Custom WPA2 passphrase (prompted during execution, minimum 8 characters)
+- SSID (prompted during execution)
+- WPA2 passphrase (prompted during execution, minimum 8 characters)
 - Automatic service restart and verification
-- 
+
 ## Features
 - Interactive prompts using TEXT_PICKER for SSID, passphrase, and encryption type
 - Input validation (empty checks, passphrase length requirements)
