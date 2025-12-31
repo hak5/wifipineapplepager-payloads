@@ -31,6 +31,8 @@ Connects the Pineapple to an existing WiFi network for internet access:
 - Configurable encryption type (default: sae-mixed)
 - Automatic connection verification and internet connectivity check
 
+**Note:** If `wireless_client_mode` fails on the first attempt, run it again. The second attempt typically succeeds after the initial network configuration is in place.
+
 ### evil_wpa
 Configures the Evil WPA access point (wlan0wpa) with:
 - SSID (prompted during execution)
