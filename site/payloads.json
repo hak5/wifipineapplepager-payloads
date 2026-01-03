@@ -1,41 +1,53 @@
 [
-  {
-    "id": "pagerboy",
-    "title": "PagerBoy",
-    "description": "Virtual Pager Covert Theme - Turn your WiFi Pineapple Pager into a PagerBoy!",
-    "author": "StarkweatherNow",
-    "readme_url": "/user/general/PagerBoy/",
-    "category": "General",
-    "tags": ["Theme", "Virtual Pager", "Covert"],
-    "last_updated": "2025-02-1",
-    "votes": 0,
-    "visible": true,
-    "issue_number": null
-  },
-  {
-    "id": "MAC_spoofer",
-    "title": "MAC Spoofer",
-    "description": "Identity Management payload for disguising device signature before connecting to new network.",
-    "author": "StarkweatherNow",
-    "readme_url": "/user/general/MAC_spoofer/",
-    "category": "General",
-    "tags": ["MAC", "Spoofer", "Covert"],
-    "last_updated": "2025-29-12",
-    "votes": 0,
-    "visible": true,
-    "issue_number": null
-  },
-  {
-    "id": "log_viewer",
-    "title": "Log Viewer",
-    "description": "Log Viewer is a high-performance log analysis tool for the WiFi Pineapple Pager.",
-    "author": "StarkweatherNow",
-    "readme_url": "/user/general/log_viewer/",
-    "category": "General",
-    "tags": ["log", "parser", "headless"],
-    "last_updated": "2025-30-12",
-    "votes": 0,
-    "visible": true,
-    "issue_number": null
-  }
+    {
+        "id": "pagerboy",
+        "title": "PagerBoy",
+        "description": "Virtual Pager Covert Theme - Turn your WiFi Pineapple Pager into a PagerBoy!",
+        "author": "StarkweatherNow",
+        "readme_url": "/user/general/PagerBoy/",
+        "category": "General",
+        "tags": [
+            "Theme",
+            "Virtual Pager",
+            "Covert"
+        ],
+        "last_updated": "2025-02-1",
+        "votes": 0,
+        "visible": true,
+        "issue_number": 2
+    },
+    {
+        "id": "MAC_spoofer",
+        "title": "MAC Spoofer",
+        "description": "Identity Management payload for disguising device signature before connecting to new network.",
+        "author": "StarkweatherNow",
+        "readme_url": "/user/general/MAC_spoofer/",
+        "category": "General",
+        "tags": [
+            "MAC",
+            "Spoofer",
+            "Covert"
+        ],
+        "last_updated": "2025-29-12",
+        "votes": 0,
+        "visible": true,
+        "issue_number": 3
+    },
+    {
+        "id": "log_viewer",
+        "title": "Log Viewer",
+        "description": "Log Viewer is a high-performance log analysis tool for the WiFi Pineapple Pager.",
+        "author": "StarkweatherNow",
+        "readme_url": "/user/general/log_viewer/",
+        "category": "General",
+        "tags": [
+            "log",
+            "parser",
+            "headless"
+        ],
+        "last_updated": "2025-30-12",
+        "votes": 0,
+        "visible": true,
+        "issue_number": 4
+    }
 ]
