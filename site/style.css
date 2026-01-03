@@ -311,22 +311,36 @@ select {
    ========================================= */
 @media (max-width: 768px) {
     
-    /* Force Search Bar to own the top row */
+
+    .pager-text {
+        display: none; 
+    }
+
+    .navbar {
+        padding: 0.5rem 1rem;
+    }
+
+    /* 2. Controls & Search */
     #search-input {
         flex-basis: 100%; 
         width: 100%;
         margin-bottom: 5px;
     }
 
-    /* Make the 3 dropdowns share the second row */
     select {
-        flex: 1;        /* Grow equally */
-        width: auto;    /* Override fixed widths */
-        min-width: 0;   /* Allow shrinking */
+        flex: 1;        
+        width: auto;    
+        min-width: 0;   
         padding: 10px 2px;
         font-size: 0.8rem;
         text-overflow: ellipsis;
     }
+
+    /* 3. Translate Widget Tweak */
+    #google_translate_element {
+        margin-right: 10px; 
+    }
+    
 }
 
 /* =========================================
