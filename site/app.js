@@ -79,8 +79,14 @@ document.addEventListener('DOMContentLoaded', () => {
         filtered.sort((a, b) => {
             if (sortMode === 'votes') return (b.votes || 0) - (a.votes || 0);
             if (sortMode === 'alpha') return (a.title || '').localeCompare(b.title || '');
-            // Default: Newest first
-            return new Date(b.last_updated || 0) - new Date(a.last_updated || 0);
+            
+            // --- NEWEST FILTER LOGIC ---
+            // Convert strings (YYYY-MM-DD) to Date objects for correct math
+            const dateA = new Date(a.last_updated || 0);
+            const dateB = new Date(b.last_updated || 0);
+            
+            // Return B minus A for Descending order (Newest first)
+            return dateB - dateA; 
         });
 
         renderGrid(filtered);
@@ -116,6 +122,20 @@ document.addEventListener('DOMContentLoaded', () => {
             option.value = tag;
             option.textContent = tag;
             tagSelect.appendChild(option);
+        });
+    }
+
+    function formatDate(dateString) {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        // Check if date is valid
+        if (isNaN(date.getTime())) return dateString; 
+        
+        // Return MM/DD/YYYY
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
         });
     }
 
@@ -161,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <header>
                 <div class="meta-top">
                     <span class="category-badge">${script.category || 'General'}</span>
-                    <span class="date-badge">${script.last_updated || ''}</span>
+                    <span class="date-badge">${formatDate(script.last_updated)}</span>
                 </div>
                 
                 <h2>${script.title}</h2>
