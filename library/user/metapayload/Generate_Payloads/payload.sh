@@ -725,8 +725,10 @@ META_END_EOF
     # Log results
     if [ $EXIT_CODE -eq 0 ]; then
         LOG green "══ Task Complete: Exit $EXIT_CODE (Success) ══"
+        ALERT "Task $TASK_ID completed successfully"
     else
         LOG red "══ Task Complete: Exit $EXIT_CODE (Failed) ══"
+        ALERT "Task $TASK_ID completed with errors (Exit $EXIT_CODE)"
     fi
     
     # Create management payload for viewing logs
