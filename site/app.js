@@ -155,7 +155,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const authorUrl = `https://github.com/${script.author || ''}`;
         
         // We link to our local vote page, passing the issue number as a parameter
-        const voteUrl = `vote.html?issue=${script.issue_number}`;
+        const voteUrl = `site/vote.html?issue=${script.issue_number}`;
 
         article.innerHTML = `
             <header>

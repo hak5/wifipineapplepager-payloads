@@ -8,9 +8,9 @@
     "category": "General",
     "tags": ["Theme", "Virtual Pager", "Covert"],
     "last_updated": "2025-02-1",
-    "votes": 25,
+    "votes": 0,
     "visible": true,
-    "issue_number": 0
+    "issue_number": null
   },
   {
     "id": "MAC_spoofer",
@@ -21,9 +21,9 @@
     "category": "General",
     "tags": ["MAC", "Spoofer", "Covert"],
     "last_updated": "2025-29-12",
-    "votes": 7,
+    "votes": 0,
     "visible": true,
-    "issue_number": 0
+    "issue_number": null
   },
   {
     "id": "log_viewer",
@@ -34,8 +34,8 @@
     "category": "General",
     "tags": ["log", "parser", "headless"],
     "last_updated": "2025-30-12",
-    "votes": 13,
+    "votes": 0,
     "visible": true,
-    "issue_number": 0
+    "issue_number": null
   }
 ]
