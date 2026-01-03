@@ -344,10 +344,10 @@ select {
 #google_translate_element {
     /* Position back to the right side */
     margin-left: auto; 
-    margin-right: 15px; 
+    margin-right: 25px; 
     
     /* Pushes it down to align with the toggle */
-    margin-top: 6px; 
+    margin-top: 10px; 
     
     display: flex;
     align-items: center;
