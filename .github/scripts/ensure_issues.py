@@ -37,10 +37,6 @@ def create_issue(payload_data):
     
     issue_data = resp.json()
     issue_number = issue_data['number']
-    
-    # 3. Lock the conversation (Optional: keeps the thread clean for voting only)
-    lock_url = f"https://api.github.com/repos/{REPO}/issues/{issue_number}/lock"
-    requests.put(lock_url, json={"lock_reason": "off-topic"}, headers=HEADERS)
 
     # --- NEW: Add the Initial Thumbs Up (+1) ---
     print(f" -> Adding initial reaction to Issue #{issue_number}...")
