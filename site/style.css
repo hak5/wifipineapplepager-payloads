@@ -342,7 +342,7 @@ select {
 
 /* 1. Wrapper Layout */
 #google_translate_element {
-    /* Ensures it sits nicely in the nav */
+    margin: 0 auto; 
     display: flex;
     align-items: center;
     height: 100%;
