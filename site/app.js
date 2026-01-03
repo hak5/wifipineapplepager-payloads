@@ -1,27 +1,39 @@
 document.addEventListener('DOMContentLoaded', () => {
+    
+    // --- Theme Toggle Logic ---
+    const themeBtn = document.getElementById('theme-toggle');
+    const htmlEl = document.documentElement;
+
+    // Check for saved preference
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    htmlEl.setAttribute('data-theme', savedTheme);
+
+    themeBtn.addEventListener('click', () => {
+        const currentTheme = htmlEl.getAttribute('data-theme');
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        
+        htmlEl.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+    });
+    // ---------------------------
+
     const grid = document.getElementById('script-grid');
 
-    // 1. Fetch the data from your JSON file
     fetch('site/payloads.json')
         .then(response => response.json())
         .then(scripts => {
-            
-            // 2. Iterate through each script in the database
             scripts.forEach(script => {
                 const card = createCard(script);
                 grid.appendChild(card);
             });
-
         })
         .catch(error => console.error('Error loading scripts:', error));
 });
 
-// Helper function to build the HTML for a single card
 function createCard(script) {
     const article = document.createElement('article');
     article.classList.add('card');
 
-    // Generate Tag HTML
     const tagsHtml = script.tags.map(tag => `<span>${tag}</span>`).join('');
 
     article.innerHTML = `
@@ -34,15 +46,15 @@ function createCard(script) {
         
         <div class="actions">
             <a href="${script.download_url}" target="_blank" class="download-btn">
-                Download Script
+                DOWNLOAD
             </a>
 
             <div 
                 data-lyket-type="upvote" 
                 data-lyket-id="${script.vote_id}" 
                 data-lyket-namespace="community-scripts"
-                data-lyket-color-primary="#22c55e"
-                data-lyket-font-family="sans-serif"
+                data-lyket-color-primary="#EC2028"
+                data-lyket-font-family="Open Sans"
             ></div>
         </div>
     `;
