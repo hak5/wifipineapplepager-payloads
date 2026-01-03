@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting to Vote...</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .redirect-container {
+            max-width: 600px;
+            margin: 60px auto;
+            text-align: center;
+            padding: 40px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .step-box {
+            background: var(--bg-color);
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 6px;
+            text-align: left;
+            border-left: 4px solid var(--hak5-red);
+        }
+        .emoji-large { font-size: 3rem; display: block; margin-bottom: 10px; }
+        .spinner { margin-top: 20px; font-size: 0.9rem; opacity: 0.7; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar">
+        <div class="logo">
+            <img src="assets/hak5-logo-dark.webp" alt="Hak5" class="nav-logo">
+            <span class="pager-text">PAGER // PAYLOADS</span>
+        </div>
+    </nav>
+
+    <div class="redirect-container">
+        <span class="emoji-large">🗳️</span>
+        <h1>Thanks for Voting!</h1>
+        <p>We are redirecting you to GitHub to cast your official vote.</p>
+
+        <div class="step-box">
+            <strong>How it works:</strong>
+            <ol>
+                <li>You will land on a GitHub Issue page.</li>
+                <li><strong>Sign In</strong> if requested.</li>
+                <li>Click the <strong>Thumbs Up (👍)</strong> reaction on the issue description.</li>
+            </ol>
+            <p style="font-size: 0.85rem; margin-top: 10px;">
+                <em>⚠️ Note: Our site syncs with GitHub every hour. Your vote may not appear on the main list immediately.</em>
+            </p>
+        </div>
+
+        <div class="spinner">
+            Redirecting to GitHub in <span id="countdown">5</span> seconds...
+            <br><br>
+            <a id="manual-link" href="#" class="download-btn">Go Now</a>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURATION: Set your Repo URL here
+        const REPO_BASE = "https://github.com/StarkweatherNow/wifipineapplepager-payloads";
+
+        // 1. Get Issue Number from URL (e.g., vote.html?issue=1)
+        const params = new URLSearchParams(window.location.search);
+        const issueNum = params.get('issue');
+
+        if (issueNum) {
+            const targetUrl = `${REPO_BASE}/issues/${issueNum}`;
+            document.getElementById('manual-link').href = targetUrl;
+
+            // 2. Countdown and Redirect
+            let seconds = 5;
+            const countSpan = document.getElementById('countdown');
+            
+            const timer = setInterval(() => {
+                seconds--;
+                countSpan.innerText = seconds;
+                
+                if (seconds <= 0) {
+                    clearInterval(timer);
+                    window.location.href = targetUrl;
+                }
+            }, 1000);
+        } else {
+            document.querySelector('.redirect-container').innerHTML = "<h2>Error: No issue specified.</h2><p>Please return to the home page.</p>";
+        }
+    </script>
+</body>
+</html>

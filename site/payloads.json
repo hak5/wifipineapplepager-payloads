@@ -9,7 +9,8 @@
     "tags": ["Theme", "Virtual Pager", "Covert"],
     "last_updated": "2025-02-1",
     "votes": 25,
-    "visible": true
+    "visible": true,
+    "issue_number": 0
   },
   {
     "id": "MAC_spoofer",
@@ -21,7 +22,8 @@
     "tags": ["MAC", "Spoofer", "Covert"],
     "last_updated": "2025-29-12",
     "votes": 7,
-    "visible": true
+    "visible": true,
+    "issue_number": 0
   },
   {
     "id": "log_viewer",
@@ -33,6 +35,7 @@
     "tags": ["log", "parser", "headless"],
     "last_updated": "2025-30-12",
     "votes": 13,
-    "visible": true
+    "visible": true,
+    "issue_number": 0
   }
 ]
