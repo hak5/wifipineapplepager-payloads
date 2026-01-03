@@ -342,10 +342,15 @@ select {
 
 /* 1. Wrapper Layout */
 #google_translate_element {
-    margin: 0 auto; 
+    /* Position back to the right side */
+    margin-left: auto; 
+    margin-right: 15px; 
+    
+    /* Pushes it down to align with the toggle */
+    margin-top: 6px; 
+    
     display: flex;
     align-items: center;
-    height: 100%;
 }
 
 /* 2. Hide Google Junk */
