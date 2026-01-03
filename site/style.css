@@ -340,29 +340,56 @@ select {
 
 /* --- Google Translate Styling --- */
 
-/* Hide the huge "Google Toolbar" at the top */
-.goog-te-banner-frame.skiptranslate {
+/* 1. Fix Width & Cutoff issues */
+/* This hides the "Powered by Google" text which makes the widget huge */
+.goog-te-gadget {
+    font-size: 0 !important;
+    display: flex !important;
+    align-items: center;
+}
+
+/* 2. Theme Adaptation (Light/Dark Support) */
+/* We target the actual dropdown box (.goog-te-combo) */
+.goog-te-combo {
+    color: var(--text-color) !important;
+    background-color: var(--bg-color) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 4px;
+    padding: 6px 4px;
+    font-family: 'Open Sans', sans-serif;
+    font-size: 14px !important;
+    font-weight: 600;
+    outline: none;
+    
+    /* Ensure it doesn't get too wide on mobile */
+    max-width: 140px; 
+    cursor: pointer;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+/* Fix the dropdown arrow color in some browsers */
+.goog-te-combo:hover {
+    border-color: var(--primary-color) !important;
+}
+
+/* 3. Global Cleanup */
+/* Hides the top bar frame that Google sometimes injects */
+.goog-te-banner-frame {
     display: none !important;
 }
 body {
-    top: 0px !important; 
+    top: 0px !important;
 }
 
-/* Style the dropdown to match your site (optional tweaks) */
-#google_translate_element {
-    margin-left: 15px;
-    display: inline-block;
-    vertical-align: middle;
+/* Hides the "Suggest an edit" tooltips */
+.goog-tooltip {
+    display: none !important;
 }
-
-/* Hide the "Powered by Google" branding text if desired for cleaner look */
-.goog-te-gadget {
-    color: transparent !important;
+.goog-tooltip:hover {
+    display: none !important;
 }
-.goog-te-gadget .goog-te-combo {
-    color: var(--text-color);
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    padding: 5px;
-    border-radius: 4px;
+.goog-text-highlight {
+    background-color: transparent !important;
+    border: none !important; 
+    box-shadow: none !important;
 }
