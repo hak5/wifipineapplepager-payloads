@@ -8,7 +8,8 @@
     "category": "System Admin",
     "tags": ["Proxmox", "Bash"],
     "issue_number": 1,
-    "votes": 5
+    "votes": 5,
+    "visible": true
   },
   {
     "id": "hassio-piggyback",
@@ -19,6 +20,7 @@
     "category": "Home Automation",
     "tags": ["Home Assistant", "Integration"],
     "issue_number": 2,
-    "votes": 12
+    "votes": 12,
+    "visible": true
   }
 ]

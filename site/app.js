@@ -25,7 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch('site/payloads.json')
         .then(response => response.json())
         .then(scripts => {
-            allScripts = scripts;
+            // 1. Initial Filter on Load
+            allScripts = scripts.filter(s => s.visible !== false);
             populateCategories(scripts);
             renderGrid(scripts); // Initial render
         })
