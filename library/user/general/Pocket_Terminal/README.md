@@ -1,6 +1,14 @@
 Payload inspired from the live stream done on 12/31/2025, about 2hours and 13 min into the stream
 
-Use the Up and Down arrow keys to scroll; press B to exit the terminal.
+The payload will have a use input 3 times per command that is sent
+1.
+ - User inputs the command they want ran.
+2.
+ - Asking to save the output if the user want to review for a later time.
+3.
+ - Asking if the user want to run another command if not ending the payload.
+
+Use the Up and Down arrow keys to scroll.
 
 Updates History
 ---------------
@@ -23,5 +31,9 @@ Version 2.0
  - Added code comments for easier navigation and maintenance.
 
 Version 2.1
-- Bug fix when running a command with no output it would say "green".
-- Changed where commands are ran to the root directory.
+ - Bug fix when running a command with no output it would say "green".
+ - Changed where commands are ran to the root directory.
+
+Version 2.2
+ - Expanded the README.md file.
+ - Changed from using a number selector to use "CONFIRMATION_DIALOG" for a better experience.

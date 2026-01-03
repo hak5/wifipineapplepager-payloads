@@ -3,7 +3,7 @@
 # Description: Pure custom command input.
 # Controls: Up/Down to Scroll
 # Author: Zeriaklr
-# Version: 2.1
+# Version: 2.2
 
 # Define and create the LOOT directory
 LOOTDIR=/root/loot/Term
@@ -28,25 +28,28 @@ do
     $command | tee $lootfile | tr '\n' '\0' | xargs -0 -n 1 LOG green ""
 
     #Ask to save the out put so that the user can review at a later time and save the out come
-    save=$(NUMBER_PICKER "1 Save, 2 Del" 2)
-
-    if [ "$save" == 1 ]; then
-        LOG green "Saved log in $LOOTDIR \n with a file name of $lootfile"
-    elif [ "$save" == 2 ]; then
-        LOG red "Not saving Log"
-        rm -f "$lootfile"
-    else
-        LOG red "invalid input \n Saved log in $LOOTDIR \n with a file name of $lootfile"
-    fi
+    save=$(CONFIRMATION_DIALOG "X to Not save the output \n Checkmark to save the output")
+    case "$save" in
+        $DUCKYSCRIPT_USER_CONFIRMED)
+            LOG green "Saved log in $LOOTDIR \n with a file name of $lootfile"
+            ;;
+        $DUCKYSCRIPT_USER_DENIED)
+            LOG red "Not saving Log"
+            rm -f "$lootfile"
+            ;;
+        *)
+            LOG "Unknown response: $save"
+            LOG red "invalid input \n Saved log in $LOOTDIR \n with a file name of $lootfile"
+            ;;
+    esac
 
     # Breaking the loop if the user doesn't want to run another command
-    end=$(NUMBER_PICKER "1 Next, 2 Exit" 1)
-
+    end=$(CONFIRMATION_DIALOG "X to end \n CheckMark to run another Command")
     case $end in
-        1)
+        $DUCKYSCRIPT_USER_CONFIRMED)
             LOG green "Running again"
             ;;
-        2)
+        $DUCKYSCRIPT_USER_DENIED)
             LOG red "Exiting the program"
             break
             ;;
