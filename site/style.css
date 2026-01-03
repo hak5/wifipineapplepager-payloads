@@ -285,3 +285,24 @@ select {
 }
 
 footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }
+
+/* --- Mobile Responsive Layout --- */
+@media (max-width: 768px) {
+    
+    /* 1. Force Search Bar to own the top row */
+    #search-input {
+        flex-basis: 100%; /* Force full width */
+        width: 100%;
+        margin-bottom: 5px; /* Add slight gap below it */
+    }
+
+    /* 2. Make the 3 dropdowns share the second row */
+    select {
+        flex: 1;        /* Grow equally to fill the space (33% each) */
+        width: auto;    /* Override fixed widths */
+        min-width: 0;   /* Allow shrinking if text is too long */
+        padding: 10px 2px; /* Tighten padding to fit 3 in a row */
+        font-size: 0.8rem; /* Slightly smaller text for mobile */
+        text-overflow: ellipsis; /* Add '...' if text is cut off */
+    }
+}
