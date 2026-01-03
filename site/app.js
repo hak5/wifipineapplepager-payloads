@@ -155,7 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const authorUrl = `https://github.com/${script.author || ''}`;
         
         // NOTE: You need to set your repo URL here for the voting to work
-        const repoBase = "https://github.com/YOUR_USERNAME/YOUR_REPO"; 
+        //const repoBase = "https://github.com/YOUR_USERNAME/YOUR_REPO"; 
+        const repoBase = "https://github.com/StarkweatherNow/wifipineapplepager-payloads";
         const voteUrl = `${repoBase}/issues/${script.issue_number || '#'}`;
 
         article.innerHTML = `

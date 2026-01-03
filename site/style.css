@@ -1,3 +1,6 @@
+/* =========================================
+   1. VARIABLES & THEME SETUP
+   ========================================= */
 :root {
     /* Brand Colors */
     --hak5-red: #EC2028;
@@ -21,6 +24,9 @@
     --border-color: #333333;
 }
 
+/* =========================================
+   2. BASE STYLES
+   ========================================= */
 body {
     font-family: 'Open Sans', sans-serif;
     background-color: var(--bg-color);
@@ -29,7 +35,16 @@ body {
     transition: background-color 0.3s, color 0.3s;
 }
 
-/* Navbar */
+footer { 
+    text-align: center; 
+    padding: 2rem; 
+    opacity: 0.6; 
+    font-size: 0.8rem; 
+}
+
+/* =========================================
+   3. NAVIGATION BAR & LOGOS
+   ========================================= */
 .navbar {
     background-color: var(--nav-bg);
     color: var(--nav-text);
@@ -40,10 +55,38 @@ body {
     border-bottom: 3px solid var(--hak5-red);
 }
 
-.logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; }
-.hak5-text { color: #FFFFFF; }
-.pager-text { color: var(--hak5-red); font-weight: 400; }
+/* --- Logo Sizing & Layout --- */
+.logo { 
+    font-size: 1.5rem; 
+    font-weight: 700; 
+    letter-spacing: 1px; 
+}
 
+.nav-logo {
+    height: 24px;           /* Strict height limit */
+    width: auto;            /* Maintain aspect ratio */
+    vertical-align: middle; /* Align with text */
+    margin-right: 10px;     /* Space between logo and text */
+}
+
+.pager-text {
+    vertical-align: middle;
+    font-weight: 400;
+    color: var(--hak5-red);
+    position: relative;
+    top: 1px; /* Micro-adjustment for alignment */
+}
+
+/* --- Theme Switching Logic for Logos --- */
+/* Light Mode: Show Light logo, Hide Dark logo */
+[data-theme="light"] .logo-light { display: inline-block; }
+[data-theme="light"] .logo-dark  { display: none; }
+
+/* Dark Mode: Hide Light logo, Show Dark logo */
+[data-theme="dark"] .logo-light { display: none; }
+[data-theme="dark"] .logo-dark  { display: inline-block; }
+
+/* --- Theme Toggle Button --- */
 .theme-btn {
     background: none;
     border: 1px solid var(--hak5-red);
@@ -53,9 +96,24 @@ body {
     border-radius: 4px;
 }
 
-/* Hero & Info */
+/* =========================================
+   4. HERO & INFO SECTIONS
+   ========================================= */
 .hero { text-align: center; padding: 3rem 1rem; }
 .hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+.hero-sub-logo {
+    max-height: 80px;       /* Cap the height */
+    width: auto;
+    margin-bottom: 20px;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    
+    /* Optional: Invert sub-logo in dark mode if it's a black transparent PNG */
+    /* Remove this block if you are using specific light/dark images for the hero too */
+    /* [data-theme="dark"] & { filter: brightness(0) invert(1); } */
+}
 
 .info-panel {
     max-width: 1200px;
@@ -74,92 +132,16 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.05);
 }
 
-/* Grid & Cards */
-.grid-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 20px 40px 20px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 25px;
-}
-
-.card {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 25px;
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.2s;
-}
-
-.card:hover { transform: translateY(-3px); border-color: var(--hak5-red); }
-.card h2 { margin-top: 0; color: var(--hak5-red); }
-.card p { line-height: 1.6; font-size: 0.95rem; }
-
-.tags span {
-    background: var(--bg-color);
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    padding: 3px 8px;
-    font-size: 0.75rem;
-    font-family: monospace;
-    margin-right: 5px;
-    border-radius: 3px;
-}
-
-.actions {
-    margin-top: auto;
-    padding-top: 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-top: 1px solid var(--border-color);
-}
-
-.download-btn {
-    background-color: var(--hak5-red);
-    color: white;
-    text-decoration: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    transition: background-color 0.2s;
-}
-
-.download-btn:hover { background-color: #cc0000; }
-
-.vote-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    color: var(--text-color);
-    border: 1px solid var(--border-color);
-    padding: 8px 12px;
-    border-radius: 4px;
-    transition: all 0.2s;
-}
-
-.vote-btn:hover {
-    border-color: var(--hak5-red);
-    background-color: var(--bg-color);
-}
-
-.heart-icon { font-size: 1.1rem; }
-.vote-count { font-weight: 700; font-family: monospace; }
-
-
-/* --- New Control Bar Styles --- */
+/* =========================================
+   5. SEARCH & FILTERS
+   ========================================= */
 .controls-container {
     max-width: 1200px;
     margin: 0 auto 30px auto;
     padding: 0 20px;
     display: flex;
     gap: 15px;
-    flex-wrap: wrap;
+    flex-wrap: wrap; /* Allows wrapping on mobile */
 }
 
 #search-input {
@@ -180,15 +162,46 @@ select {
     cursor: pointer;
 }
 
-.controls-container {
-    display: flex;
-    gap: 15px;
-    flex-wrap: wrap;
+/* =========================================
+   6. PAYLOAD CARDS & GRID
+   ========================================= */
+.grid-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px 40px 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 25px;
 }
 
-/* --- Category Badge on Card --- */
+.no-results {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px;
+    opacity: 0.7;
+}
+
+.card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 25px;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.2s, border-color 0.2s;
+}
+
+.card:hover { 
+    transform: translateY(-3px); 
+    border-color: var(--hak5-red); 
+}
+
+/* --- Card Header / Meta --- */
 .meta-top {
-    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
 }
 
 .category-badge {
@@ -202,15 +215,87 @@ select {
     border-radius: 4px;
 }
 
-/* --- No Results Msg --- */
-.no-results {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 40px;
+.date-badge {
+    font-size: 0.75rem;
+    color: var(--text-color);
     opacity: 0.7;
+    font-family: monospace;
 }
 
-/* --- Vote Button Styles (Refined) --- */
+/* --- Card Content --- */
+.card h2 { 
+    margin-top: 0; 
+    margin-bottom: 5px; 
+    color: var(--hak5-red); 
+}
+
+.author-line {
+    font-size: 0.85rem;
+    color: var(--text-color);
+    opacity: 0.8;
+    margin-bottom: 12px;
+}
+
+.author-link {
+    color: var(--hak5-red);
+    text-decoration: none;
+    font-weight: 600;
+}
+.author-link:hover { text-decoration: underline; }
+
+.description {
+    line-height: 1.6;
+    font-size: 0.95rem;
+    flex-grow: 1; /* Pushes actions to bottom */
+}
+
+/* --- Tags --- */
+.tags { margin-bottom: 15px; }
+
+.tags span {
+    background: var(--bg-color);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    font-family: monospace;
+    margin-right: 5px;
+    border-radius: 3px;
+    display: inline-block; /* Prevents awkward breaks */
+    margin-bottom: 5px;
+}
+
+/* =========================================
+   7. BUTTONS & ACTIONS
+   ========================================= */
+.actions {
+    margin-top: auto;
+    padding-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border-color);
+}
+
+/* View Readme Button */
+.download-btn {
+    background-color: var(--hak5-black);
+    color: white;
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: background-color 0.2s, border-color 0.2s;
+    border: 1px solid var(--hak5-black);
+}
+
+.download-btn:hover { 
+    background-color: var(--hak5-red); 
+    border-color: var(--hak5-red);
+}
+
+/* Vote Button */
 .vote-btn {
     display: flex;
     align-items: center;
@@ -230,116 +315,28 @@ select {
     transform: translateY(-1px);
 }
 
-.download-btn {
-    /* Rename 'download-btn' in your mind to 'action-btn' if you prefer, 
-       but keeping the class name avoids breaking existing CSS */
-    background-color: var(--hak5-black); /* Changed to black for contrast */
-    border: 1px solid var(--hak5-black);
-}
+.heart-icon { font-size: 1.1rem; }
+.vote-count { font-weight: 700; font-family: monospace; }
 
-.download-btn:hover {
-    background-color: var(--hak5-red);
-    border-color: var(--hak5-red);
-}
-
-/* --- Meta Data (Top Row) --- */
-.meta-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-}
-
-.date-badge {
-    font-size: 0.75rem;
-    color: var(--text-color);
-    opacity: 0.7;
-    font-family: monospace;
-}
-
-/* --- Author Line --- */
-.author-line {
-    font-size: 0.85rem;
-    color: var(--text-color);
-    opacity: 0.8;
-    margin-bottom: 12px;
-}
-
-.author-link {
-    color: var(--hak5-red);
-    text-decoration: none;
-    font-weight: 600;
-}
-
-.author-link:hover {
-    text-decoration: underline;
-}
-
-/* --- Tweaks --- */
-.card h2 {
-    margin-bottom: 5px; /* Reduce gap between title and author */
-}
-
-.description {
-    flex-grow: 1; /* Pushes actions to the bottom if cards have different heights */
-}
-
-footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }
-
-/* --- Mobile Responsive Layout --- */
+/* =========================================
+   8. RESPONSIVE / MOBILE
+   ========================================= */
 @media (max-width: 768px) {
     
-    /* 1. Force Search Bar to own the top row */
+    /* Force Search Bar to own the top row */
     #search-input {
-        flex-basis: 100%; /* Force full width */
+        flex-basis: 100%; 
         width: 100%;
-        margin-bottom: 5px; /* Add slight gap below it */
+        margin-bottom: 5px;
     }
 
-    /* 2. Make the 3 dropdowns share the second row */
+    /* Make the 3 dropdowns share the second row */
     select {
-        flex: 1;        /* Grow equally to fill the space (33% each) */
+        flex: 1;        /* Grow equally */
         width: auto;    /* Override fixed widths */
-        min-width: 0;   /* Allow shrinking if text is too long */
-        padding: 10px 2px; /* Tighten padding to fit 3 in a row */
-        font-size: 0.8rem; /* Slightly smaller text for mobile */
-        text-overflow: ellipsis; /* Add '...' if text is cut off */
+        min-width: 0;   /* Allow shrinking */
+        padding: 10px 2px;
+        font-size: 0.8rem;
+        text-overflow: ellipsis;
     }
-}
-
-/* --- Logo Styles --- */
-
-/* 1. Main Navbar Logo */
-.nav-logo {
-    height: 30px;           /* Constrain height to fit navbar */
-    width: auto;            /* Maintain aspect ratio */
-    vertical-align: middle; /* Align with the text next to it */
-    margin-right: 10px;     /* Space between logo and text */
-}
-
-/* Adjust the text next to it to align perfectly */
-.pager-text {
-    vertical-align: middle;
-    font-weight: 400;
-    color: var(--hak5-red);
-    position: relative;
-    top: 1px; /* Micro-adjustment for visual centering */
-}
-
-/* 2. Sub Logo (Hero Section) */
-.hero-sub-logo {
-    height: 80px;           /* Nice and big */
-    width: auto;
-    margin-bottom: 20px;    /* Space between logo and "Community Payload Hub" */
-    display: block;         /* Forces it to its own line */
-    margin-left: auto;      /* Center it... */
-    margin-right: auto;     /* ...horizontally */
-}
-
-/* 3. Dark Mode Handling (Optional Smart Trick) */
-/* If your logos are black text on transparent backgrounds, 
-   they will disappear in Dark Mode. This filter turns them white automatically. */
-[data-theme="dark"] .nav-logo,
-[data-theme="dark"] .hero-sub-logo {
-    filter: brightness(0) invert(1);
 }
