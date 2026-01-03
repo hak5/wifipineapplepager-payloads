@@ -5,11 +5,11 @@
     "description": "Automated shutdown script for Proxmox VE.",
     "author": "YourName",
     "repo_url": "https://github.com/YOUR_USERNAME/proxmox-nut-scripts",
-    
     "download_url": "https://raw.githubusercontent.com/YOUR_USERNAME/proxmox-nut-scripts/main/shutdown_script.sh",
-    
     "tags": ["Proxmox", "Bash"],
-    "vote_id": "script_proxmox_ups_01"
+    
+    "issue_number": 1, 
+    "votes": 0
   },
   {
     "id": "hassio-piggyback",
@@ -17,10 +17,10 @@
     "description": "Remote status integration for Home Assistant.",
     "author": "YourName",
     "repo_url": "https://github.com/YOUR_USERNAME/hassio-ups-integration",
-    
     "download_url": "https://raw.githubusercontent.com/YOUR_USERNAME/hassio-ups-integration/main/monitor.sh",
-    
     "tags": ["Home Assistant", "Integration"],
-    "vote_id": "script_hassio_01"
+    
+    "issue_number": 2,
+    "votes": 0
   }
 ]

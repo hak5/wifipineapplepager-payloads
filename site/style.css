@@ -131,4 +131,24 @@ body {
 
 .download-btn:hover { background-color: #cc0000; }
 
+.vote-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.vote-btn:hover {
+    border-color: var(--hak5-red);
+    background-color: var(--bg-color);
+}
+
+.heart-icon { font-size: 1.1rem; }
+.vote-count { font-weight: 700; font-family: monospace; }
+
 footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }

@@ -35,6 +35,12 @@ function createCard(script) {
     article.classList.add('card');
 
     const tagsHtml = script.tags.map(tag => `<span>${tag}</span>`).join('');
+    
+    // Construct the URL to the specific GitHub Issue for voting
+    // Assuming your repo is public. You might want to hardcode your user/repo here 
+    // or add it to the JSON if it changes.
+    const repoBase = "https://github.com/StarkweatherNow/wifipineapplepager-payloads"; 
+    const voteUrl = `${repoBase}/issues/${script.issue_number}`;
 
     article.innerHTML = `
         <header>
@@ -49,13 +55,10 @@ function createCard(script) {
                 DOWNLOAD
             </a>
 
-            <div 
-                data-lyket-type="upvote" 
-                data-lyket-id="${script.vote_id}" 
-                data-lyket-namespace="community-scripts"
-                data-lyket-color-primary="#EC2028"
-                data-lyket-font-family="Open Sans"
-            ></div>
+            <a href="${voteUrl}" target="_blank" class="vote-btn" title="Login to GitHub to vote">
+                <span class="heart-icon">👍</span> 
+                <span class="vote-count">${script.votes}</span>
+            </a>
         </div>
     `;
 
