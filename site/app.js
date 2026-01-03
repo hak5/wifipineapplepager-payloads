@@ -75,6 +75,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // NEW FUNCTION: Populate Tags
+    function populateTags(scripts) {
+        // 1. Flatten all tags into one array
+        const allTags = scripts.flatMap(s => s.tags || []);
+        
+        // 2. Remove duplicates using Set and Sort alphabetically
+        const uniqueTags = [...new Set(allTags)].sort();
+
+        // 3. Create Options
+        uniqueTags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag;
+            option.textContent = tag;
+            tagSelect.appendChild(option);
+        });
+    }
+
     function renderGrid(scripts) {
         grid.innerHTML = ''; // Clear current grid
         

@@ -180,6 +180,12 @@ select {
     cursor: pointer;
 }
 
+.controls-container {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
 /* --- Category Badge on Card --- */
 .meta-top {
     margin-bottom: 10px;
