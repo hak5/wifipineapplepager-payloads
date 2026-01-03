@@ -1,4 +1,8 @@
-# Custom NMAP Scan (WiFi Pineapple Payload)
+# Custom NMAP Scan (WiFi Pineapple Payload) - **Version 1.0**
+
+## Author
+0xmupa - https://0xmupa.github.io/
+
 
 ## Description
 
