@@ -340,56 +340,55 @@ select {
 
 /* --- Google Translate Styling --- */
 
-/* 1. Fix Width & Cutoff issues */
-/* This hides the "Powered by Google" text which makes the widget huge */
-.goog-te-gadget {
-    font-size: 0 !important;
-    display: flex !important;
+/* 1. Wrapper Layout */
+#google_translate_element {
+    /* Ensures it sits nicely in the nav */
+    display: flex;
     align-items: center;
+    height: 100%;
 }
 
-/* 2. Theme Adaptation (Light/Dark Support) */
-/* We target the actual dropdown box (.goog-te-combo) */
+/* 2. Hide Google Junk */
+/* Hides "Powered by Google" text and the G Icon */
+.goog-te-gadget {
+    font-size: 0 !important; /* Crushes the text */
+    color: transparent !important;
+}
+.goog-te-gadget .goog-te-gadget-icon {
+    display: none !important; /* Hides the logo */
+}
+
+/* 3. Style the Dropdown (The actual Select box) */
 .goog-te-combo {
+    /* Theme Variables */
     color: var(--text-color) !important;
-    background-color: var(--bg-color) !important;
+    background-color: var(--card-bg) !important;
     border: 1px solid var(--border-color) !important;
-    border-radius: 4px;
-    padding: 6px 4px;
+    
+    /* Layout */
+    padding: 6px 8px;
+    margin: 0 !important; /* Resets Google's default margin */
+    border-radius: 6px;
     font-family: 'Open Sans', sans-serif;
     font-size: 14px !important;
     font-weight: 600;
+    cursor: pointer;
     outline: none;
     
-    /* Ensure it doesn't get too wide on mobile */
-    max-width: 140px; 
-    cursor: pointer;
-    transition: background-color 0.3s, color 0.3s;
+    /* Size Control */
+    height: 36px;
+    max-width: 150px;
 }
 
-/* Fix the dropdown arrow color in some browsers */
+/* Hover Effect */
 .goog-te-combo:hover {
     border-color: var(--primary-color) !important;
 }
 
-/* 3. Global Cleanup */
-/* Hides the top bar frame that Google sometimes injects */
+/* 4. Global Cleanup (Hides the top frame) */
 .goog-te-banner-frame {
     display: none !important;
 }
 body {
     top: 0px !important;
-}
-
-/* Hides the "Suggest an edit" tooltips */
-.goog-tooltip {
-    display: none !important;
-}
-.goog-tooltip:hover {
-    display: none !important;
-}
-.goog-text-highlight {
-    background-color: transparent !important;
-    border: none !important; 
-    box-shadow: none !important;
 }
