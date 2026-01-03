@@ -332,3 +332,37 @@ select {
         text-overflow: ellipsis;
     }
 }
+
+
+/* =========================================
+   9. ADDITIONAL CUSTOM STYLES
+   ========================================= */
+
+/* --- Google Translate Styling --- */
+
+/* Hide the huge "Google Toolbar" at the top */
+.goog-te-banner-frame.skiptranslate {
+    display: none !important;
+}
+body {
+    top: 0px !important; 
+}
+
+/* Style the dropdown to match your site (optional tweaks) */
+#google_translate_element {
+    margin-left: 15px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* Hide the "Powered by Google" branding text if desired for cleaner look */
+.goog-te-gadget {
+    color: transparent !important;
+}
+.goog-te-gadget .goog-te-combo {
+    color: var(--text-color);
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    padding: 5px;
+    border-radius: 4px;
+}
