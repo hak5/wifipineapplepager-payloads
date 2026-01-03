@@ -101,8 +101,11 @@ function createCard(script) {
     // 1. Construct Full ReadMe URL
     // Base URL for the Hak5 Payload Library
     const libraryBase = "https://github.com/hak5/wifipineapplepager-payloads/tree/master/library";
+    // SAFETY CHECK: Default to empty string if missing
+    const rawPath = script.readme_path || ''; 
+
     // specific path from JSON (removes leading slash if present to avoid double slash)
-    const cleanPath = script.readme_path.startsWith('/') ? script.readme_path.substring(1) : script.readme_path;
+    const cleanPath = rawPath.startsWith('/') ? rawPath.substring(1) : rawPath;
     const fullReadmeUrl = `${libraryBase}/${cleanPath}`;
 
     // 2. Construct Author URL
