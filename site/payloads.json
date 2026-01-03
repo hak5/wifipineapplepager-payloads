@@ -49,5 +49,23 @@
         "votes": 1,
         "visible": true,
         "issue_number": 4
+    },
+    {
+        "id": "user-reconnaissance-blue_clues",
+        "title": "Blue Clues",
+        "description": "A configurable scanning tool that logs bluetooth devices to a text file.",
+        "author": "StarkweatherNow",
+        "category": "Recon",
+        "tags": [
+            "Scanning",
+            "Logging",
+            "Passive",
+            "Bluetooth"
+        ],
+        "readme_path": "/user/reconnaissance/blue_clues",
+        "last_updated": "2026-01-03",
+        "votes": 0,
+        "visible": true,
+        "issue_number": 5
     }
 ]
