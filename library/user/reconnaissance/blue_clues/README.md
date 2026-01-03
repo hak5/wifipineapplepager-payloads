@@ -1,3 +1,11 @@
+---
+title: Blue Clues
+description: A passive scanning tool that logs bluetooth devices to a text file.
+author: StarkweatherNow
+category: Recon
+tags: [Scanning, Logging, Passive]
+---
+
 # Blue Clues
 
 **Blue Clues** is an active Bluetooth auditing tool for the WiFi Pineapple Pager. Unlike passive scanners that simply listen, Blue Clues actively interrogates devices to uncover their **Vendor**, **Device Type**, and **Services**.
