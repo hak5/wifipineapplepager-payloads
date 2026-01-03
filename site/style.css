@@ -236,5 +236,46 @@ select {
     border-color: var(--hak5-red);
 }
 
+/* --- Meta Data (Top Row) --- */
+.meta-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.date-badge {
+    font-size: 0.75rem;
+    color: var(--text-color);
+    opacity: 0.7;
+    font-family: monospace;
+}
+
+/* --- Author Line --- */
+.author-line {
+    font-size: 0.85rem;
+    color: var(--text-color);
+    opacity: 0.8;
+    margin-bottom: 12px;
+}
+
+.author-link {
+    color: var(--hak5-red);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.author-link:hover {
+    text-decoration: underline;
+}
+
+/* --- Tweaks --- */
+.card h2 {
+    margin-bottom: 5px; /* Reduce gap between title and author */
+}
+
+.description {
+    flex-grow: 1; /* Pushes actions to the bottom if cards have different heights */
+}
 
 footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }

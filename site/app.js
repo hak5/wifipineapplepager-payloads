@@ -90,29 +90,48 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// ... existing setup code ...
+
 function createCard(script) {
     const article = document.createElement('article');
     article.classList.add('card');
 
     const tagsHtml = script.tags.map(tag => `<span>${tag}</span>`).join('');
     
-    // GitHub Issue URL for voting
+    // 1. Construct Full ReadMe URL
+    // Base URL for the Hak5 Payload Library
+    const libraryBase = "https://github.com/hak5/wifipineapplepager-payloads/tree/master/library";
+    // specific path from JSON (removes leading slash if present to avoid double slash)
+    const cleanPath = script.readme_path.startsWith('/') ? script.readme_path.substring(1) : script.readme_path;
+    const fullReadmeUrl = `${libraryBase}/${cleanPath}`;
+
+    // 2. Construct Author URL
+    const authorUrl = `https://github.com/${script.author}`;
+
+    // 3. Voting Issue URL (Assuming you set this up in previous steps)
     const repoBase = "https://github.com/YOUR_USERNAME/YOUR_REPO"; 
     const voteUrl = `${repoBase}/issues/${script.issue_number}`;
 
     article.innerHTML = `
         <header>
             <div class="meta-top">
-                <span class="category-badge">${script.category || 'General'}</span>
+                <span class="category-badge">${script.category}</span>
+                <span class="date-badge">Updated: ${script.last_updated}</span>
             </div>
+            
             <h2>${script.title}</h2>
+            
+            <div class="author-line">
+                by <a href="${authorUrl}" target="_blank" class="author-link">@${script.author}</a>
+            </div>
+
             <div class="tags">${tagsHtml}</div>
         </header>
         
-        <p>${script.description}</p>
+        <p class="description">${script.description}</p>
         
         <div class="actions">
-            <a href="${script.readme_url}" target="_blank" class="download-btn">
+            <a href="${fullReadmeUrl}" target="_blank" class="download-btn">
                 VIEW README
             </a>
 
