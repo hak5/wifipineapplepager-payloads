@@ -3,7 +3,7 @@ title: Blue Clues
 description: A passive scanning tool that logs bluetooth devices to a text file.
 author: StarkweatherNow
 category: Recon
-tags: [Scanning, Logging, Passive]
+tags: [Scanning, Logging, Passive, Bluetooth]
 ---
 
 # Blue Clues
