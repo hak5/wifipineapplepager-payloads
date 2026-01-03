@@ -2,7 +2,7 @@
 # Title: Client WiFi Picker
 # Author: TheDadNerd
 # Description: Switches client mode WiFi between a selection of saved networks
-# Version: 1.0
+# Version: 1.1
 # Category: general
 
 # =============================================================================
@@ -118,25 +118,26 @@ esac
 # =============================================================================
 
 LOG "Preparing client mode configuration..."
-# Use the Pager client-mode interface section.
 CLIENT_SECTION="wlan0cli"
 
-# Apply SSID and security settings.
-LOG "Updating client profile: $ssid"
-uci set wireless."$CLIENT_SECTION".ssid="$ssid"
-uci set wireless."$CLIENT_SECTION".encryption="$encryption"
-uci set wireless."$CLIENT_SECTION".disabled="0"
+# Map stored encryption to WIFI_CONNECT options.
+wifi_enc="$encryption"
+case "$wifi_enc" in
+    none) wifi_enc="open" ;;
+    psk2) wifi_enc="psk2" ;;
+    sae) wifi_enc="sae" ;;
+    sae-mixed) wifi_enc="psk2" ;;
+    *) wifi_enc="psk2" ;;
+esac
 
-if [[ "$encryption" == "none" ]]; then
-    uci -q delete wireless."$CLIENT_SECTION".key
-else
-    uci set wireless."$CLIENT_SECTION".key="$password"
+wifi_key="$password"
+if [[ "$wifi_enc" == "open" || -z "$wifi_key" ]]; then
+    wifi_key="NONE"
 fi
 
-uci commit wireless
-
-LOG "Applying WiFi settings..."
-wifi reload
+LOG "Connecting with WIFI_CONNECT..."
+WIFI_CONNECT "$CLIENT_SECTION" "$ssid" "$wifi_enc" "$wifi_key" "ANY"
 
 LOG "WiFi settings applied for $ssid"
-ALERT "WiFi settings applied.\nSelected network: $ssid"
+ALERT "WiFi settings applied.
+Selected network: $ssid"
