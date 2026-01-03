@@ -337,7 +337,7 @@ select {
 #google_translate_element {
     margin-left: auto; 
     margin-right: 25px; 
-    margin-top: 12px; 
+    margin-top: 14px;     
     display: flex;
     align-items: center;
 }
