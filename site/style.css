@@ -11,7 +11,7 @@
     --bg-color: #F4F6F8;
     --text-color: #333333;
     --card-bg: #FFFFFF;
-    --nav-bg: #111111; /* Header always dark for branding */
+    --nav-bg: #000000; /* Header always dark for branding */
     --nav-text: #FFFFFF;
     --border-color: #e0e0e0;
 }
@@ -63,10 +63,10 @@ footer {
 }
 
 .nav-logo {
-    height: 24px;           /* Strict height limit */
+    height: 38px;           /* Strict height limit */
     width: auto;            /* Maintain aspect ratio */
     vertical-align: middle; /* Align with text */
-    margin-right: 10px;     /* Space between logo and text */
+    margin-right: 12px;     /* Space between logo and text */
 }
 
 .pager-text {
@@ -74,17 +74,9 @@ footer {
     font-weight: 400;
     color: var(--hak5-red);
     position: relative;
-    top: 1px; /* Micro-adjustment for alignment */
+    top: 2px; /* Micro-adjustment for alignment */
+    font-size: 1.1rem;
 }
-
-/* --- Theme Switching Logic for Logos --- */
-/* Light Mode: Show Light logo, Hide Dark logo */
-[data-theme="light"] .logo-light { display: inline-block; }
-[data-theme="light"] .logo-dark  { display: none; }
-
-/* Dark Mode: Hide Light logo, Show Dark logo */
-[data-theme="dark"] .logo-light { display: none; }
-[data-theme="dark"] .logo-dark  { display: inline-block; }
 
 /* --- Theme Toggle Button --- */
 .theme-btn {
