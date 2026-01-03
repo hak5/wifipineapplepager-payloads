@@ -74,7 +74,7 @@ footer {
     font-weight: 400;
     color: var(--hak5-red);
     position: relative;
-    top: 2px; /* Micro-adjustment for alignment */
+    top: 2px;
     font-size: 1.1rem;
 }
 
@@ -95,16 +95,12 @@ footer {
 .hero h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
 
 .hero-sub-logo {
-    max-height: 80px;       /* Cap the height */
+    max-height: 80px;
     width: auto;
     margin-bottom: 20px;
     display: block;
     margin-left: auto;
     margin-right: auto;
-    
-    /* Optional: Invert sub-logo in dark mode if it's a black transparent PNG */
-    /* Remove this block if you are using specific light/dark images for the hero too */
-    /* [data-theme="dark"] & { filter: brightness(0) invert(1); } */
 }
 
 .info-panel {
@@ -333,37 +329,29 @@ select {
     }
 }
 
-
 /* =========================================
    9. ADDITIONAL CUSTOM STYLES
    ========================================= */
 
 /* --- Google Translate Styling --- */
-
-/* 1. Wrapper Layout */
 #google_translate_element {
-    /* Position back to the right side */
     margin-left: auto; 
     margin-right: 25px; 
-    
-    /* Pushes it down to align with the toggle */
-    margin-top: 10px; 
-    
+    margin-top: 12px; 
     display: flex;
     align-items: center;
 }
 
-/* 2. Hide Google Junk */
 /* Hides "Powered by Google" text and the G Icon */
 .goog-te-gadget {
-    font-size: 0 !important; /* Crushes the text */
+    font-size: 0 !important; 
     color: transparent !important;
 }
 .goog-te-gadget .goog-te-gadget-icon {
-    display: none !important; /* Hides the logo */
+    display: none !important;
 }
 
-/* 3. Style the Dropdown (The actual Select box) */
+/* Style the Dropdown */
 .goog-te-combo {
     /* Theme Variables */
     color: var(--text-color) !important;
@@ -372,7 +360,7 @@ select {
     
     /* Layout */
     padding: 6px 8px;
-    margin: 0 !important; /* Resets Google's default margin */
+    margin: 0 !important;
     border-radius: 6px;
     font-family: 'Open Sans', sans-serif;
     font-size: 14px !important;
@@ -385,12 +373,11 @@ select {
     max-width: 150px;
 }
 
-/* Hover Effect */
 .goog-te-combo:hover {
     border-color: var(--primary-color) !important;
 }
 
-/* 4. Global Cleanup (Hides the top frame) */
+/* Global Cleanup */
 .goog-te-banner-frame {
     display: none !important;
 }
