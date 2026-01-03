@@ -4,6 +4,11 @@
 
 This repository contains **community-developed payloads** for the Hak5 WiFi Pineapple Pager. Community developed payloads are listed and developers are encouraged to create pull requests to make changes to or submit new payloads.
 
+## 🗳️ [Visit the Community Voting Hub](https://starkweathernow.github.io/wifipineapplepager-payloads/)
+**Vote for your favorite community payloads, track the top scripts, and see what's trending!** All payloads in this repository are automatically synced to the hub. Cast your vote to help other users find the best tools.
+
+---
+
 **Payloads here are written in official DuckyScript™ + Bash specifically for the WiFi Pineapple Pager. Hak5 does NOT guarantee payload functionality.** <a href="#legal"><b>See Legal and Disclaimers</b></a>
 
 
@@ -57,6 +62,7 @@ This repository contains **community-developed payloads** for the Hak5 WiFi Pine
 ## Community
 *Got Questions? Need some help? Reach out:*
 -  [Discord](https://hak5.org/discord/ "Discord")
+-  [Community Voting Hub](https://starkweathernow.github.io/wifipineapplepager-payloads/ "Voting Hub")
 
 
 ## Additional Links
@@ -142,6 +148,23 @@ Once you have developed your payload, you are encouraged to contribute to this r
 
 Please include all resources required for the payload to run. If needed, provide a README.md in the root of your payload's directory to explain things such as intended use, required configurations, or anything that will not easily fit in the comments of the payload.txt itself. Please make sure that your payload is tested, and free of errors. If your payload contains (or is based off of) the work of other's please make sure to cite their work giving proper credit. 
 
+
+### Voting Hub Eligibility & Metadata Standard
+To have your payload automatically featured on the [Community Voting Hub](https://starkweathernow.github.io/wifipineapplepager-payloads/), you **MUST** include a `README.md` file in your payload directory that starts with the following YAML Front Matter. 
+
+This metadata is used by the automation bots to generate your voting card and tracking issue.
+
+```yaml
+---
+title: Payload Name
+description: One sentence summary of what your payload does.
+author: GitHubUsername
+category: General
+tags: [Tag1, Tag2]
+---
+
+# Payload Name
+```
 
 ### Purely Destructive payloads will not be accepted. No, it's not "just a prank".
 Subject to change. Please ensure any submissions meet the [latest version](https://github.com/hak5/wifipineapple-pager/blob/master/README.md) of these standards before submitting a Pull Request.
