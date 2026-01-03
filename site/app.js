@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const grid = document.getElementById('script-grid');
 
     // 1. Fetch the data from your JSON file
-    fetch('payloads.json')
+    fetch('site/payloads.json')
         .then(response => response.json())
         .then(scripts => {
             
