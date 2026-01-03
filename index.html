@@ -6,7 +6,6 @@
     <title>Hak5 WiFi Pineapple Pager - Community Payloads</title>
     <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site/style.css">
-    <script src="https://unpkg.com/@lyket/widget@latest/dist/lyket.js?apiKey=acc0dbccce8e557db5ebbe6d605aaa"></script>
 </head>
 <body>
 
@@ -29,15 +28,29 @@
     <section class="info-panel">
         <div class="info-card">
             <h3>🚀 What is this?</h3>
-            <p>This is a community-curated repository for <strong>WiFi Pineapple Pager</strong> payloads. Users vote on the most effective scripts to help new operators find the best tools quickly.</p>
+            <p>This is a community-curated repository. Users vote on the most effective scripts to help new operators find the best tools quickly.</p>
         </div>
         <div class="info-card">
-            <h3>📥 How to Install</h3>
-            <p>Download the <code>.sh</code> or <code>.py</code> file from the card. Connect your Pager via USB-C, mount as storage, and drop the script into the <code>/payloads/</code> directory.</p>
+            <h3>🗳️ How to Vote</h3>
+            <p>Use the <strong>Search</strong> and <strong>Filter</strong> tools below to find payloads that interest you. Click the thumbs-up icon to vote. <em>Note: You must be logged into GitHub to cast a vote.</em></p>
         </div>
     </section>
 
     <main>
+        <div class="controls-container">
+            <input type="text" id="search-input" placeholder="Search payloads...">
+            
+            <select id="category-filter">
+                <option value="all">All Categories</option>
+                </select>
+
+            <select id="sort-order">
+                <option value="votes">Most Votes</option>
+                <option value="newest">Newest</option>
+                <option value="alpha">A-Z</option>
+            </select>
+        </div>
+
         <div id="script-grid" class="grid-container">
             </div>
     </main>

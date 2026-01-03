@@ -151,4 +151,90 @@ body {
 .heart-icon { font-size: 1.1rem; }
 .vote-count { font-weight: 700; font-family: monospace; }
 
+
+/* --- New Control Bar Styles --- */
+.controls-container {
+    max-width: 1200px;
+    margin: 0 auto 30px auto;
+    padding: 0 20px;
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+#search-input {
+    flex-grow: 1;
+    padding: 10px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+
+select {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text-color);
+    cursor: pointer;
+}
+
+/* --- Category Badge on Card --- */
+.meta-top {
+    margin-bottom: 10px;
+}
+
+.category-badge {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--hak5-red);
+    font-weight: 700;
+    border: 1px solid var(--hak5-red);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* --- No Results Msg --- */
+.no-results {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px;
+    opacity: 0.7;
+}
+
+/* --- Vote Button Styles (Refined) --- */
+.vote-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 8px 12px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    background: var(--bg-color);
+}
+
+.vote-btn:hover {
+    border-color: var(--hak5-red);
+    background-color: var(--card-bg);
+    transform: translateY(-1px);
+}
+
+.download-btn {
+    /* Rename 'download-btn' in your mind to 'action-btn' if you prefer, 
+       but keeping the class name avoids breaking existing CSS */
+    background-color: var(--hak5-black); /* Changed to black for contrast */
+    border: 1px solid var(--hak5-black);
+}
+
+.download-btn:hover {
+    background-color: var(--hak5-red);
+    border-color: var(--hak5-red);
+}
+
+
 footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }
