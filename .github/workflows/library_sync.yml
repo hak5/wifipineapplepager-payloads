@@ -1,0 +1,39 @@
+name: Sync Library Manifests
+
+on:
+  push:
+    paths:
+      - 'library/**'  # Only run when payloads change
+    branches:
+      - master        # Only run when merged to master
+
+permissions:
+  contents: write
+
+jobs:
+  sync-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Run Library Scanner
+        id: scanner
+        run: python .github/scripts/scan_library.py
+
+      - name: Commit Registry Updates
+        run: |
+          git config --global user.name "LibrarianBot"
+          git config --global user.email "bot@noreply.github.com"
+          # Check if file changed
+          if [[ -n $(git status -s site/payloads.json) ]]; then
+            git add site/payloads.json
+            git commit -m "Auto-add new payloads from library manifests"
+            git push
+          else
+            echo "No changes to registry."
+          fi
