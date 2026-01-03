@@ -1,12 +1,12 @@
 #!/bin/bash
-# Title: Pull Payload PR
+# Title: Pull Theme PR
 # Author: Austin (git@austin.dev)
-# Description: Downloads and overwrites payloads from a specific GitHub Pull Request
+# Description: Downloads and overwrites themes from a specific GitHub Pull Request
 # Version: 1.1
 
 GH_ORG="hak5"
-GH_REPO="wifipineapplepager-payloads"
-TARGET_DIR="/mmc/root/payloads"
+GH_REPO="wifipineapplepager-themes"
+TARGET_DIR="/mmc/root/themes"
 TEMP_DIR="/tmp/pager_pr_update"
 
 PR_NUMBER=""
@@ -16,7 +16,6 @@ CHANGED_FILES="/tmp/pr_changed_files_$$.txt"
 COUNT_NEW=0
 COUNT_UPDATED=0
 LOG_BUFFER=""
-PENDING_UPDATE_PATH=""
 SKIP_REVIEW=false
 
 cleanup() {
@@ -49,11 +48,9 @@ check_and_install_packages() {
     LED SETUP
     LOG "Checking required packages..."
     
-    local need_update=true
     local packages=""
     
     ! which curl > /dev/null && ! which wget > /dev/null && packages="curl"
-    ! which git > /dev/null && packages="$packages git"
     ! which unzip > /dev/null && packages="$packages unzip"
     
     [ -z "$packages" ] && return 0
@@ -71,8 +68,9 @@ check_and_install_packages() {
 }
 
 get_dir_title() {
-    local pfile="$1/payload.sh"
-    [ -f "$pfile" ] && grep -m 1 "^# *Title:" "$pfile" | cut -d: -f2- | sed 's/^[ \t]*//'
+    # just use theme directory name as the theme title
+    local dir="$1"
+    echo "$(basename $dir)"
 }
 
 fetch_url() {
@@ -156,10 +154,10 @@ setup() {
     fi
     
     local file_count
-    file_count=$(grep -c "^library/" "$CHANGED_FILES" 2>/dev/null || echo "0")
+    file_count=$(grep -c "^themes/" "$CHANGED_FILES" 2>/dev/null || echo "0")
     if [ "$file_count" -eq 0 ]; then
         LED FAIL
-        ERROR_DIALOG "No library files changed in PR"
+        ERROR_DIALOG "No theme files changed in PR"
         cleanup
         return 1
     fi
@@ -209,7 +207,7 @@ log_file_action() {
     fi
 }
 
-process_payloads() {
+process_themes() {
     LED SPECIAL
     
     # Find extracted directory
@@ -217,65 +215,72 @@ process_payloads() {
     extracted_dir=$(find "$TEMP_DIR" -maxdepth 1 -type d -name "${GH_REPO}-*" | head -n 1)
     [ -z "$extracted_dir" ] && extracted_dir=$(find "$TEMP_DIR" -maxdepth 1 -type d ! -path "$TEMP_DIR" | head -n 1)
     
-    if [ -z "$extracted_dir" ] || [ ! -d "$extracted_dir/library" ]; then
+    if [ -z "$extracted_dir" ] || [ ! -d "$extracted_dir/themes" ]; then
         LED FAIL
         ERROR_DIALOG "Invalid PR archive structure"
         cleanup
         return 1
     fi
     
+    # Build a list of theme directories (those containing theme.json)
+    local processed_themes=""
     local file_count=0
     
     while read -r changed_file; do
-        [[ "$changed_file" != library/* ]] && continue
+        [[ "$changed_file" != themes/* ]] && continue
         
         local src_file="$extracted_dir/$changed_file"
         [ ! -e "$src_file" ] && continue
         
-        local rel_path="${changed_file#library/}"
-        local target_file="$TARGET_DIR/$rel_path"
-        local target_dir=$(dirname "$target_file")
-        local file_name=$(basename "$changed_file")
-        
-        # Handle disabled payloads and alerts
-        if [ "$file_name" = "payload.sh" ]; then
-            local payload_dir_name=$(basename "$target_dir")
-            local disabled_path="$(dirname "$target_dir")/DISABLED.$payload_dir_name"
-            
-            if [ -d "$disabled_path" ] || [[ "${rel_path%/*}" =~ ^alerts/ ]]; then
-                target_dir="$disabled_path"
-                target_file="$disabled_path/payload.sh"
-            fi
+        # Find the theme directory (parent of theme.json or the file itself)
+        local theme_dir
+        if [ -f "$src_file" ] && [ "$(basename "$src_file")" = "theme.json" ]; then
+            theme_dir=$(dirname "$src_file")
+        elif [ -d "$src_file" ]; then
+            theme_dir="$src_file"
+        else
+            # For other files, find the containing theme directory
+            theme_dir=$(dirname "$src_file")
+            while [ "$theme_dir" != "$extracted_dir/themes" ] && [ "$theme_dir" != "/" ]; do
+                [ -f "$theme_dir/theme.json" ] && break
+                theme_dir=$(dirname "$theme_dir")
+            done
         fi
         
-        # Prompt for each file unless skipping review
+        # Skip if not a valid theme directory
+        [ ! -f "$theme_dir/theme.json" ] && continue
+        
+        # Calculate relative path from themes root
+        local rel_path="${theme_dir#$extracted_dir/themes/}"
+        local target_path="$TARGET_DIR/$rel_path"
+        local dir_name=$(basename "$theme_dir")
+        
+        # Skip if we've already processed this theme
+        echo "$processed_themes" | grep -q "^$rel_path$" && continue
+        processed_themes+="$rel_path"$'\n'
+        
+        # Prompt for each theme unless skipping review
         if [ "$SKIP_REVIEW" = false ]; then
-            confirm_dialog "Update: $rel_path?" || continue
+            local title=$(get_dir_title "$theme_dir")
+            confirm_dialog "Update theme: $title?" || continue
         fi
         
         file_count=$((file_count + 1))
-        mkdir -p "$target_dir"
+        mkdir -p "$(dirname "$target_path")"
         
         local is_new=false
-        [ ! -e "$target_file" ] && is_new=true
+        [ ! -d "$target_path" ] && is_new=true
         
-        if [ -f "$src_file" ]; then
-            # Handle self-update specially
-            if [ "$file_name" = "payload.sh" ] && [ "$target_file" -ef "$0" ]; then
-                cp "$src_file" "/tmp/pending_pr_updater_update.sh"
-                PENDING_UPDATE_PATH="/tmp/pending_pr_updater_update.sh"
-                LOG_BUFFER+="[ UPDATED ] $(get_dir_title "$(dirname "$src_file")" || echo "$rel_path") (queued)\n"
-                COUNT_UPDATED=$((COUNT_UPDATED + 1))
-            else
-                cp "$src_file" "$target_file"
-                local label="$rel_path"
-                [ "$file_name" = "payload.sh" ] && label=$(get_dir_title "$(dirname "$src_file")" || echo "$rel_path")
-                log_file_action "$is_new" "$label"
-            fi
-        elif [ -d "$src_file" ]; then
-            cp -rf "$src_file" "$target_file"
-            log_file_action "$is_new" "$rel_path/"
+        # Check for changes
+        if [ "$is_new" = false ] && diff -r -q "$theme_dir" "$target_path" > /dev/null 2>&1; then
+            continue
         fi
+        
+        # Copy the entire theme directory
+        rm -rf "$target_path"
+        cp -rf "$theme_dir" "$target_path"
+        local title=$(get_dir_title "$theme_dir")
+        log_file_action "$is_new" "$title"
     done < "$CHANGED_FILES"
     
     if [ "$file_count" -eq 0 ]; then
@@ -288,8 +293,6 @@ process_payloads() {
 }
 
 finish() {
-    [ -f "$PENDING_UPDATE_PATH" ] && cat "$PENDING_UPDATE_PATH" > "$0"
-    
     cleanup
     
     LOG "\n$LOG_BUFFER"
@@ -298,5 +301,5 @@ finish() {
 }
 
 while true; do
-    setup && download_pr && process_payloads && { finish; break; }
+    setup && download_pr && process_themes && { finish; break; }
 done
