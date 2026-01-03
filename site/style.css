@@ -306,3 +306,40 @@ footer { text-align: center; padding: 2rem; opacity: 0.6; font-size: 0.8rem; }
         text-overflow: ellipsis; /* Add '...' if text is cut off */
     }
 }
+
+/* --- Logo Styles --- */
+
+/* 1. Main Navbar Logo */
+.nav-logo {
+    height: 30px;           /* Constrain height to fit navbar */
+    width: auto;            /* Maintain aspect ratio */
+    vertical-align: middle; /* Align with the text next to it */
+    margin-right: 10px;     /* Space between logo and text */
+}
+
+/* Adjust the text next to it to align perfectly */
+.pager-text {
+    vertical-align: middle;
+    font-weight: 400;
+    color: var(--hak5-red);
+    position: relative;
+    top: 1px; /* Micro-adjustment for visual centering */
+}
+
+/* 2. Sub Logo (Hero Section) */
+.hero-sub-logo {
+    height: 80px;           /* Nice and big */
+    width: auto;
+    margin-bottom: 20px;    /* Space between logo and "Community Payload Hub" */
+    display: block;         /* Forces it to its own line */
+    margin-left: auto;      /* Center it... */
+    margin-right: auto;     /* ...horizontally */
+}
+
+/* 3. Dark Mode Handling (Optional Smart Trick) */
+/* If your logos are black text on transparent backgrounds, 
+   they will disappear in Dark Mode. This filter turns them white automatically. */
+[data-theme="dark"] .nav-logo,
+[data-theme="dark"] .hero-sub-logo {
+    filter: brightness(0) invert(1);
+}
