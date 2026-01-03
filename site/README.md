@@ -85,6 +85,7 @@ To maintain or alter the system, stakeholders need to know where the logic lives
 ### The Metadata Standard (YAML Front Matter)
 To ensure the automated "Librarian" picks up a payload, the `README.md` **must** start with this header:
 
+```
 ---
 title: Payload Name
 description: One sentence summary.
@@ -92,6 +93,7 @@ author: GitHubUsername
 category: General
 tags: [Tag1, Tag2]
 ---
+```
 
 ## 5. Maintenance & Troubleshooting
 
