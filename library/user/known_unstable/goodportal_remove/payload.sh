@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: goodportal Remove
+# Title: goodportal Remove
 # Description: Cleanup and remove goodportal configuration
 # Purpose: Reverse all changes made by goodportal_configure payload
 # Author: spencershepard (GRIMM)
@@ -58,27 +58,40 @@ sleep 1
 
 LOG "Removing firewall redirect rules..."
 
-# Remove GoodPortal firewall rules - more thorough approach
+# Remove GoodPortal firewall rules - delete from highest index to lowest to avoid index shifting
 RULES_REMOVED=0
 
-# Get all firewall sections and check each one
-for section in $(uci show firewall | grep "@redirect\[" | cut -d'.' -f2 | cut -d'=' -f1 | sort -u); do
-    rule_name=$(uci get firewall.$section.name 2>/dev/null)
-    if [ -n "$rule_name" ] && echo "$rule_name" | grep -qi "goodportal"; then
-        uci delete firewall.$section 2>/dev/null
-        LOG "  Removed rule: $rule_name"
-        RULES_REMOVED=$((RULES_REMOVED + 1))
+# Loop until no more GoodPortal rules found
+while true; do
+    # Find the last (highest index) redirect rule containing "GoodPortal" in the name
+    LAST_INDEX=""
+    LAST_NAME=""
+    
+    # Get all redirect sections
+    for section in $(uci show firewall | grep "@redirect\[" | cut -d'.' -f2 | cut -d'=' -f1 | sort -u); do
+        rule_name=$(uci get firewall.$section.name 2>/dev/null)
+        if [ -n "$rule_name" ] && echo "$rule_name" | grep -qi "goodportal"; then
+            # Extract the numeric index
+            idx=$(echo "$section" | sed 's/@redirect\[\([0-9]*\)\].*/\1/')
+            if [ -n "$idx" ]; then
+                # Keep track of the highest index
+                if [ -z "$LAST_INDEX" ] || [ "$idx" -gt "$LAST_INDEX" ]; then
+                    LAST_INDEX="$idx"
+                    LAST_NAME="$rule_name"
+                fi
+            fi
+        fi
+    done
+    
+    # If no more rules found, break
+    if [ -z "$LAST_INDEX" ]; then
+        break
     fi
-done
-
-# Also try alternative match patterns
-for section in $(uci show firewall | grep -i "goodportal" | cut -d'.' -f2 | cut -d'=' -f1 | sort -u); do
-    rule_name=$(uci get firewall.$section.name 2>/dev/null)
-    if [ -n "$rule_name" ]; then
-        uci delete firewall.$section 2>/dev/null
-        LOG "  Removed rule: $rule_name"
-        RULES_REMOVED=$((RULES_REMOVED + 1))
-    fi
+    
+    # Delete the highest index rule
+    uci delete firewall.@redirect[$LAST_INDEX] 2>/dev/null
+    LOG "  Removed rule: $LAST_NAME"
+    RULES_REMOVED=$((RULES_REMOVED + 1))
 done
 
 if [ "$RULES_REMOVED" -gt 0 ]; then
@@ -118,7 +131,7 @@ rm -f /tmp/goodportal_whitelist_monitor.sh
 LOG "  Temporary files removed"
 
 # Ask user if they want to remove portal directory
-resp=$(CONFIRMATION_DIALOG "Remove /www/goodportal directory?\n(This will delete all portal files)")
+resp=$(CONFIRMATION_DIALOG "Remove /www/goodportal directory?\n(This will delete all portal files, including custom portals you may have added.) Decline to make future reconfiguration faster.")
 case $? in
     $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         LOG "  Keeping /www/goodportal directory"
@@ -157,7 +170,8 @@ RULE_COUNT=$(uci show firewall | grep -c "GoodPortal" || true)
 if [ "$RULE_COUNT" -eq 0 ]; then
     LOG green "  SUCCESS: All firewall rules removed"
 else
-    ERROR_DIALOG "  WARNING: $RULE_COUNT GoodPortal rules still present"
+    LOG red "  ERROR: $RULE_COUNT GoodPortal rules still present"
+    exit 1
 fi
 
 # Check IPv6 status
@@ -168,6 +182,6 @@ else
     ERROR_DIALOG "  WARNING: IPv6 may still be disabled on br-lan"
 fi
 
-LOG yellow "NOTE: nginx and PHP packages will remain installed."
+LOG yellow "NOTE: nginx and PHP packages will remain installed. Running the goodportal Configure payload again will be MUCH faster next time!"
 
 exit 0

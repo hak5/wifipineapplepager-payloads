@@ -24,54 +24,48 @@ while true; do
         continue
     fi
     
-    # Read whitelist and process new entries
-    while IFS= read -r mac; do
+    # Read whitelist and process new entries (now contains IPs directly)
+    while IFS= read -r ip; do
         # Skip empty lines and comments
-        [ -z "$mac" ] && continue
-        [[ "$mac" =~ ^# ]] && continue
+        [ -z "$ip" ] && continue
+        [[ "$ip" =~ ^# ]] && continue
         
-        # Normalize MAC address (lowercase, strip whitespace)
-        mac=$(echo "$mac" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+        # Trim whitespace
+        ip=$(echo "$ip" | tr -d ' ')
         
-        # Skip if already processed
-        if grep -q "^${mac}$" "$PROCESSED_FILE" 2>/dev/null; then
+        # Validate IP address format
+        if ! echo "$ip" | grep -qE '^([0-9]{1,3}\.){3}[0-9]{1,3}$'; then
+            logger -t goodportal-whitelist "Warning: Invalid IP format: $ip"
             continue
         fi
         
-        # Get IP address for this MAC from ARP/DHCP
-        ip=$(arp -an | grep -i "$mac" | awk '{print $2}' | tr -d '()')
-        
-        if [ -z "$ip" ]; then
-            # Try dhcp.leases as fallback
-            ip=$(grep -i "$mac" /tmp/dhcp.leases 2>/dev/null | awk '{print $3}')
+        # Skip if already processed
+        if grep -q "^${ip}$" "$PROCESSED_FILE" 2>/dev/null; then
+            continue
         fi
         
-        if [ -n "$ip" ]; then
-            logger -t goodportal-whitelist "Whitelisting MAC $mac (IP: $ip)"
-            
-            # Add firewall bypass rules via nftables for OpenWrt
-            # NOTE: These rules are temporary and only exist in memory
-            # They will be cleared when firewall restarts or device reboots
-            # Using 'insert' to add rules at TOP of chain (before redirect rules)
-            
-            # Bypass DNS redirects for this IP (must be in dstnat_lan chain)
-            nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 53 counter accept 2>/dev/null
-            nft insert rule inet fw4 dstnat_lan ip saddr "$ip" udp dport 53 counter accept 2>/dev/null
-            
-            # Bypass HTTP/HTTPS redirects for this IP
-            nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 80 counter accept 2>/dev/null
-            nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 443 counter accept 2>/dev/null
-            
-            # Allow forwarding for this IP (in forward chain)
-            nft insert rule inet fw4 forward_lan ip saddr "$ip" counter accept 2>/dev/null
-            
-            logger -t goodportal-whitelist "Firewall rules added for $ip ($mac)"
-        else
-            logger -t goodportal-whitelist "Warning: Could not resolve IP for MAC $mac"
-        fi
+        logger -t goodportal-whitelist "Whitelisting IP: $ip"
+        
+        # Add firewall bypass rules via nftables for OpenWrt
+        # NOTE: These rules are temporary and only exist in memory
+        # They will be cleared when firewall restarts or device reboots
+        # Using 'insert' to add rules at TOP of chain (before redirect rules)
+        
+        # Bypass DNS redirects for this IP (must be in dstnat_lan chain)
+        nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 53 counter accept 2>/dev/null
+        nft insert rule inet fw4 dstnat_lan ip saddr "$ip" udp dport 53 counter accept 2>/dev/null
+        
+        # Bypass HTTP/HTTPS redirects for this IP
+        nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 80 counter accept 2>/dev/null
+        nft insert rule inet fw4 dstnat_lan ip saddr "$ip" tcp dport 443 counter accept 2>/dev/null
+        
+        # Allow forwarding for this IP (in forward chain)
+        nft insert rule inet fw4 forward_lan ip saddr "$ip" counter accept 2>/dev/null
+        
+        logger -t goodportal-whitelist "Firewall rules added for $ip"
         
         # Mark as processed
-        echo "$mac" >> "$PROCESSED_FILE"
+        echo "$ip" >> "$PROCESSED_FILE"
         
     done < "$WHITELIST_FILE"
     

@@ -30,9 +30,7 @@ Change portals by re-running the payload and selecting a different portal direct
 
 ## Custom Portals
 
-Save custom portal directories to `/www/goodportal/{portal_name}`. Portals from [EvilPortals](https://github.com/kleo/evilportals) work out of the box with this setup - including credential capture to the pager's loot directory.
-
-![Evil Portals](assets/evil-portals.png)
+Save custom portal directories to `/www/goodportal/{portal_name}`. Portals from [EvilPortals](https://github.com/kleo/evilportals) work out of the box with this setup - including credential capture to the pager's loot directory.  You will have the option to install the full EvilPortals collection during payload execution.
 
 ## Pager Behavior
 
@@ -46,12 +44,26 @@ Save custom portal directories to `/www/goodportal/{portal_name}`. Portals from 
 - When credentials are captured through the portal, they are logged to `/root/loot/goodportal/credentials_YYYY-MM-DD_HH-MM-SS.log`
 - Clients are automatically whitelisted after submitting credentials, allowing them to bypass the captive portal and access the internet
 - An alert notification is sent when new credentials are captured
+- After whitelisting, clients are redirected to an endless loading page until internet access through the pager is fully working.
+
+![GoodPortal Redirect Page](assets/redirect-page.png)
 
 ### Related Payloads
 - **GoodPortal Clear Whitelist**: Clears all whitelisted MAC addresses, forcing all clients back to the captive portal. Restarts the firewall to remove temporary bypass rules.
 - **GoodPortal Remove**: Completely removes the captive portal configuration, stops all services (nginx, php-fpm, DNS hijacking, whitelist monitor), removes firewall rules, and restores the original nginx configuration from backup.
 
-
-## Author
+## Credits
 
 spencershepard (GRIMM) - message me on the Hak5 Discord!
+
+## Changelog
+- 1.1
+  - Initial release
+- 1.2 
+  - Added additional http firewall redirect rule
+  - Fixed 'opkg update &&' chaining issue
+  - Fixed Name -> Title metadata
+  - Added warning about internet blocking on LAN (necessary for captive portal functionality)
+  - Added installation option for pre-built Evil Portals collection (github.com/kleo/evilportals)
+  - Redirect page after credential capture now waits for internet access instead of fixed delay (with fake progress bar)
+  - Whitelist now uses IP addresses instead of MAC addresses

