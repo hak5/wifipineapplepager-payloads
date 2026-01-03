@@ -1,17 +1,19 @@
-name: Sync Library Manifests
+name: Sync Library & Ensure Issues
 
 on:
   push:
     paths:
-      - 'library/**'  # Only run when payloads change
+      - 'library/**'  # Trigger when payloads change
     branches:
-      - master        # Only run when merged to master
+      - master
+  workflow_dispatch:  # Manual trigger button
 
 permissions:
   contents: write
+  issues: write       # REQUIRED: Needs permission to create issues
 
 jobs:
-  sync-manifests:
+  sync-and-audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -20,19 +22,31 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+      
+      - name: Install Dependencies
+        run: pip install requests
 
+      # 1. Run the Librarian (Updates JSON with new payload found in folders)
       - name: Run Library Scanner
-        id: scanner
         run: python .github/scripts/scan_library.py
 
+      # 2. Run the Watchdog (Reads that same JSON, sees the 'null' issue, creates it)
+      - name: Ensure Voting Issues
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python .github/scripts/ensure_issues.py
+
+      # 3. Commit the final result (JSON now has both the Payload AND the Issue ID)
       - name: Commit Registry Updates
         run: |
           git config --global user.name "LibrarianBot"
           git config --global user.email "bot@noreply.github.com"
+          
           # Check if file changed
           if [[ -n $(git status -s site/payloads.json) ]]; then
             git add site/payloads.json
-            git commit -m "Auto-add new payloads from library manifests"
+            git commit -m "Auto-add payload and create voting issue"
             git push
           else
             echo "No changes to registry."
