@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
             populateTags(allScripts); 
 
             // Initial Render
-            renderGrid(allScripts);
+            handleFilterChange(); // <--- This forces the "Newest" sort to run immediately
         })
         .catch(error => console.error('Error loading scripts:', error));
 
