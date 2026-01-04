@@ -398,3 +398,118 @@ select {
 body {
     top: 0px !important;
 }
+
+/* =========================================
+   10. VIEW TOGGLES (Grid vs List)
+   ========================================= */
+
+/* --- The Toggle Buttons --- */
+.view-toggle {
+    display: flex;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--card-bg);
+}
+
+.view-btn {
+    background: none;
+    border: none;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    color: var(--text-color);
+    opacity: 0.5;
+    transition: all 0.2s;
+}
+
+.view-btn:hover { background-color: var(--bg-color); opacity: 1; }
+.view-btn.active { 
+    background-color: var(--hak5-red); 
+    color: white; 
+    opacity: 1; 
+}
+
+/* --- THE LIST VIEW (Table Mode) --- */
+/* When the grid has class "list-view"... */
+
+.grid-container.list-view {
+    /* Force 1 column layout */
+    grid-template-columns: 1fr;
+    gap: 10px;
+}
+
+.grid-container.list-view .card {
+    /* Turn card into a row */
+    flex-direction: row;
+    align-items: center;
+    padding: 15px 20px;
+}
+
+.grid-container.list-view .card:hover {
+    transform: none; /* remove jumpy effect in list mode */
+    border-color: var(--hak5-red);
+}
+
+/* Re-arrange content for row layout */
+.grid-container.list-view header {
+    display: flex;
+    align-items: center;
+    flex-grow: 1;
+    margin-right: 20px;
+    width: auto; /* reset header width */
+}
+
+/* Fix the Title size */
+.grid-container.list-view .card h2 {
+    font-size: 1.1rem;
+    margin: 0 15px 0 0;
+    min-width: 200px; /* Fixed width for alignment */
+}
+
+/* Hide Description in list view to save space (Optional) */
+.grid-container.list-view .description {
+    display: none; 
+}
+
+/* Re-style Meta items to look like columns */
+.grid-container.list-view .meta-top {
+    margin-bottom: 0;
+    order: 2; /* Move after title */
+    margin-right: 20px;
+    width: 150px; /* Fixed column width */
+}
+
+.grid-container.list-view .tags {
+    margin-bottom: 0;
+    order: 3;
+    flex-grow: 1;
+}
+
+.grid-container.list-view .author-line {
+    margin-bottom: 0;
+    order: 4;
+    margin-right: 20px;
+    min-width: 100px;
+    text-align: right;
+}
+
+/* Buttons on the far right */
+.grid-container.list-view .actions {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+    min-width: 180px;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+/* Mobile Fallback: Force grid view on phones even if list is selected */
+@media (max-width: 768px) {
+    .grid-container.list-view { grid-template-columns: 1fr; }
+    .grid-container.list-view .card { flex-direction: column; align-items: flex-start; }
+    .grid-container.list-view header { display: block; }
+    .grid-container.list-view .description { display: block; }
+    .grid-container.list-view .actions { width: 100%; border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 15px;}
+    .view-toggle { display: none; } /* Hide the toggle on mobile */
+}

@@ -21,6 +21,36 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('theme', newTheme);
     });
 
+    // --- View Toggle Logic ---
+    const gridEl = document.getElementById('script-grid');
+    const btnGrid = document.getElementById('view-grid');
+    const btnList = document.getElementById('view-list');
+
+    // 1. Check LocalStorage preference
+    const savedView = localStorage.getItem('viewMode') || 'grid';
+    if (savedView === 'list') {
+        enableListView();
+    }
+
+    // 2. Event Listeners
+    if(btnGrid && btnList) {
+        btnGrid.addEventListener('click', () => {
+            gridEl.classList.remove('list-view');
+            btnGrid.classList.add('active');
+            btnList.classList.remove('active');
+            localStorage.setItem('viewMode', 'grid');
+        });
+
+        btnList.addEventListener('click', enableListView);
+    }
+
+    function enableListView() {
+        gridEl.classList.add('list-view');
+        btnList.classList.add('active');
+        btnGrid.classList.remove('active');
+        localStorage.setItem('viewMode', 'list');
+    }
+
     // --- Main Logic ---
     let allScripts = [];
 
