@@ -1,0 +1,116 @@
+{
+  "payloads": [
+    {
+      "name": "MP-Quick Hosts Scan",
+      "path": "user/reconnaissance/MP_Quick_Hosts_Scan",
+      "command": "nmap -sn -PR $TARGET_SUBNET -T$TIMING --max-retries $MAX_RETRIES --min-rate=$MIN_RATE -n",
+      "required_vars": [
+        "TARGET_SUBNET"
+      ],
+      "optional_vars": {
+        "TIMING": "5",
+        "MAX_RETRIES": "1",
+        "MIN_RATE": "1000"
+      },
+      "required_packages": [],
+      "description": "Fast host discovery scan on target subnet using ARP ping (local network) (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-Top Ports Scan",
+      "path": "user/reconnaissance/MP_Quick_Port_Scan",
+      "command": "nmap -sS --top-ports $NUM_PORTS -T$TIMING --max-retries $MAX_RETRIES --min-rate=$MIN_RATE -n $TARGET_IP",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "NUM_PORTS": "100",
+        "TIMING": "5",
+        "MAX_RETRIES": "0",
+        "MIN_RATE": "1000"
+      },
+      "required_packages": [],
+      "description": "Quick SYN port scan on most common ports (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-Full Port Scan",
+      "path": "user/reconnaissance/MP_Full_Port_Scan",
+      "command": "nmap -sS -p- $TARGET_IP -T$TIMING --max-retries $MAX_RETRIES -v --min-rate=$MIN_RATE -n -oN /tmp/metapayload_fullscan_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "TIMING": "4",
+        "MAX_RETRIES": "1",
+        "MIN_RATE": "2000"
+      },
+      "required_packages": [],
+      "description": "Slow and comprehensive SYN scan of all 65535 TCP ports (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-Service Version Detection",
+      "path": "user/reconnaissance/MP_Service_Detection",
+      "command": "nmap -sS -sV $PORT_ARGS $TARGET_IP -T$TIMING --version-intensity $VERSION_INTENSITY --min-rate=$MIN_RATE -n -oN /tmp/metapayload_services_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "PORT_ARGS": "--top-ports 100",
+        "TIMING": "4",
+        "VERSION_INTENSITY": "2",
+        "MIN_RATE": "500"
+      },
+      "required_packages": [],
+      "description": "Detect service versions with light probing intensity (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-OS Detection",
+      "path": "user/reconnaissance/MP_OS_Detection",
+      "command": "nmap -sS -O $TARGET_IP -T$TIMING --osscan-guess --max-retries $MAX_RETRIES -n -oN /tmp/metapayload_os_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "TIMING": "4",
+        "MAX_RETRIES": "2"
+      },
+      "required_packages": [],
+      "description": "Detect operating system and version of target host (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-UDP Port Scan",
+      "path": "user/reconnaissance/MP_UDP_Scan",
+      "command": "nmap -sU $PORT_ARGS $TARGET_IP -T$TIMING --max-retries $MAX_RETRIES -n -oN /tmp/metapayload_udp_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "PORT_ARGS": "--top-ports 20",
+        "TIMING": "4",
+        "MAX_RETRIES": "0"
+      },
+      "required_packages": [],
+      "description": "Scan most common UDP ports (nmap). Note: UDP scans are slow.",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "MP-ARP Network Scan",
+      "path": "user/reconnaissance/MP_ARP_Network_Scan",
+      "command": "arp-scan -I $INTERFACE --localnet --macfile /usr/share/arp-scan/mac-vendor.txt",
+      "required_vars": [],
+      "optional_vars": {
+        "INTERFACE": "wlan0cli"
+      },
+      "required_packages": [
+        "arp-scan",
+        "arp-scan-database"
+      ],
+      "description": "Fast ARP-based network discovery with vendor MAC address identification (arp-scan)",
+      "author": "MetaPayload"
+    }
+  ]
+}
