@@ -1,0 +1,38 @@
+name: Sync Vote Counts
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Runs every hour
+  workflow_dispatch: # Allows manual run button
+
+permissions:
+  contents: write
+
+jobs:
+  update-json:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Update Vote Counts
+        id: update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/update_votes.py
+
+      - name: Commit and Push changes
+        if: steps.update.outputs.updated == 'true'
+        run: |
+          git config --global user.name "VoteBot"
+          git config --global user.email "bot@noreply.github.com"
+          git add site/payloads.json
+          git commit -m "Auto-update vote counts"
+          git push
