@@ -431,85 +431,113 @@ body {
 }
 
 /* --- THE LIST VIEW (Table Mode) --- */
-/* When the grid has class "list-view"... */
+/* This transforms the cards into rigid rows */
 
 .grid-container.list-view {
-    /* Force 1 column layout */
-    grid-template-columns: 1fr;
-    gap: 10px;
+    grid-template-columns: 1fr; /* Single column stack */
+    gap: 8px; /* Tighter vertical spacing */
 }
 
 .grid-container.list-view .card {
-    /* Turn card into a row */
     flex-direction: row;
     align-items: center;
-    padding: 15px 20px;
+    padding: 10px 20px;
+    gap: 20px;
+    min-height: 80px; /* Ensure consistent row height */
 }
 
-.grid-container.list-view .card:hover {
-    transform: none; /* remove jumpy effect in list mode */
-    border-color: var(--hak5-red);
-}
+/* Hide Description in List Mode */
+.grid-container.list-view .description { display: none; }
 
-/* Re-arrange content for row layout */
+/* Wrapper for the internal columns (Title, Meta, Tags, Author) */
 .grid-container.list-view header {
     display: flex;
     align-items: center;
-    flex-grow: 1;
-    margin-right: 20px;
-    width: auto; /* reset header width */
+    flex: 1; /* Takes all available space left by buttons */
+    width: 100%;
+    margin: 0; /* Remove default margins */
+    gap: 15px; /* Spacing between columns */
 }
 
-/* Fix the Title size */
+/* --- COLUMN 1: TITLE (Fixed Width) --- */
 .grid-container.list-view .card h2 {
+    order: 1; /* Force to first position */
+    width: 220px;
+    min-width: 220px; /* Prevent squishing */
     font-size: 1.1rem;
-    margin: 0 15px 0 0;
-    min-width: 200px; /* Fixed width for alignment */
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* Add "..." if too long */
 }
 
-/* Hide Description in list view to save space (Optional) */
-.grid-container.list-view .description {
-    display: none; 
-}
-
-/* Re-style Meta items to look like columns */
+/* --- COLUMN 2: META (Category/Date) (Fixed Width) --- */
 .grid-container.list-view .meta-top {
-    margin-bottom: 0;
-    order: 2; /* Move after title */
-    margin-right: 20px;
-    width: 150px; /* Fixed column width */
+    order: 2;
+    width: 140px;
+    min-width: 140px;
+    margin: 0;
+    
+    /* Stack them vertically for a cleaner look */
+    flex-direction: column; 
+    align-items: flex-start;
+    gap: 4px;
 }
 
+/* --- COLUMN 3: TAGS (Flexible Width) --- */
 .grid-container.list-view .tags {
-    margin-bottom: 0;
     order: 3;
-    flex-grow: 1;
+    flex: 1; /* Grow to fill empty space */
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
 }
 
+/* --- COLUMN 4: AUTHOR (Fixed Width) --- */
 .grid-container.list-view .author-line {
-    margin-bottom: 0;
     order: 4;
-    margin-right: 20px;
-    min-width: 100px;
+    width: 140px;
+    min-width: 140px;
+    margin: 0;
     text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* Buttons on the far right */
+/* --- COLUMN 5: BUTTONS (Fixed Width) --- */
 .grid-container.list-view .actions {
-    border-top: none;
-    margin-top: 0;
-    padding-top: 0;
-    min-width: 180px;
+    width: 200px; /* Exact space for buttons */
+    min-width: 200px;
+    margin: 0;
+    padding: 0;
+    border: none;
     justify-content: flex-end;
     gap: 10px;
 }
 
-/* Mobile Fallback: Force grid view on phones even if list is selected */
-@media (max-width: 768px) {
+/* --- MOBILE OVERRIDE --- */
+/* If on phone, FORCE card view layout even if "List" is selected */
+@media (max-width: 900px) {
     .grid-container.list-view { grid-template-columns: 1fr; }
-    .grid-container.list-view .card { flex-direction: column; align-items: flex-start; }
-    .grid-container.list-view header { display: block; }
-    .grid-container.list-view .description { display: block; }
-    .grid-container.list-view .actions { width: 100%; border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 15px;}
-    .view-toggle { display: none; } /* Hide the toggle on mobile */
+    .grid-container.list-view .card { 
+        flex-direction: column; 
+        align-items: stretch; /* Stretch to fill width */
+        gap: 0;
+        padding: 20px;
+    }
+    .grid-container.list-view header { 
+        display: block; /* Reset to normal block layout */
+        margin-bottom: 10px;
+    }
+    .grid-container.list-view .card h2 { width: auto; min-width: 0; margin-bottom: 5px; }
+    .grid-container.list-view .meta-top { width: auto; min-width: 0; flex-direction: row; justify-content: space-between; margin-bottom: 8px;}
+    .grid-container.list-view .tags { width: auto; margin-bottom: 15px; }
+    .grid-container.list-view .author-line { width: auto; text-align: left; margin-bottom: 10px; }
+    .grid-container.list-view .actions { width: 100%; border-top: 1px solid var(--border-color); padding-top: 15px; }
+    .grid-container.list-view .description { display: block; /* Show description again on mobile */ }
+    
+    /* Hide the view toggle on small screens since we force grid anyway */
+    .view-toggle { display: none; }
 }
