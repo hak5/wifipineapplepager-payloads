@@ -1,0 +1,63 @@
+#!/bin/bash
+# Title: Power Save Mode
+# Description: Turn off A+B button LEDs to help conserve power, reduce screen brightness to 25% and dim brightness to 15%. 
+# Author: FadeddCompass
+# Version: 1.0
+# "The compass has faded, have i lost my way? or is the way no longer here..."
+
+
+
+#REM
+# The lines below will turn off A+B button LEDs.
+
+echo 0 > /sys/devices/platform/leds/leds/b-button-led/brightness
+
+echo 0 > /sys/devices/platform/leds/leds/a-button-led/brightness
+
+#REM
+# I attempted to include a powering down of the screen to 25% along with the up, down, left, & right LEDs rgb values set to 0, however i was met with a "permission denied" error. I then changed the write permissions of the file and
+# the value to 2 as i observed a value of 6 in the file prior to change, only to be met with a "I/O error" after execution.
+
+# echo 2 > /sys/devices/platform/backlight_pwm/backlight/backlight_pwm/actual_brightness
+
+#REM
+# The lines below will turn off d-pad LEDs only for a moment...seems your best bet is to set the d-pads LEDs in your pagers general settings.
+
+ echo 0 > /sys/devices/platform/leds/leds/down-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/down-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/down-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-red/brightness
+
+#REM
+# If you wish to turn the LEDs back on simply open this file in a text editor and add "#" to the code above, then remove "#" from lines below corresponding to the LEDs you wish to have turned on, then save and run payload.
+# or on the pager select a color in settings/general/d-padled then confirm with check mark.
+
+#REM
+# Turn on A+B button LEDs.
+
+# echo 1 > /sys/devices/platform/leds/leds/b-button-led/brightness
+# echo 1 > /sys/devices/platform/leds/leds/a-button-led/brightness
+
+#REM
+# Turn on D-pad LEDs.
+
+# echo 1 > /sys/devices/platform/leds/leds/down-led-blue/brightness
+# echo 1 > /sys/devices/platform/leds/leds/down-led-green/brightness
+# echo 1 > /sys/devices/platform/leds/leds/down-led-red/brightness
+# echo 1 > /sys/devices/platform/leds/leds/left-led-blue/brightness
+# echo 1 > /sys/devices/platform/leds/leds/left-led-green/brightness
+# echo 1 > /sys/devices/platform/leds/leds/left-led-red/brightness
+# echo 1 > /sys/devices/platform/leds/leds/right-led-blue/brightness
+# echo 1 > /sys/devices/platform/leds/leds/right-led-green/brightness
+# echo 1 > /sys/devices/platform/leds/leds/right-led-red/brightness
+# echo 1 > /sys/devices/platform/leds/leds/up-led-blue/brightness
+# echo 1 > /sys/devices/platform/leds/leds/up-led-green/brightness
+# echo 1 > /sys/devices/platform/leds/leds/up-led-red/brightness
