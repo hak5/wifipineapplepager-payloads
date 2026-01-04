@@ -150,3 +150,19 @@ If your new repo is a Fork, "Issues" might be disabled by default.
 2.  Push to `master`.
 3.  Watch the **Actions** tab. The `Sync Library Manifests` workflow should trigger, followed by the `Watchdog`.
 4.  Once green, enable **GitHub Pages** in Settings (Deploy from branch: `master`, folder: `/root` or `/docs` depending on your config).
+
+### Step 6: Configure Hosting & Custom Domain
+By default, your site will be hosted at `https://YOUR_USERNAME.github.io/REPO_NAME/`. To use a custom domain (e.g., `www.mytools.com`), follow these steps:
+
+1.  **DNS Configuration (at your Domain Registrar):**
+    * Log in to your DNS provider (e.g., GoDaddy, Namecheap, Cloudflare).
+    * Create a **CNAME** record.
+        * **Host/Name:** `www` (or your desired subdomain).
+        * **Value/Target:** `YOUR_GITHUB_USERNAME.github.io`.
+    * *Note: If using a root domain (example.com), create an **A Record** pointing to GitHub's IPs (185.199.108.153, etc.).*
+
+2.  **Activate in GitHub:**
+    * Go to **Settings** → **Pages**.
+    * Under **Custom domain**, enter your domain (e.g., `www.mytools.com`).
+    * Click **Save**. GitHub will create a `CNAME` file in your repository automatically.
+    * Wait for the DNS check to pass, then check the box **"Enforce HTTPS"** to secure your site.
