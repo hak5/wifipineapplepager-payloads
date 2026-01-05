@@ -47,13 +47,14 @@ done
 ############################
 if [ ! -d "$RESPONDER_DIR" ] || [ ! -f "$RESPONDER_DIR/Responder.py" ]; then
     LOG red "Responder not found!"
-    LOG red "Please place the included Responder tool in /root/tools/ and try again"
+    LOG red "Please place the included Responder tool in /root/payloads/user/exfiltration/Responder_Payload and try again"
     exit 1
 else
     LOG green "Responder already present."
 fi
 
 cd "$RESPONDER_DIR" || exit 1
+
 
 ############################
 # Clean old logs
