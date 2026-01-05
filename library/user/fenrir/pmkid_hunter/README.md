@@ -52,8 +52,8 @@ Not all APs support PMKID. Modern APs with updated firmware may not respond. Try
 
 ## Author
 
-FENRIR / WEAPONSMITH Agent
+JMFH / FENRIR / HaleHound
 
 ## Version
 
-1.0.0
+1.0.3
