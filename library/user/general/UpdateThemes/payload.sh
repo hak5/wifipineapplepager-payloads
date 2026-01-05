@@ -2,16 +2,16 @@
 # Title: Update Themes
 # Description: Downloads and syncs all themes from github.
 # Author: cococode
-# Version: 1.4
+# Version: 2.0
 
 # === CONFIGURATION ===
 GH_ORG="hak5"
 GH_REPO="wifipineapplepager-themes"
 GH_BRANCH="master"
 
-ZIP_URL="https://github.com/$GH_ORG/$GH_REPO/archive/refs/heads/$GH_BRANCH.zip"
+GIT_URL="https://github.com/$GH_ORG/$GH_REPO.git"
 TARGET_DIR="/mmc/root/themes"
-TEMP_DIR="/tmp/pager_update"
+CACHE_DIR="/mmc/root/pager_update_cache/UpdateThemes" # where the repo will be cloned/updated
 
 # === STATE ===
 BATCH_MODE=""           # "" (Interactive), "OVERWRITE", "SKIP"
@@ -32,35 +32,52 @@ get_dir_title() {
 
 setup() {
     LED SETUP
-    if ! which unzip > /dev/null; then
-        LOG "Installing unzip..."
+    if [ "$(opkg status git-http)" == "" ]; then
+        LOG "One-time setup: installing dependencies (git, git-http)...this will take several minutes!"
         opkg update
-        opkg install unzip
+        opkg install git git-http
     fi
 }
 
 download_themes() {
     LED ATTACK
-    LOG "Downloading from github... $GH_ORG/$GH_REPO/$GH_BRANCH"
-    rm -rf "$TEMP_DIR"
-    mkdir -p "$TEMP_DIR"
 
-    if ! wget -q --no-check-certificate "$ZIP_URL" -O "$TEMP_DIR/$GH_BRANCH.zip"; then
-        LED FAIL
-        LOG "Download Failed"
-        exit 1
+    # check local cache if it exists - does it match this config?
+    if [ -d "$CACHE_DIR" ]; then
+        cd "$CACHE_DIR"
+        local current_remote=$(git remote get-url origin)
+        if [ "$current_remote" == "$GIT_URL" ]; then
+            # remote config (upstream repo url) hasn't changed, no need to clone
+            # make sure repo is clean (users should NOT be putting things here)
+            LOG "Checking for changes (pulling latest)...\n$GH_ORG/$GH_REPO/$GH_BRANCH"
+            git reset --hard HEAD
+            git clean -df
+            git checkout $GH_BRANCH
+            if ! git pull; then
+                LOG "Could not pull. Make sure your pager is connected to the internet and try again."
+                exit 1
+            fi
+            return
+        fi
     fi
 
-    unzip -q "$TEMP_DIR/$GH_BRANCH.zip" -d "$TEMP_DIR"
+    # local cache doesn't exist or config has changed for which remote url to use
+    rm -rf "$CACHE_DIR"
+    LOG "One-time setup: cloning repo. This will take a few more minutes...\n$GH_ORG/$GH_REPO/$GH_BRANCH"
+    if ! git clone -b "$GH_BRANCH" "$GIT_URL" --depth 1 "$CACHE_DIR"; then
+        LED FAIL
+        LOG "Could not clone. Make sure your pager is connected to the internet and try again."
+        exit 1
+    fi
 }
 
 process_themes() {
     LED SPECIAL
-    local src_lib="$TEMP_DIR/$GH_REPO-$GH_BRANCH/themes"
+    local src_lib="$CACHE_DIR/themes"
 
     if [ ! -d "$src_lib" ]; then
         LED FAIL
-        LOG "Invalid Zip Structure"
+        LOG "Something is wrong with the repo structure."
         exit 1
     fi
 
@@ -158,8 +175,6 @@ perform_safe_copy() {
 }
 
 finish() {
-    rm -rf "$TEMP_DIR"
-
     LOG "\n$LOG_BUFFER"
     LOG "Done: $COUNT_NEW New, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
 }
