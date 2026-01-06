@@ -1,4 +1,4 @@
-is this correct - #!/bin/bash
+#!/bin/bash
 # Title: Recon Device Hunter 
 # Description: Auto-hunt a selected AP from Recon and display SSID
 # Author: RocketGod + Notorious Squirrel (sidekick)
