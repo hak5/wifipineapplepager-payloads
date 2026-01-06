@@ -176,46 +176,25 @@ TRIM_CODE
     # Build metadata for confirmation dialog
     cat >> "$payload_file" << 'METADATA_START'
 
-# Build metadata string
-METADATA="{{DESCRIPTION}}
-Author: {{AUTHOR}}"
+# Build metadata string (just names, no values)
+METADATA="{{DESCRIPTION}}"
 METADATA_START
     
     sed -i "s|{{DESCRIPTION}}|${description}|g" "$payload_file"
-    sed -i "s|{{AUTHOR}}|${author}|g" "$payload_file"
     
-    # Add required vars to metadata only if they exist
+    # Add required var names (without values) to metadata
     if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
         local req_var_count=$(echo "$required_vars" | jq 'length')
         if [ "$req_var_count" -gt 0 ]; then
             cat >> "$payload_file" << 'METADATA_REQUIRED_HEADER'
 
 METADATA="$METADATA
-
-Required Variables:"
+"
 METADATA_REQUIRED_HEADER
             
             echo "$required_vars" | jq -r '.[]' | while read -r var; do
                 echo "METADATA=\"\$METADATA" >> "$payload_file"
-                echo "  $var: \${$var:-<not set>}\"" >> "$payload_file"
-            done
-        fi
-    fi
-    
-    # Add optional vars to metadata only if they exist
-    if [ -n "$optional_vars" ] && [ "$optional_vars" != "null" ] && [ "$optional_vars" != "{}" ]; then
-        local opt_var_count=$(echo "$optional_vars" | jq 'length')
-        if [ "$opt_var_count" -gt 0 ]; then
-            cat >> "$payload_file" << 'METADATA_OPTIONAL'
-
-METADATA="$METADATA
-
-Optional Variables:"
-METADATA_OPTIONAL
-    
-            echo "$optional_vars" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r var default; do
-                echo "METADATA=\"\$METADATA" >> "$payload_file"
-                echo "  $var: \${$var:-$default}\"" >> "$payload_file"
+                echo "[$var]\"" >> "$payload_file"
             done
         fi
     fi
@@ -253,13 +232,13 @@ CONFIRMATION
 REQUIRED_PACKAGES=({{PACKAGE_LIST}})
 MISSING_PACKAGES=()
 
-LOG "Checking required packages..."
+LOG purple "Checking required packages..."
 for pkg in "${REQUIRED_PACKAGES[@]}"; do
     if ! opkg list-installed | grep -q "^${pkg} "; then
         LOG yellow "Package not installed: $pkg"
         MISSING_PACKAGES+=("$pkg")
     else
-        LOG green "Package installed: $pkg"
+        LOG purple "Package installed: $pkg"
     fi
 done
 
@@ -347,8 +326,32 @@ OPT_VAR_DEFAULT
     if [ "$has_vars" = true ]; then
         cat >> "$payload_file" << 'VAR_CHANGE_PROMPT'
 
+# Build detailed metadata with all variables and values
+DETAILED_METADATA=""
+VAR_CHANGE_PROMPT
+
+        # Add required vars with values to detailed metadata
+        if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
+            echo "$required_vars" | jq -r '.[]' | while read -r var; do
+                echo "DETAILED_METADATA=\"\$DETAILED_METADATA" >> "$payload_file"
+                echo "  [$var]: \${$var:-<not set>}\"" >> "$payload_file"
+            done
+        fi
+        
+        # Add optional vars with values to detailed metadata
+        if [ -n "$optional_vars" ] && [ "$optional_vars" != "null" ] && [ "$optional_vars" != "{}" ]; then
+            echo "$optional_vars" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r var default; do
+                echo "DETAILED_METADATA=\"\$DETAILED_METADATA" >> "$payload_file"
+                echo "  $var: \${$var:-$default}\"" >> "$payload_file"
+            done
+        fi
+        
+        cat >> "$payload_file" << 'VAR_CHANGE_DIALOG'
+
 # Ask if user wants to change any variables
-change_vars=$(CONFIRMATION_DIALOG "Change variables?")
+change_vars=$(CONFIRMATION_DIALOG "$DETAILED_METADATA" "
+
+Change variables?")
 case $? in
     $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         LOG red "Error in dialog"
@@ -357,7 +360,7 @@ case $? in
 esac
 
 if [ "$change_vars" == "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-VAR_CHANGE_PROMPT
+VAR_CHANGE_DIALOG
     fi
     
     # Handle required variables
@@ -652,7 +655,7 @@ source "$TASK_META"
 # Show task info
 LOG purple "Task ID: $TASK_ID"
 LOG purple "PID: $TASK_PID"
-LOG purple "Command: $TASK_CMD"
+LOG cyan "Command: $TASK_CMD"
 LOG purple "Status: $TASK_STATUS"
 LOG purple "Started: $TASK_START_TIME"
 if [ -n "$TASK_END_TIME" ]; then
@@ -670,10 +673,10 @@ if [ -n "$TASK_PID" ] && kill -0 "$TASK_PID" 2>/dev/null; then
 fi
 
 LOG "Log tail:"
-LOG "$(tail -n 10 "$TASK_LOG")"
-
-LOG yellow "Waiting for input..."
-LOG yellow "LEFT:Exit | RIGHT:Export | DOWN:Delete Task"
+LOG "$(tail -n 25 "$TASK_LOG")"
+LOG ""
+LOG yellow "[ LEFT:View | RIGHT:Export | DOWN:Del Task ]"
+LOG orange ">"
 
 resp=$(WAIT_FOR_INPUT "Press directional button or B to cancel")
 case $? in
@@ -706,7 +709,7 @@ case "$resp" in
     "DOWN")
         # Delete task
         LOG "Delete task"
-        resp=$(CONFIRMATION_DIALOG "Delete task $TASK_ID?" "This will remove all task data")
+        resp=$(CONFIRMATION_DIALOG "Delete task $TASK_ID?" "This will remove all task data and logs.")
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
                 LOG red "Error in dialog"
@@ -746,7 +749,7 @@ MGMT_PAYLOAD_EOF
 
     sed -i "s|TASK_ID_PLACEHOLDER|${task_id}|g" "$mgmt_payload_file"
     chmod +x "$mgmt_payload_file"
-    LOG green "Created management payload for task $task_id"
+    LOG green "Created mgmt payload for task $task_id"
 }
 
 # Function to handle backgrounding
@@ -786,13 +789,12 @@ TASK_END_TIME=""
 TASK_PID=$$
 META_EOF
 
-LOG purple "$CMD"
+LOG cyan "$CMD"
 echo "=== Command: $CMD ===" > "$TASK_LOG"
 echo "=== Started: $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$TASK_LOG"
 echo "" >> "$TASK_LOG"
 
-LOG cyan "[Task Output - LEFT:background ]"
-LOG yellow "B will orphan the task!"
+LOG yellow "[ PRESS LEFT TO BACKGROUND THE TASK ]"
 
 # Execute command in background with output streaming and completion handling
 (
@@ -817,11 +819,12 @@ LOG yellow "B will orphan the task!"
             echo "TASK_EXIT_CODE=$exit_code" >> "$TASK_META"
             
             # Send alert for backgrounded task completion
-            RINGTONE leveldone
             if [ $exit_code -eq 0 ]; then
                 ALERT "Task $TASK_ID completed successfully"
+                RINGTONE leveldone
             else
                 ALERT "Task $TASK_ID completed with errors (Exit $exit_code)"
+                RINGTONE error
             fi
         fi
     fi
@@ -837,20 +840,27 @@ CMD_PID=$!
         button=$(WAIT_FOR_INPUT 2>/dev/null)
         button_exit=$?
         
-        if [ $button_exit -eq 0 ]; then
-            case "$button" in
-                "LEFT")
-                    # Signal parent to background
-                    touch "$TASK_DIR/$TASK_ID.background"
-                    break
-                    ;;
-                "B")
-                    # Signal parent to terminate
-                    touch "$TASK_DIR/$TASK_ID.terminate"
-                    break
-                    ;;
-            esac
-        fi
+        # Handle button press regardless of exit code to avoid missing inputs
+        case "$button" in
+            "LEFT")
+                # Signal parent to background
+                RINGTONE getkey
+                touch "$TASK_DIR/$TASK_ID.background"
+                break
+                ;;
+            "B")
+                # Signal parent to terminate
+                RINGTONE bonus
+                touch "$TASK_DIR/$TASK_ID.terminate"
+                break
+                ;;
+            *)
+                # If no valid button or error, add small delay to prevent busy-waiting
+                if [ $button_exit -ne 0 ] || [ -z "$button" ]; then
+                    sleep 0.1
+                fi
+                ;;
+        esac
     done
 ) &
 INPUT_PID=$!
@@ -868,11 +878,27 @@ while kill -0 $CMD_PID 2>/dev/null; do
     # Check for terminate signal
     if [ -f "$TASK_DIR/$TASK_ID.terminate" ]; then
         rm -f "$TASK_DIR/$TASK_ID.terminate"
-        LOG yellow "Exiting (task will continue)..."
+        LOG yellow "Terminating task..."
         kill $INPUT_PID 2>/dev/null
         wait $INPUT_PID 2>/dev/null
-        EXIT_CODE=130
-        break
+        
+        # Kill the command process
+        kill $CMD_PID 2>/dev/null
+        sleep 0.5
+        kill -9 $CMD_PID 2>/dev/null
+        
+        # Update metadata
+        echo "" >> "$TASK_LOG"
+        echo "=== Terminated: $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$TASK_LOG"
+        
+        cat >> "$TASK_META" << META_TERM_EOF
+TASK_END_TIME="$(date '+%Y-%m-%d %H:%M:%S')"
+TASK_STATUS="terminated"
+TASK_EXIT_CODE=130
+META_TERM_EOF
+        
+        LOG red "Task terminated"
+        exit 130
     fi
     
     sleep 0.2
@@ -908,8 +934,10 @@ META_END_EOF
     # Log results
     if [ $EXIT_CODE -eq 0 ]; then
         LOG green "══ Task Complete: Exit $EXIT_CODE (Success) ══"
+        RINGTONE leveldone
     else
         LOG red "══ Task Complete: Exit $EXIT_CODE (Failed) ══"
+        RINGTONE error
     fi
     
     # Create management payload for viewing logs
@@ -917,9 +945,8 @@ META_END_EOF
     
     # Post-completion menu
     LOG yellow "Waiting for input..."
-    LOG yellow "LEFT:Exit | RIGHT:Export | DOWN:Delete Task"
-
-    RINGTONE leveldone
+    LOG yellow "[ LEFT:View | RIGHT:Export | DOWN:Del Task ]"
+    LOG orange ">"
     
     resp=$(WAIT_FOR_INPUT)
     case $? in

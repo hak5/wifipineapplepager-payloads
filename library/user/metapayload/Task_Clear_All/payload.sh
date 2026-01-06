@@ -78,7 +78,7 @@ resp=$(CONFIRMATION_DIALOG "Clear All Tasks?
 
 This will:
 • Kill all running task processes
-• Delete all task data (.meta and .log files)
+• Delete all task data and logs
 • Remove all task management payloads
 
 Found: $TASK_COUNT task(s)")
