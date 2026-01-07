@@ -156,6 +156,8 @@ PAYLOAD_HEADER
     sed -i "s|{{AUTHOR}}|${author}|g" "$payload_file"
     sed -i "s|{{PAYLOAD_DIR}}|${payload_dir}|g" "$payload_file"
     
+    local sanitized_name=$(echo "$name" | tr -s ' ' '_' | tr -cd 'A-Za-z0-9_' | sed 's/__*/_/g; s/^_//; s/_$//')
+    
     # Add variable trimming code for this payload's variables
     if [ -n "$all_vars_list" ]; then
         cat >> "$payload_file" << 'TRIM_CODE'
@@ -191,7 +193,7 @@ METADATA_START
 METADATA="$METADATA
 "
 METADATA_REQUIRED_HEADER
-            
+            echo "Required:" >> "$payload_file"
             echo "$required_vars" | jq -r '.[]' | while read -r var; do
                 echo "METADATA=\"\$METADATA" >> "$payload_file"
                 echo "[$var]\"" >> "$payload_file"
@@ -322,7 +324,79 @@ OPT_VAR_DEFAULT
         done
     fi
     
-    # Ask if user wants to change any variables (required or optional)
+    # PHASE 1: Handle unset required variables immediately
+    if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
+        echo "$required_vars" | jq -r '.[]' | while read -r var; do
+            local picker_type=$(detect_picker_type "$var" "")
+            
+            cat >> "$payload_file" << REQ_VAR_IMMEDIATE
+# Check if required variable $var is unset - prompt immediately
+if [ -z "\${$var}" ]; then
+    resp=\$($picker_type "Enter $var (required)" "\${$var}")
+    case \$? in
+        \$DUCKYSCRIPT_CANCELLED|\$DUCKYSCRIPT_REJECTED|\$DUCKYSCRIPT_ERROR)
+            LOG red "Required variable $var must be set"
+            exit 1
+            ;;
+        *)
+            export $var="\$resp"
+            
+            # Check if this is a global variable
+            if grep -q "^${var}=" "\$METAPAYLOAD_DIR/.env" 2>/dev/null; then
+                # Global variable - ask to update globally or use once
+                save_resp=\$(CONFIRMATION_DIALOG "Update global $var?" "YES: Update global variable\nNO: Use for this run only")
+                case \$? in
+                    \$DUCKYSCRIPT_REJECTED|\$DUCKYSCRIPT_ERROR)
+                        LOG "Using $var for this run only"
+                        ;;
+                    *)
+                        case "\$save_resp" in
+                            \$DUCKYSCRIPT_USER_CONFIRMED)
+                                # Update global variable
+                                sed -i "s|^${var}=.*|${var}=\$resp|" "\$METAPAYLOAD_DIR/.env"
+                                LOG green "Updated global $var"
+                                ;;
+                            \$DUCKYSCRIPT_USER_DENIED)
+                                LOG "Using $var for this run only"
+                                ;;
+                        esac
+                        ;;
+                esac
+            else
+                # Local variable - ask to save locally or use once
+                save_resp=\$(CONFIRMATION_DIALOG "Save $var?" "YES: Save for this payload\nNO: Use for this run only")
+                case \$? in
+                    \$DUCKYSCRIPT_REJECTED|\$DUCKYSCRIPT_ERROR)
+                        LOG "Using $var for this run only"
+                        ;;
+                    *)
+                        case "\$save_resp" in
+                            \$DUCKYSCRIPT_USER_CONFIRMED)
+                                # Save to local payload .env
+                                mkdir -p "\$PAYLOAD_DIR"
+                                if grep -q "^${var}=" "\$PAYLOAD_ENV" 2>/dev/null; then
+                                    sed -i "s|^${var}=.*|${var}=\$resp|" "\$PAYLOAD_ENV"
+                                else
+                                    echo "${var}=\$resp" >> "\$PAYLOAD_ENV"
+                                fi
+                                LOG green "Saved $var locally"
+                                ;;
+                            \$DUCKYSCRIPT_USER_DENIED)
+                                LOG "Using $var for this run only"
+                                ;;
+                        esac
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+fi
+
+REQ_VAR_IMMEDIATE
+        done
+    fi
+    
+    # PHASE 2: Ask if user wants to change any variables (if there are any)
     if [ "$has_vars" = true ]; then
         cat >> "$payload_file" << 'VAR_CHANGE_PROMPT'
 
@@ -334,7 +408,7 @@ VAR_CHANGE_PROMPT
         if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
             echo "$required_vars" | jq -r '.[]' | while read -r var; do
                 echo "DETAILED_METADATA=\"\$DETAILED_METADATA" >> "$payload_file"
-                echo "  [$var]: \${$var:-<not set>}\"" >> "$payload_file"
+                echo "  [$var]: \${$var}\"" >> "$payload_file"
             done
         fi
         
@@ -342,7 +416,7 @@ VAR_CHANGE_PROMPT
         if [ -n "$optional_vars" ] && [ "$optional_vars" != "null" ] && [ "$optional_vars" != "{}" ]; then
             echo "$optional_vars" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r var default; do
                 echo "DETAILED_METADATA=\"\$DETAILED_METADATA" >> "$payload_file"
-                echo "  $var: \${$var:-$default}\"" >> "$payload_file"
+                echo "  $var: \${$var}\"" >> "$payload_file"
             done
         fi
         
@@ -361,18 +435,16 @@ esac
 
 if [ "$change_vars" == "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
 VAR_CHANGE_DIALOG
-    fi
     
-    # Handle required variables
-    if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
-
-        echo "$required_vars" | jq -r '.[]' | while read -r var; do
-            local picker_type=$(detect_picker_type "$var" "")
-            local var_label="$var (required)"
-            
-            cat >> "$payload_file" << REQ_VAR_CHECK
+        # Handle required variables (that are already set)
+        if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
+            echo "$required_vars" | jq -r '.[]' | while read -r var; do
+                local picker_type=$(detect_picker_type "$var" "")
+                local var_label="$var (required)"
+                
+                cat >> "$payload_file" << REQ_VAR_CHANGE
     # Ask about required variable: $var
-    resp=\$(CONFIRMATION_DIALOG "Change $var_label? (current: \${$var:-<not set>})")
+    resp=\$(CONFIRMATION_DIALOG "Change $var_label? (current: \${$var})")
     case \$? in
         \$DUCKYSCRIPT_REJECTED|\$DUCKYSCRIPT_ERROR)
             LOG red "Error in dialog"
@@ -442,16 +514,16 @@ VAR_CHANGE_DIALOG
             ;;
     esac
 
-REQ_VAR_CHECK
-        done
-    fi
-    
-    # Handle optional variables
-    if [ -n "$optional_vars" ] && [ "$optional_vars" != "null" ] && [ "$optional_vars" != "{}" ]; then
-        echo "$optional_vars" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r var default; do
-            local picker_type=$(detect_picker_type "$var" "$default")
-            
-            cat >> "$payload_file" << OPT_VAR_CHECK
+REQ_VAR_CHANGE
+            done
+        fi
+        
+        # Handle optional variables
+        if [ -n "$optional_vars" ] && [ "$optional_vars" != "null" ] && [ "$optional_vars" != "{}" ]; then
+            echo "$optional_vars" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS='=' read -r var default; do
+                local picker_type=$(detect_picker_type "$var" "$default")
+                
+                cat >> "$payload_file" << OPT_VAR_CHANGE
     # Ask about optional variable: $var
     resp=\$(CONFIRMATION_DIALOG "Change $var? (current: \${$var})")
     case \$? in
@@ -523,12 +595,11 @@ REQ_VAR_CHECK
             ;;
     esac
 
-OPT_VAR_CHECK
-        done
-    fi
-    
-    # Close the variable change block
-    if [ "$has_vars" = true ]; then
+OPT_VAR_CHANGE
+            done
+        fi
+        
+        # Close the variable change block
         cat >> "$payload_file" << 'VAR_CHANGE_END'
 fi
 
@@ -557,13 +628,36 @@ VAR_VALIDATE_END
 
 # Task Management Setup
 TASK_DIR="/root/payloads/user/metapayload/.tasks"
-TASK_ID="$(date +%s)_$$"
+PAYLOAD_NAME="{{PAYLOAD_NAME_SANITIZED}}"
+COUNTER_FILE="$TASK_DIR/.counter"
+
+mkdir -p "$TASK_DIR"
+
+# Read and increment task counter atomically (for unique task IDs)
+(
+    flock -x 200
+    
+    # Read current counter (default to 0)
+    COUNTER=0
+    if [ -f "$COUNTER_FILE" ]; then
+        COUNTER=$(cat "$COUNTER_FILE")
+    fi
+    
+    # Increment and write back
+    COUNTER=$((COUNTER + 1))
+    echo "$COUNTER" > "$COUNTER_FILE"
+    
+    # Output counter for use in main script
+    echo "$COUNTER"
+) 200>"$TASK_DIR/.counter.lock"
+
+COUNTER=$(cat "$COUNTER_FILE")
+
+TASK_ID="$(printf '%02d' $COUNTER)-${PAYLOAD_NAME}"
 TASK_LOG="$TASK_DIR/$TASK_ID.log"
 TASK_META="$TASK_DIR/$TASK_ID.meta"
 MGMT_DIR="/root/payloads/user/metapayload"
 BACKGROUNDED=false
-
-mkdir -p "$TASK_DIR"
 
 # Function to create management payload
 create_management_payload() {
@@ -675,8 +769,8 @@ fi
 LOG "Log tail:"
 LOG "$(tail -n 25 "$TASK_LOG")"
 LOG ""
-LOG yellow "[ LEFT:View | RIGHT:Export | DOWN:Del Task ]"
-LOG orange ">"
+LOG yellow "# LEFT:View | RIGHT:Export | DOWN:Delete Task #"
+LOG yellow "#->"
 
 resp=$(WAIT_FOR_INPUT "Press directional button or B to cancel")
 case $? in
@@ -691,10 +785,11 @@ esac
 
 case "$resp" in
     "LEFT")
-        LOG "Exiting..."
+        RINGTONE leveldone
+        LOG cyan "#--> View log"
         ;;
     "RIGHT")
-        LOG "Export log"
+        LOG cyan "#--> Export log"
         if [ -f "$TASK_LOG" ]; then
             mkdir -p /root/loot/metapayload
             cp "$TASK_LOG" "/root/loot/metapayload/${TASK_ID}_export.log"
@@ -704,11 +799,12 @@ case "$resp" in
         fi
         ;;
     "UP")
-        LOG "Exiting..."
+        RINGTONE leveldone
         ;;
     "DOWN")
         # Delete task
-        LOG "Delete task"
+        RINGTONE bonus
+        LOG cyan "#--> Delete task..."
         resp=$(CONFIRMATION_DIALOG "Delete task $TASK_ID?" "This will remove all task data and logs.")
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
@@ -774,6 +870,9 @@ background_task() {
 # Execute command
 EXEC_CMD
     
+    # Replace payload name placeholder in EXEC_CMD section
+    sed -i "s|{{PAYLOAD_NAME_SANITIZED}}|${sanitized_name}|g" "$payload_file"
+    
     # Properly escape the command for the payload script
     printf 'CMD="%s"\n' "$command" >> "$payload_file"
     
@@ -794,7 +893,7 @@ echo "=== Command: $CMD ===" > "$TASK_LOG"
 echo "=== Started: $(date '+%Y-%m-%d %H:%M:%S') ===" >> "$TASK_LOG"
 echo "" >> "$TASK_LOG"
 
-LOG yellow "[ PRESS LEFT TO BACKGROUND THE TASK ]"
+LOG yellow "[ ** PRESS LEFT TO BACKGROUND THE TASK ** ]"
 
 # Execute command in background with output streaming and completion handling
 (
@@ -944,9 +1043,8 @@ META_END_EOF
     create_management_payload "$TASK_ID"
     
     # Post-completion menu
-    LOG yellow "Waiting for input..."
-    LOG yellow "[ LEFT:View | RIGHT:Export | DOWN:Del Task ]"
-    LOG orange ">"
+    LOG yellow "# LEFT:View | RIGHT:Export | DOWN:Delete Task #"
+    LOG yellow "#->"
     
     resp=$(WAIT_FOR_INPUT)
     case $? in
@@ -961,11 +1059,13 @@ META_END_EOF
     
     case "$resp" in
         "LEFT")
-            LOG "Exiting"
+            RINGTONE getkey
+            LOG cyan "#--> View log"
             ;;
         "RIGHT")
-            LOG "Exporting log to loot..."
             # Export log
+            RINGTONE getkey
+            LOG cyan "#--> Export log"
             mkdir -p /root/loot/metapayload
             cp "$TASK_LOG" "/root/loot/metapayload/${TASK_ID}_export.log"
             LOG green "Exported to /root/loot/metapayload/${TASK_ID}_export.log"
@@ -973,7 +1073,8 @@ META_END_EOF
             ;;
         "DOWN")
             # Delete task
-            LOG "Delete task"
+            RINGTONE bonus
+            LOG cyan "#--> Delete task..."
             resp=$(CONFIRMATION_DIALOG "Delete this task?" "This will remove all task data")
             case $? in
                 $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
@@ -995,7 +1096,7 @@ META_END_EOF
             esac
             ;;
         "B")
-            LOG "Exiting"
+            RINGTONE bonus
             ;;
     esac
     
