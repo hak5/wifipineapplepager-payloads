@@ -20,27 +20,56 @@ Already included are many powerful payload definitions, making MetaPayload a ver
 - 🚀 **Beyond Reconnaissance**: While focused on reconnaissance, MetaPayload's flexible design allows for adaptation to other use cases.  Any command line tool chain can be integrated, with customizable payload destination (including the 'client' and 'access_point' targeted payload categories.)
 
 ## Included Payload Packs 📦
+
 ### MetaPayload Recon 
-metapayload_recon.json includes a variety of reconnaissance-focused payloads powered by nmap and arp-scan. These payloads provide everything from quick network discovery to comprehensive port scanning and service detection.
+metapayload_recon.json includes a variety of reconnaissance-focused payloads powered by nmap and arp-scan.  These payloads provide everything from quick network discovery to comprehensive port scanning and service detection.
 
 #### Quick Reconnaissance
-- **MP-Quick Hosts Scan**: Fast host discovery scan on target subnet using ARP ping for local networks. Ideal for quickly identifying live hosts without port scanning overhead.
+- **MP-Quick Hosts Scan**: Fast host discovery scan on target subnet using ARP ping for local networks.  Ideal for quickly identifying live hosts without port scanning overhead. 
 
 - **MP-ARP Network Scan**: Lightning-fast ARP-based network discovery with vendor MAC address identification. Uses arp-scan for efficient local network enumeration.
 
 #### Port Scanning
-- **MP-Top Ports Scan**: Quick SYN port scan targeting the most common ports. Perfect for initial reconnaissance of a specific target.
+- **MP-Top Ports Scan**: Quick SYN port scan targeting the most common ports.  Perfect for initial reconnaissance of a specific target.
 
-- **MP-Full Port Scan**: Comprehensive SYN scan of all 65535 TCP ports. Slower but thorough.
+- **MP-Full Port Scan**: Comprehensive SYN scan of all 65535 TCP ports. Slower but thorough. 
 
-- **MP-UDP Port Scan**: Scan most common UDP ports. Note: UDP scans are inherently slow due to protocol characteristics.
+- **MP-UDP Port Scan**: Scan most common UDP ports.  Note: UDP scans are inherently slow due to protocol characteristics.
 
 - **MP-Network Port Sweep**: Two-stage intelligent scan that first performs fast ARP host discovery, then port scans only live hosts. Optimizes time by avoiding scans of inactive addresses.
+
+- **MP-Network Web Sweep**: Sweep entire subnet for web servers and extract page titles. 
 
 #### Service & OS Detection
 - **MP-Service Version Detection**: Detect service versions running on open ports with configurable probing intensity.
 
-- **MP-OS Detection**: Identify target operating system and version using TCP/IP stack fingerprinting.
+- **MP-OS Detection**: Identify target operating system and version using TCP/IP stack fingerprinting. 
+
+
+### MetaPayload System Utils
+metapayload_sys_utils.json provides essential system administration and diagnostic utilities for the WiFi Pineapple Pager.
+
+#### System Monitoring
+- **System Information**: Comprehensive system information summary (kernel, uptime, memory, CPU).
+
+- **Disk Usage (df)**: Display filesystem usage and identify largest directories.
+
+- **Process List (ps)**: Display running processes list with specified number of lines.
+
+- **Top Processes (top)**: Display top processes snapshot with CPU and memory usage. 
+
+- **Process Grep (pgrep)**: Search for processes by name pattern.
+
+#### Network Utilities
+- **Network Connections (netstat)**: Display active network connections and listening ports.
+
+#### File Operations
+- **Find Files by Name (find)**: Recursively search for files by name pattern.
+
+- **Find File Content (grep -r)**: Recursively search file contents for pattern.
+
+#### Package Management
+- **Install Package (opkg)**: Update package lists and install a specific package via opkg. 
 
 
 ## Core Payloads 🔨
@@ -175,9 +204,9 @@ The system automatically selects the appropriate UI picker based on variable nam
 - Selectable export types when exporting task logs (loot folder, Discord, etc)
 - Existing payload wrapper - to allow other payloads to be run within the metapayload framework
 - YAML configuration support
+- Refactoring for maintainability
 
 ## Known Issues (planned to fix)
 - Backgrounded tasks may produce log output into other payloads' logs if multiple tasks are running simultaneously. 
 - Directional button responsiveness when trying to background a running task can be inconsistent; multiple presses may be required.
-- Exiting the payload execution screen while a task is running will orphan the task, making it unmanageable via Task Manager. Use the BACKGROUND (LEFT button) instead of B button to exit running payloads.
 - Killing running tasks via the task management payloads is a bit slow; please be patient for now. 
