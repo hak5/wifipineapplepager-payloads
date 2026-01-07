@@ -5,7 +5,11 @@
 # Version: 1.0
 # "The compass has faded, have i lost my way? or is the way no longer here..."
 
+#REM
+# writes to log.
+LOG green "LED Power Off Sequence Initiated..."
 
+LOG green "Turning off B+A button LED's."
 
 #REM
 # The lines below will turn off A+B button LEDs.
@@ -16,6 +20,10 @@ echo 0 > /sys/devices/platform/leds/leds/a-button-led/brightness
 
 #REM
 # The lines below will turn off d-pad LEDs only for a moment...seems your best bet is to set the d-pads LEDs in your pagers general settings.
+
+#REM
+# writes to log.
+LOG green "Turning off D-pad LED's."
 
  echo 0 > /sys/devices/platform/leds/leds/down-led-blue/brightness
  echo 0 > /sys/devices/platform/leds/leds/down-led-green/brightness
