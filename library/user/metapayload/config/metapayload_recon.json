@@ -128,6 +128,20 @@
       "required_packages": [],
       "description": "Two-stage scan: fast ARP host discovery, then port scan only live hosts (nmap)",
       "author": "MetaPayload"
+    },
+    {
+      "name": "Network Web Sweep",
+      "path": "user/metapayload_webapp_scan/Network_Web_Sweep",
+      "command": "echo 'Finding web servers on subnet...' && nmap -sS -p $WEBPORTS $TARGET_SUBNET --open -n -oG - | grep 'Ports: ' | awk '{print \\$2}' > /tmp/web_hosts.txt && if [ -s /tmp/web_hosts.txt ]; then echo 'Found hosts:' && cat /tmp/web_hosts.txt && echo '\\n=== Extracting titles ===' && while read host; do echo \\\"\\n[\\$host]\\\"; curl -sk -m 3 https://\\$host 2>/dev/null | grep -o '<title>.*</title>' | head -1 || curl -s -m 3 http://\\$host 2>/dev/null | grep -o '<title>.*</title>' | head -1; done < /tmp/web_hosts.txt; else echo 'No web servers found on subnet'; fi",
+      "required_vars": [
+        "TARGET_SUBNET"
+      ],
+      "optional_vars": {
+        "WEBPORTS": "80,443,8080,8443,8000,8888,9000,9090"
+      },
+      "required_packages": [],
+      "description": "Sweep entire subnet for web servers and extract page titles",
+      "author": "MetaPayload"
     }
   ]
 }
