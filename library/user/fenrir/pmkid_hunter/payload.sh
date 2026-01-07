@@ -82,13 +82,14 @@ check_tools() {
 
 install_tools() {
     LOG "Installing hcxdumptool and hcxtools..."
-    local spinner_id=$(START_SPINNER "Installing tools...")
-
-    opkg update >/dev/null 2>&1
-    opkg install hcxdumptool >/dev/null 2>&1
-    opkg install hcxtools >/dev/null 2>&1
-
-    STOP_SPINNER "$spinner_id"
+    LOG ""
+    LOG "Updating package lists..."
+    timeout 60 opkg update >/dev/null 2>&1
+    LOG "Installing hcxdumptool..."
+    timeout 120 opkg install hcxdumptool >/dev/null 2>&1
+    LOG "Installing hcxtools..."
+    timeout 120 opkg install hcxtools >/dev/null 2>&1
+    LOG ""
 
     if check_tools; then
         LOG "Tools installed successfully"
@@ -97,21 +98,6 @@ install_tools() {
         LOG "Installation failed"
         return 1
     fi
-}
-
-# === NON-BLOCKING BUTTON CHECK ===
-check_for_stop() {
-    local data=$(timeout 0.02 dd if=$INPUT bs=16 count=1 2>/dev/null | hexdump -e '16/1 "%02x "' 2>/dev/null)
-    [ -z "$data" ] && return 1
-    local type=$(echo "$data" | cut -d' ' -f9-10)
-    local value=$(echo "$data" | cut -d' ' -f13)
-    local keycode=$(echo "$data" | cut -d' ' -f11-12)
-    if [ "$type" = "01 00" ] && [ "$value" = "01" ]; then
-        if [ "$keycode" = "31 01" ] || [ "$keycode" = "30 01" ]; then
-            return 0
-        fi
-    fi
-    return 1
 }
 
 # === TARGET SELECTION ===
@@ -123,11 +109,11 @@ TOTAL_APS=0
 
 scan_targets() {
     LOG "Scanning for targets..."
-    local spinner_id=$(START_SPINNER "Scanning APs...")
+    SCAN_ID=$(START_SPINNER "Scanning APs...")
 
     local json=$(_pineap RECON APS limit=30 format=json)
 
-    STOP_SPINNER "$spinner_id"
+    STOP_SPINNER "$SCAN_ID"
 
     AP_MACS=()
     AP_SSIDS=()
@@ -320,11 +306,11 @@ capture_pmkid() {
 
     # Convert to hashcat format
     LOG "Converting to hashcat format..."
-    local spinner_id=$(START_SPINNER "Converting...")
+    CONV_ID=$(START_SPINNER "Converting...")
 
     hcxpcapngtool -o "$hashfile" -E "$LOOTDIR/essid_${timestamp}.txt" "$capfile" 2>/tmp/convert_status
 
-    STOP_SPINNER "$spinner_id"
+    STOP_SPINNER "$CONV_ID"
 
     # Count results
     local hash_count=0
@@ -429,8 +415,6 @@ LOG "Tools ready"
 LOG ""
 
 # Mode selection
-ALERT "PMKID Hunter\n\nSelect attack mode"
-
 mode_choice=$(CONFIRMATION_DIALOG "Scan ALL nearby APs?\n\nYes = Capture from all APs\nNo = Select specific target")
 case $? in
     $DUCKYSCRIPT_CANCELLED)
