@@ -19,11 +19,11 @@ echo 0 > /sys/devices/platform/leds/leds/b-button-led/brightness
 echo 0 > /sys/devices/platform/leds/leds/a-button-led/brightness
 
 #REM
-# The lines below will turn off d-pad LEDs only for a moment...seems your best bet is to set the d-pads LEDs in your pagers general settings.
-
-#REM
 # writes to log.
 LOG green "Turning off D-pad LED's."
+
+#REM
+# The lines below will turn off d-pad LEDs only for a moment...seems your best bet is to set the d-pads LEDs in your pagers general settings.
 
  echo 0 > /sys/devices/platform/leds/leds/down-led-blue/brightness
  echo 0 > /sys/devices/platform/leds/leds/down-led-green/brightness
