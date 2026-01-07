@@ -16,7 +16,7 @@
       "command": "df -h && echo && echo '--- Largest Directories ---' && du $TARGET_PATH | sort -nr | head -n 15",
       "required_vars": [],
       "optional_vars": {
-        "TARGET_PATH": "/"
+        "TARGET_PATH": "/mmc/root"
       },
       "required_packages": [],
       "description": "Display filesystem usage and identify largest directories",
