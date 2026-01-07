@@ -7,6 +7,8 @@
 METAPAYLOAD_DIR="/root/payloads/user/metapayload"
 CONFIG_DIR="$METAPAYLOAD_DIR/config"
 
+LOG yellow "/\/\ MetaPayload Framework"
+
 LOG "Scanning MetaPayload payload configurations..."
 
 # Verify config directory exists
@@ -49,7 +51,7 @@ for config_file in "$CONFIG_DIR"/*.json; do
         continue
     fi
     
-    LOG "Processing: $(basename "$config_file")"
+    LOG orange "Processing: $(basename "$config_file")"
     
     # Read payloads from config
     payload_count=$(jq '.payloads | length' "$config_file" 2>/dev/null)
@@ -77,12 +79,7 @@ for config_file in "$CONFIG_DIR"/*.json; do
         
         # Display payload info
         LOG ""
-        LOG "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        LOG purple "${name}"
-        LOG "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        LOG "Path: ${path}"
-        LOG yellow "Description: ${description}"
-        LOG "Required Variables: ${req_vars_str}"
+        LOG cyan "${name}"
     done
 done
 

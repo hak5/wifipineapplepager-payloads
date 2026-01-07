@@ -98,7 +98,7 @@
       "author": "MetaPayload"
     },
     {
-      "name": "ARP Network Scan w Vendor",
+      "name": "ARP Network Scan (arp-scan)",
       "path": "user/metapayload_recon/ARP_Network_Scan",
       "command": "arp-scan -I $INTERFACE --localnet --macfile /usr/share/arp-scan/mac-vendor.txt",
       "required_vars": [],

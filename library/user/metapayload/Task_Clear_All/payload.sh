@@ -7,6 +7,8 @@
 TASK_DIR="/root/payloads/user/metapayload/.tasks"
 MGMT_DIR="/root/payloads/user/metapayload"
 
+LOG yellow "/\/\ MetaPayload Framework"
+
 # Function to recursively find all descendant PIDs
 get_descendants() {
     local parent_pid="$1"
@@ -69,7 +71,7 @@ fi
 TASK_COUNT=$(find "$TASK_DIR" -name "*.meta" 2>/dev/null | wc -l)
 
 if [ "$TASK_COUNT" -eq 0 ]; then
-    LOG cyan "No tasks found. Nothing to clear."
+    LOG yellow "No tasks found. Nothing to clear."
     exit 0
 fi
 
@@ -108,7 +110,7 @@ MGMT_PAYLOADS_REMOVED=0
 FAILED_OPERATIONS=0
 
 # Step 1: Kill all running task processes
-LOG yellow "Step 1: Terminating running task processes..."
+LOG cyan "Step 1: Terminating running task processes..."
 
 shopt -s nullglob
 for meta_file in "$TASK_DIR"/*.meta; do
@@ -148,7 +150,7 @@ fi
 LOG ""
 
 # Step 2: Delete all task data files
-LOG yellow "Step 2: Deleting task data files..."
+LOG cyan "Step 2: Deleting task data files..."
 
 for meta_file in "$TASK_DIR"/*.meta; do
     [ -f "$meta_file" ] || continue
@@ -185,7 +187,7 @@ fi
 LOG ""
 
 # Step 3: Remove all task management payloads
-LOG yellow "Step 3: Removing task management payloads..."
+LOG cyan "Step 3: Removing task management payloads..."
 
 for mgmt_payload in "$MGMT_DIR"/View_Task_*; do
     [ -d "$mgmt_payload" ] || continue

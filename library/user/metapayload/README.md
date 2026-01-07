@@ -167,18 +167,17 @@ The system automatically selects the appropriate UI picker based on variable nam
    - If yes: prompt with default pre-filled → save to {payload}/.env
    - If no: use default from config
 6. Execute command with variable substitution
-7. LOG output:
-   - Success: LOG green {stdout}
-   - Error: LOG red {stderr + stdout}
+7. LOG output while task is running in foreground
+8. IF user presses LEFT: background the task; create management payload View_Task_{taskid}; exit the running payload
 8. Exit with command return code
 
 ## Future Enhancements
 - Selectable export types when exporting task logs (loot folder, Discord, etc)
-- Task naming conventions for easier identification
 - Existing payload wrapper - to allow other payloads to be run within the metapayload framework
+- YAML configuration support
 
-## Known Issues
-- Backgrounded tasks may produce log output into other payloads' logs if multiple tasks are running simultaneously.
+## Known Issues (planned to fix)
+- Backgrounded tasks may produce log output into other payloads' logs if multiple tasks are running simultaneously. 
 - Directional button responsiveness when trying to background a running task can be inconsistent; multiple presses may be required.
 - Exiting the payload execution screen while a task is running will orphan the task, making it unmanageable via Task Manager. Use the BACKGROUND (LEFT button) instead of B button to exit running payloads.
 - Killing running tasks via the task management payloads is a bit slow; please be patient for now. 
