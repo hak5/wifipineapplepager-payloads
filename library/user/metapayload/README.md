@@ -2,11 +2,15 @@
 
 # MetaPayload Framework
 
-MetaPayload is a comprehensive payload framework for the Wifi Pineapple Pager that transforms how you create and manage reconnaissance and pentesting tools. Define commands, variables, and dependencies in external configuration files, then generate fully-functional payloads with intelligent package management, task backgrounding, and context-aware UI integration—all without touching the core payload scripts.
+**Includes more than 20 payloads out of the box!** See the [Included Payload Packs](#included-payload-packs-📦) section below for details.
+
+MetaPayload is a comprehensive payload framework for the Wifi Pineapple Pager that provides many powerfull features for creating, managing, and executing dynamic payloads.  It is designed to simplify the process of building complex command line tool chains into easy-to-use payloads that can be executed directly from the Pager interface.
 
 Want to create fully functional payloads from command line tools?  MetaPayload makes it easy.
 
 Do you have a long running payload that you'd like to background so you can continue using the Pager?  MetaPayload has you covered.
+
+Need to track and manage multiple payload logs as part of your engagement workflow?  MetaPayload provides built-in task management features - so you can easily monitor, view, and export logs.
 
 Already included are many powerful payload definitions, making MetaPayload a versatile reconnaissance toolkit out of the box.  You can also easily extend its capabilities by adding your own payload configurations in JSON format.  See below for details on included payload packs.
 
