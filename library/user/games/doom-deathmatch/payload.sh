@@ -2,7 +2,7 @@
 # Title: DOOM Deathmatch
 # Description: Connect to DOOM server for multiplayer deathmatch!
 # Author: @lmacken
-# Version: 2.0
+# Version: 3.0
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom-deathmatch"
@@ -18,14 +18,14 @@ DEFAULT_SKILL="4"
 
 # Load saved config or use defaults
 if [ -f "$CONFIG_FILE" ]; then
-    source "$CONFIG_FILE"
+  source "$CONFIG_FILE"
 else
-    SERVER_IP="$DEFAULT_SERVER_IP"
-    SERVER_PORT="$DEFAULT_SERVER_PORT"
-    MAP="$DEFAULT_MAP"
-    NOMONSTERS="$DEFAULT_NOMONSTERS"
-    TIMELIMIT="$DEFAULT_TIMELIMIT"
-    SKILL="$DEFAULT_SKILL"
+  SERVER_IP="$DEFAULT_SERVER_IP"
+  SERVER_PORT="$DEFAULT_SERVER_PORT"
+  MAP="$DEFAULT_MAP"
+  NOMONSTERS="$DEFAULT_NOMONSTERS"
+  TIMELIMIT="$DEFAULT_TIMELIMIT"
+  SKILL="$DEFAULT_SKILL"
 fi
 # Ensure defaults
 [ -z "$MAP" ] && MAP="$DEFAULT_MAP"
@@ -34,22 +34,22 @@ fi
 [ -z "$SKILL" ] && SKILL="$DEFAULT_SKILL"
 
 cd "$PAYLOAD_DIR" || {
-    LOG red "ERROR: $PAYLOAD_DIR not found"
-    exit 1
+  LOG red "ERROR: $PAYLOAD_DIR not found"
+  exit 1
 }
 
 # Verify required files exist
 [ ! -f "./doomgeneric" ] && {
-    LOG red "ERROR: doomgeneric not found"
-    exit 1
+  LOG red "ERROR: doomgeneric not found"
+  exit 1
 }
 chmod +x ./doomgeneric
 
 # Find any WAD file
 WAD_FILE=$(ls "$PAYLOAD_DIR"/*.wad 2>/dev/null | head -1)
 [ -z "$WAD_FILE" ] && {
-    LOG red "ERROR: No .wad file found"
-    exit 1
+  LOG red "ERROR: No .wad file found"
+  exit 1
 }
 
 # Show current settings and offer to configure
@@ -65,75 +65,75 @@ sleep 2
 
 resp=$(CONFIRMATION_DIALOG "Change settings?")
 if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-    # Get new IP
-    new_ip=$(IP_PICKER "Server IP" "$SERVER_IP")
-    case $? in
-        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-            LOG "Cancelled"
-            exit 1
-            ;;
-    esac
-    
-    # Get new port
-    new_port=$(NUMBER_PICKER "Server Port" "$SERVER_PORT")
-    case $? in
-        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-            LOG "Cancelled"
-            exit 1
-            ;;
-    esac
-    
-    # Get map (E1M1-E1M9 for shareware)
-    new_map=$(TEXT_PICKER "Map (E1M1-E1M9)" "$MAP")
-    case $? in
-        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-            LOG "Cancelled"
-            exit 1
-            ;;
-    esac
-    
-    # No monsters toggle
-    monsters_resp=$(CONFIRMATION_DIALOG "No Monsters?")
-    if [ "$monsters_resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-        new_nomonsters="yes"
-    else
-        new_nomonsters="no"
-    fi
-    
-    # Time limit
-    new_timelimit=$(NUMBER_PICKER "Time Limit (min)" "$TIMELIMIT")
-    case $? in
-        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-            LOG "Cancelled"
-            exit 1
-            ;;
-    esac
-    
-    # Skill level
-    new_skill=$(NUMBER_PICKER "Skill (1-5)" "$SKILL")
-    case $? in
-        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-            LOG "Cancelled"
-            exit 1
-            ;;
-    esac
-    
-    SERVER_IP="$new_ip"
-    SERVER_PORT="$new_port"
-    MAP="$new_map"
-    NOMONSTERS="$new_nomonsters"
-    TIMELIMIT="$new_timelimit"
-    SKILL="$new_skill"
-    
-    # Save config
-    echo "SERVER_IP=\"$SERVER_IP\"" > "$CONFIG_FILE"
-    echo "SERVER_PORT=\"$SERVER_PORT\"" >> "$CONFIG_FILE"
-    echo "MAP=\"$MAP\"" >> "$CONFIG_FILE"
-    echo "NOMONSTERS=\"$NOMONSTERS\"" >> "$CONFIG_FILE"
-    echo "TIMELIMIT=\"$TIMELIMIT\"" >> "$CONFIG_FILE"
-    echo "SKILL=\"$SKILL\"" >> "$CONFIG_FILE"
-    
-    LOG "Settings saved!"
+  # Get new IP
+  new_ip=$(IP_PICKER "Server IP" "$SERVER_IP")
+  case $? in
+  $DUCKYSCRIPT_CANCELLED | $DUCKYSCRIPT_REJECTED | $DUCKYSCRIPT_ERROR)
+    LOG "Cancelled"
+    exit 1
+    ;;
+  esac
+
+  # Get new port
+  new_port=$(NUMBER_PICKER "Server Port" "$SERVER_PORT")
+  case $? in
+  $DUCKYSCRIPT_CANCELLED | $DUCKYSCRIPT_REJECTED | $DUCKYSCRIPT_ERROR)
+    LOG "Cancelled"
+    exit 1
+    ;;
+  esac
+
+  # Get map (E1M1-E1M9 for shareware)
+  new_map=$(TEXT_PICKER "Map (E1M1-E1M9)" "$MAP")
+  case $? in
+  $DUCKYSCRIPT_CANCELLED | $DUCKYSCRIPT_REJECTED | $DUCKYSCRIPT_ERROR)
+    LOG "Cancelled"
+    exit 1
+    ;;
+  esac
+
+  # No monsters toggle
+  monsters_resp=$(CONFIRMATION_DIALOG "No Monsters?")
+  if [ "$monsters_resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    new_nomonsters="yes"
+  else
+    new_nomonsters="no"
+  fi
+
+  # Time limit
+  new_timelimit=$(NUMBER_PICKER "Time Limit (min)" "$TIMELIMIT")
+  case $? in
+  $DUCKYSCRIPT_CANCELLED | $DUCKYSCRIPT_REJECTED | $DUCKYSCRIPT_ERROR)
+    LOG "Cancelled"
+    exit 1
+    ;;
+  esac
+
+  # Skill level
+  new_skill=$(NUMBER_PICKER "Skill (1-5)" "$SKILL")
+  case $? in
+  $DUCKYSCRIPT_CANCELLED | $DUCKYSCRIPT_REJECTED | $DUCKYSCRIPT_ERROR)
+    LOG "Cancelled"
+    exit 1
+    ;;
+  esac
+
+  SERVER_IP="$new_ip"
+  SERVER_PORT="$new_port"
+  MAP="$new_map"
+  NOMONSTERS="$new_nomonsters"
+  TIMELIMIT="$new_timelimit"
+  SKILL="$new_skill"
+
+  # Save config
+  echo "SERVER_IP=\"$SERVER_IP\"" >"$CONFIG_FILE"
+  echo "SERVER_PORT=\"$SERVER_PORT\"" >>"$CONFIG_FILE"
+  echo "MAP=\"$MAP\"" >>"$CONFIG_FILE"
+  echo "NOMONSTERS=\"$NOMONSTERS\"" >>"$CONFIG_FILE"
+  echo "TIMELIMIT=\"$TIMELIMIT\"" >>"$CONFIG_FILE"
+  echo "SKILL=\"$SKILL\"" >>"$CONFIG_FILE"
+
+  LOG "Settings saved!"
 fi
 
 # Test server connectivity before launching
@@ -142,39 +142,43 @@ LOG "Testing $SERVER_IP..."
 
 # First check if host is reachable (ping test)
 if ! ping -c 1 -W 3 "$SERVER_IP" >/dev/null 2>&1; then
-    LOG red "ERROR: Cannot reach $SERVER_IP"
-    LOG red "Server may be offline or"
-    LOG red "check your WiFi connection"
-    LOG ""
-    LOG "Press any button..."
-    WAIT_FOR_INPUT >/dev/null 2>&1
-    exit 1
+  LOG red "ERROR: Cannot reach $SERVER_IP"
+  LOG red "Server may be offline or"
+  LOG red "check your WiFi connection"
+  LOG ""
+  LOG "Press any button..."
+  WAIT_FOR_INPUT >/dev/null 2>&1
+  exit 1
 fi
 
 # Try UDP connectivity test (send empty packet, expect any response)
 # Using shell /dev/udp if available, otherwise skip
-if (echo -n "" > /dev/udp/"$SERVER_IP"/"$SERVER_PORT") 2>/dev/null; then
-    LOG green "Server reachable!"
+if (echo -n "" >/dev/udp/"$SERVER_IP"/"$SERVER_PORT") 2>/dev/null; then
+  LOG green "Server reachable!"
 else
-    # /dev/udp might not be available, just warn
-    LOG yellow "Host reachable (UDP untested)"
+  # /dev/udp might not be available, just warn
+  LOG yellow "Host reachable (UDP untested)"
 fi
 
 # Display controls
 LOG ""
 LOG "Controls:"
 LOG "D-pad=Move  Red=Fire"
-LOG "Green=Select/Use"
+LOG "Green+Up=Use  Green+L/R=Strafe"
 LOG "Red+Green=Quit"
 LOG ""
 LOG "Press any button to connect..."
 WAIT_FOR_INPUT >/dev/null 2>&1
 
-# Stop the Pager UI
+# Stop services to free CPU and memory for DOOM
+/etc/init.d/php8-fpm stop 2>/dev/null
+/etc/init.d/nginx stop 2>/dev/null
+/etc/init.d/bluetoothd stop 2>/dev/null
 /etc/init.d/pineapplepager stop 2>/dev/null
 /etc/init.d/pineapd stop 2>/dev/null
 
-sleep 1
+# Free cached memory
+echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
 # Parse map format (E1M4 -> episode=1 map=4)
 EPISODE=$(echo "$MAP" | sed -n 's/^E\([0-9]\)M[0-9]$/\1/p')
@@ -190,10 +194,13 @@ EXTRA_ARGS=""
 [ "$TIMELIMIT" -gt 0 ] 2>/dev/null && EXTRA_ARGS="$EXTRA_ARGS -timer $TIMELIMIT"
 [ "$SKILL" -ge 1 ] && [ "$SKILL" -le 5 ] 2>/dev/null && EXTRA_ARGS="$EXTRA_ARGS -skill $SKILL"
 
-# Run DOOM!
+# Run DOOM with high priority for smoother gameplay
 "$PAYLOAD_DIR/doomgeneric" -iwad "$WAD_FILE" -connect "$SERVER_IP:$SERVER_PORT" -warp "$EPISODE" "$MAP_NUM" $EXTRA_ARGS >/tmp/doom.log 2>&1
 
-# Restore Pager UI
+# Restore services after DOOM exits
+/etc/init.d/php8-fpm start 2>/dev/null &
+/etc/init.d/nginx start 2>/dev/null &
+/etc/init.d/bluetoothd start 2>/dev/null &
 /etc/init.d/pineapplepager start 2>/dev/null &
 /etc/init.d/pineapd start 2>/dev/null &
 

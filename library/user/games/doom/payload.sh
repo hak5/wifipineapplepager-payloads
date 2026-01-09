@@ -37,17 +37,23 @@ LOG ""
 LOG "Press any button to start..."
 WAIT_FOR_INPUT >/dev/null 2>&1
 
-# Stop the Pager UI to get exclusive access to the framebuffer and input devices
+# Stop services to free CPU and memory for DOOM
+/etc/init.d/php8-fpm stop 2>/dev/null
+/etc/init.d/nginx stop 2>/dev/null
+/etc/init.d/bluetoothd stop 2>/dev/null
 /etc/init.d/pineapplepager stop 2>/dev/null
 /etc/init.d/pineapd stop 2>/dev/null
 
-# Small delay to let services fully stop
-sleep 1
+# Free cached memory
+echo 3 >/proc/sys/vm/drop_caches 2>/dev/null
 
-# Run DOOM in single-player mode
+# Run DOOM
 "$PAYLOAD_DIR/doomgeneric" -iwad "$WAD_FILE" >/tmp/doom.log 2>&1
 
-# Restore the Pager UI after DOOM exits
+# Restore services after DOOM exits
+/etc/init.d/php8-fpm start 2>/dev/null &
+/etc/init.d/nginx start 2>/dev/null &
+/etc/init.d/bluetoothd start 2>/dev/null &
 /etc/init.d/pineapplepager start 2>/dev/null &
 /etc/init.d/pineapd start 2>/dev/null &
 
