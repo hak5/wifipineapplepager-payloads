@@ -20,6 +20,7 @@ Already included are many powerful payload definitions, making MetaPayload a ver
 - 📦 **Package Management**: Automatically prompts users to install required packages for individual payloads. Each payload can specify dependencies in its configuration, and the system will check and offer to install missing packages before execution.
 - 🌐 **Global and Local Variable Management**: Define global variables for all payloads and payload-specific variables, with automatic prompting for missing values.  Manage global variables directly on the Pager.
 - 🎨 **User-Friendly UI Integration**: Automatically selects appropriate UI pickers (IP, MAC, Text, Number) based on variable names and default values.
+- 🗒️ **Log Management**: Payloads run as 'tasks' and produce log output that you choose to export to loot or Discord webhook, during task execution or afterwards.  The task stays visible until you choose to delete it.
 - 🧩 **Modular Structure**: Easily add new payloads by creating configuration files in the config/ directory.
 - 🚀 **Beyond Reconnaissance**: While focused on reconnaissance, MetaPayload's flexible design allows for adaptation to other use cases.  Any command line tool chain can be integrated, with customizable payload destination (including the 'client' and 'access_point' targeted payload categories.)
 
@@ -205,12 +206,11 @@ The system automatically selects the appropriate UI picker based on variable nam
 8. Exit with command return code
 
 ## Future Enhancements
-- Selectable export types when exporting task logs (loot folder, Discord, etc)
 - Existing payload wrapper - to allow other payloads to be run within the metapayload framework
 - YAML configuration support
 - Refactoring for maintainability
 
 ## Known Issues (planned to fix)
-- Backgrounded tasks may produce log output into other payloads' logs if multiple tasks are running simultaneously. 
+- Backgrounded tasks may produce log output into other payloads' UI logs if multiple tasks are running simultaneously. 
 - Directional button responsiveness when trying to background a running task can be inconsistent; multiple presses may be required.
 - Killing running tasks via the task management payloads is a bit slow; please be patient for now. 
