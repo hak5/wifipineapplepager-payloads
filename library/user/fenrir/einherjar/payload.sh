@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: EINHERJAR - Swarm Master
 # Description: Multi-Pager coordination via BLE mesh for distributed attacks
-# Author: JMFH / FENRIR / HaleHound
+# Author: HaleHound
 # Version: 1.0.0
 # Category: coordination/swarm
 # Named after Odin's army of warriors - commands the pack
@@ -37,9 +37,12 @@ cleanup() {
     hciconfig $BLE_ADAPTER down 2>/dev/null
     hciconfig $BLE_ADAPTER up 2>/dev/null
 
-    # Kill background processes
-    pkill -f "einherjar" 2>/dev/null
+    # Kill background processes using saved PIDs (not pkill -f einherjar which kills this script!)
     kill $SCAN_PID $ADV_PID $LISTEN_PID 2>/dev/null
+
+    # Kill any orphaned BLE processes
+    pkill -9 -f "hcitool.*lescan" 2>/dev/null
+    pkill -9 -f "l2ping" 2>/dev/null
 
     LED OFF 2>/dev/null
 }

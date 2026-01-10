@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: PMKID Hunter
 # Description: Clientless WPA attack - capture PMKIDs without waiting for handshakes
-# Author: JMFH / FENRIR / HaleHound
+# Author: HaleHound
 # Version: 1.0.3
 # Category: user/attack
 # Requires: hcxdumptool, hcxpcapngtool (hcxtools)
@@ -14,6 +14,22 @@
 LOOTDIR="/root/loot/pmkid"
 INTERFACE="wlan1mon"
 INPUT=/dev/input/event0
+
+# === NON-BLOCKING BUTTON CHECK ===
+check_for_stop() {
+    local data=$(timeout 0.02 dd if=$INPUT bs=16 count=1 2>/dev/null | hexdump -e '16/1 "%02x "' 2>/dev/null)
+    [ -z "$data" ] && return 1
+    local type=$(echo "$data" | cut -d' ' -f9-10)
+    local value=$(echo "$data" | cut -d' ' -f13)
+    local keycode=$(echo "$data" | cut -d' ' -f11-12)
+    # A button = 31 01 or 30 01
+    if [ "$type" = "01 00" ] && [ "$value" = "01" ]; then
+        if [ "$keycode" = "31 01" ] || [ "$keycode" = "30 01" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
 
 # === CLEANUP ===
 cleanup() {

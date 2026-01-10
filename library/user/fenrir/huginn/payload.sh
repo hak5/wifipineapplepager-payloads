@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: HUGINN - Identity Correlator
 # Description: WiFi + BLE fusion for tracking devices through MAC randomization
-# Author: JMFH / FENRIR / HaleHound
+# Author: HaleHound
 # Version: 1.0.1
 # Category: reconnaissance/correlation
 # Named after Odin's raven - "thought" - sees all, correlates identities
@@ -21,8 +21,19 @@ CHANNEL_HOP_DELAY=0.3
 
 # === CLEANUP ===
 cleanup() {
-    pkill -9 -f "huginn" 2>/dev/null
-    pkill -9 -f "lescan" 2>/dev/null
+    # Kill capture processes using saved PIDs (not pkill -f huginn which kills this script!)
+    if [ -f /tmp/huginn_wifi.pid ]; then
+        kill -9 $(cat /tmp/huginn_wifi.pid) 2>/dev/null
+        rm -f /tmp/huginn_wifi.pid
+    fi
+    if [ -f /tmp/huginn_ble.pid ]; then
+        kill -9 $(cat /tmp/huginn_ble.pid) 2>/dev/null
+        rm -f /tmp/huginn_ble.pid
+    fi
+    # Kill any orphaned tcpdump/hcitool processes
+    pkill -9 -f "tcpdump.*$WIFI_INTERFACE" 2>/dev/null
+    pkill -9 -f "hcitool.*lescan" 2>/dev/null
+    # Reset BLE adapter
     hciconfig $BLE_ADAPTER down 2>/dev/null
     hciconfig $BLE_ADAPTER up 2>/dev/null
     LED OFF 2>/dev/null
