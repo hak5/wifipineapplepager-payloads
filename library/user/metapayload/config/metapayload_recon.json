@@ -132,7 +132,7 @@
     {
       "name": "Network Web Sweep",
       "path": "user/metapayload_recon/Network_Web_Sweep",
-      "command": "echo 'Finding web servers on subnet...' && nmap -sS -p $WEBPORTS $TARGET_SUBNET --open -n -oG - | grep 'Ports: ' | awk '{print \\$2}' > /tmp/web_hosts.txt && if [ -s /tmp/web_hosts.txt ]; then echo 'Found hosts:' && cat /tmp/web_hosts.txt && echo '\\n=== Extracting titles ===' && while read host; do echo \\\"\\n[\\$host]\\\"; curl -sk -m 3 https://\\$host 2>/dev/null | grep -o '<title>.*</title>' | head -1 || curl -s -m 3 http://\\$host 2>/dev/null | grep -o '<title>.*</title>' | head -1; done < /tmp/web_hosts.txt; else echo 'No web servers found on subnet'; fi",
+      "command": "echo 'Finding web servers on subnet...' && nmap -sS -p $WEBPORTS $TARGET_SUBNET --open -n -oG - | awk '/Ports:/ {host=\\$2; for(i=1;i<=NF;i++) if(\\$i ~ /\\/open/) {split(\\$i,a,\\\"/\\\"); print host\\\":\\\"a[1]}}' > /tmp/web_hosts_ports.txt && if [ -s /tmp/web_hosts_ports.txt ]; then echo 'Found web servers:' && cat /tmp/web_hosts_ports.txt && echo '\\n=== Extracting titles ===' && while IFS=: read host port; do echo \\\"\\n[\\$host:\\$port]\\\"; if echo \\$port | grep -qE '^(443|8443)\\$'; then curl -sk -m 3 https://\\$host:\\$port 2>/dev/null | grep -o '<title>.*</title>' | head -1; else curl -s -m 3 http://\\$host:\\$port 2>/dev/null | grep -o '<title>.*</title>' | head -1; fi; done < /tmp/web_hosts_ports.txt; else echo 'No web servers found on subnet'; fi",
       "required_vars": [
         "TARGET_SUBNET"
       ],
@@ -140,7 +140,7 @@
         "WEBPORTS": "80,443,8080,8443,8000,8888,9000,9090"
       },
       "required_packages": [],
-      "description": "Sweep entire subnet for web servers and extract page titles",
+      "description": "Sweep entire subnet for web servers and extract page titles from all discovered ports",
       "author": "MetaPayload"
     }
   ]
