@@ -2,7 +2,7 @@
 # Title: DOOM Deathmatch
 # Description: Connect to DOOM server for multiplayer deathmatch!
 # Author: @lmacken
-# Version: 4.1
+# Version: 4.2
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom-deathmatch"
@@ -238,6 +238,7 @@ esac
 
 LOG ""
 LOG "Press any button to start..."
+sleep 0.1 # Flush output buffer
 WAIT_FOR_INPUT >/dev/null 2>&1
 LOG "LOADING..."
 

@@ -2,7 +2,7 @@
 # Title: DOOM
 # Description: The classic 1993 FPS on your WiFi Pineapple Pager!
 # Author: @lmacken
-# Version: 4.1
+# Version: 4.2
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom"
@@ -35,6 +35,7 @@ LOG "Green+Left/Right=Strafe"
 LOG "Red+Green=Quit"
 LOG ""
 LOG "Press any button to start..."
+sleep 0.1 # Flush output buffer
 WAIT_FOR_INPUT >/dev/null 2>&1
 LOG "LOADING..."
 
