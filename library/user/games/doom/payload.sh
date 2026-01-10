@@ -2,7 +2,7 @@
 # Title: DOOM
 # Description: The classic 1993 FPS on your WiFi Pineapple Pager!
 # Author: @lmacken
-# Version: 3.0
+# Version: 4.0
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom"
