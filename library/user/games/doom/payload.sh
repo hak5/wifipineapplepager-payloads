@@ -36,6 +36,7 @@ LOG "Red+Green=Quit"
 LOG ""
 LOG "Press any button to start..."
 WAIT_FOR_INPUT >/dev/null 2>&1
+LOG "LOADING..."
 
 # Stop services to free CPU and memory for DOOM
 /etc/init.d/php8-fpm stop 2>/dev/null
