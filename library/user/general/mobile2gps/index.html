@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>mobile2gps</title>
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #000;
+  color: #0ff;
+  font-family: 'Courier New', monospace;
+  padding: 15px;
+  padding-bottom: 20px;
+}
+
+.container {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #0ff3;
+}
+
+.header h1 {
+  font-size: 24px;
+  font-weight: normal;
+  text-shadow: 0 0 10px #0ff, 0 0 20px #0ff;
+  letter-spacing: 4px;
+}
+
+.header .subtitle {
+  font-size: 11px;
+  color: #0f0;
+  margin-top: 5px;
+  opacity: 0.7;
+}
+
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.btn {
+  background: transparent;
+  border: 1px solid #0ff;
+  color: #0ff;
+  font-family: 'Courier New', monospace;
+  font-size: 18px;
+  padding: 15px 50px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  transition: all 0.2s;
+  flex: 1;
+  max-width: 200px;
+}
+
+.btn:hover {
+  background: #0ff1;
+}
+
+.btn:active, .btn.active {
+  background: #0ff;
+  color: #000;
+  box-shadow: 0 0 20px #0ff;
+}
+
+.data-grid {
+  display: grid;
+  gap: 1px;
+  background: #0ff2;
+  border: 1px solid #0ff3;
+}
+
+.data-row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  background: #000;
+}
+
+.data-label {
+  padding: 10px 12px;
+  color: #666;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-right: 1px solid #0ff2;
+}
+
+.data-value {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #0f0;
+  word-break: break-all;
+  text-shadow: 0 0 5px #0f0;
+}
+
+.data-value a {
+  color: #f0f;
+  text-decoration: none;
+}
+
+.data-value.invalid {
+  color: #f00;
+  text-shadow: 0 0 5px #f00;
+}
+
+.tips {
+  margin-top: 20px;
+  padding: 12px;
+  border: 1px solid #333;
+  font-size: 11px;
+  color: #666;
+}
+
+.tips-title {
+  color: #0ff;
+  margin-bottom: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.tips ul {
+  list-style: none;
+  padding: 0;
+}
+
+.tips li {
+  padding: 5px 0;
+  padding-left: 15px;
+  position: relative;
+}
+
+.tips li:before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: #0f0;
+}
+
+.kofi {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.kofi a {
+  display: inline-block;
+  background: #ff5e5b;
+  color: #fff;
+  text-decoration: none;
+  padding: 8px 16px;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.kofi a:hover {
+  background: #ff7875;
+  box-shadow: 0 0 15px #ff5e5b55;
+}
+
+.scanline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    #0001 2px,
+    #0001 4px
+  );
+  z-index: 1000;
+}
+</style>
+<script>
+var iDelay = 1000;
+var iTimeoutDelay = 2500;
+
+var bLoop = false;
+var idInterval = 0;
+var bInRequest = false;
+var arrayUpdates = [];
+var bSendPending = false;
+var timeLast = null;
+var bFindingLocation = false;
+var idTimeout = 0;
+var reqCurrent = null;
+var arrayUpdatesOnLine = [];
+
+var vLat = { name: "Lat" };
+var vLon = { name: "Lon" };
+var vAcc = { name: "Acc" };
+var vTime = { name: "Time" };
+
+function urlEncodeDict(dict) { 
+  var result = "";
+  for (var i = 0; i < dict.length; i++) {
+    if (i > 0) result += "&";
+    result += encodeURIComponent(dict[i].name) + "=" + encodeURIComponent(dict[i].value);
+  }
+  return result;
+}
+
+function endRequest(bPurge) {
+  if (idTimeout != 0) {
+    clearTimeout(idTimeout);
+    idTimeout = 0;
+  }
+  bInRequest = false;
+  reqCurrent = null;
+  if (bPurge == true) {
+    arrayUpdatesOnLine = [];
+    document.getElementById("idPending").innerHTML = "—";
+  }
+}
+
+function processReqChange(req) {
+  if (req != reqCurrent) return;
+  if (req.status == 200) {
+    if (req.readyState == 4) {
+      document.getElementById("idResponse").innerHTML = "OK";
+      endRequest(true);
+      if (bSendPending) sendUpdates();
+    } else if (req.readyState != 2) {
+      document.getElementById("idResponse").innerHTML = "...";
+    }
+  } else {
+    document.getElementById("idResponse").innerHTML = "ERR";
+    endRequest();
+  }
+}
+
+function updateTimeout() {
+  if (reqCurrent == null) return;
+  arrayUpdates = arrayUpdatesOnLine.concat(arrayUpdates);
+  endRequest(true);
+  document.getElementById("idResponse").innerHTML = "TIMEOUT";
+  document.getElementById("idPending").innerHTML = arrayUpdates.length + ' <a href="javascript:clearPending();">[clear]</a>';
+}
+
+function clearPending() {
+  arrayUpdatesOnLine = [];
+  arrayUpdates = [];
+  document.getElementById("idPending").innerHTML = "—";
+}
+
+function foundLocation(position) {
+  document.getElementById("idLat").innerHTML = position.coords.latitude.toFixed(6);
+  document.getElementById("idLon").innerHTML = position.coords.longitude.toFixed(6);
+  
+  var accEl = document.getElementById("idAcc");
+  var accText = position.coords.accuracy.toFixed(1) + "m";
+  if (position.coords.accuracy > 100) {
+    accText += " (INVALID)";
+    accEl.classList.add("invalid");
+  } else {
+    accEl.classList.remove("invalid");
+  }
+  accEl.innerHTML = accText;
+  
+  if (timeLast != position.timestamp) {
+    timeLast = position.timestamp;
+    var d = new Date(position.timestamp);
+    document.getElementById("idTime").innerHTML = d.toLocaleTimeString();
+    
+    vLat.value = position.coords.latitude;
+    vLon.value = position.coords.longitude;
+    vAcc.value = position.coords.accuracy;
+    vTime.value = position.timestamp;
+    
+    var formVars = [vLat, vLon, vAcc, vTime];
+    var strForm = urlEncodeDict(formVars);
+    arrayUpdates.push(strForm);
+    document.getElementById("idPending").innerHTML = (arrayUpdates.length + arrayUpdatesOnLine.length) + ' <a href="javascript:clearPending();">[clear]</a>';
+    sendUpdates();
+  }
+  
+  bFindingLocation = false;
+  if (bLoop) {
+    idInterval = setTimeout(findLocation, iDelay);
+  } else {
+    idInterval = 0;
+  }
+}
+
+function sendUpdates() {
+  if (bInRequest) {
+    bSendPending = true;
+    return;
+  }
+  if (arrayUpdates.length == 0) return;
+  
+  bInRequest = true;
+  var req = new XMLHttpRequest();
+  var reqURL = window.location.toString();
+  req.open("POST", reqURL, true);
+  req.onreadystatechange = function() { processReqChange(req); };
+  req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+  
+  var strForm = "";
+  for (var i in arrayUpdates) {
+    if (i > 0) strForm += '&';
+    strForm += arrayUpdates[i];
+  }
+  
+  arrayUpdatesOnLine = arrayUpdates;
+  arrayUpdates = [];
+  document.getElementById("idResponse").innerHTML = "TX...";
+  reqCurrent = req;
+  req.send(strForm);
+  
+  if (idTimeout != 0) clearTimeout(idTimeout);
+  idTimeout = setTimeout(updateTimeout, iTimeoutDelay + (arrayUpdatesOnLine.length * 100));
+}
+
+function noLocation() {
+  document.getElementById("idAcc").innerHTML = "NO FIX";
+  if (bLoop) {
+    idInterval = setTimeout(findLocation, iDelay);
+  } else {
+    idInterval = 0;
+  }
+  bFindingLocation = false;
+}
+
+function findLocation() {
+  if (!bFindingLocation) {
+    navigator.geolocation.getCurrentPosition(foundLocation, noLocation, {enableHighAccuracy: true});
+    bFindingLocation = true;
+  }
+}
+
+function toggleLoop() {
+  bLoop = !bLoop;
+  var btn = document.getElementById("btnToggle");
+  
+  if (bLoop) {
+    btn.innerHTML = "■ STOP";
+    btn.classList.add("active");
+    if (!bInRequest) findLocation();
+  } else {
+    if (idInterval != 0) {
+      clearTimeout(idInterval);
+      idInterval = 0;
+    }
+    btn.innerHTML = "▶ START";
+    btn.classList.remove("active");
+  }
+}
+
+</script>
+</head>
+<body>
+<div class="scanline"></div>
+<div class="container">
+  <div class="header">
+    <h1>mobile2gps</h1>
+    <div class="subtitle">for the Hak5 WiFi Pineapple Pager</div>
+  </div>
+  
+  <div class="controls">
+    <button class="btn" id="btnToggle" onclick="toggleLoop()">▶ START</button>
+    <button class="btn" id="btnNoSleep">NoSleep Off</button>
+  </div>
+  
+  <div class="data-grid">
+    <div class="data-row">
+      <div class="data-label">LATITUDE</div>
+      <div class="data-value" id="idLat">—</div>
+    </div>
+    <div class="data-row">
+      <div class="data-label">LONGITUDE</div>
+      <div class="data-value" id="idLon">—</div>
+    </div>
+    <div class="data-row">
+      <div class="data-label">ACCURACY</div>
+      <div class="data-value" id="idAcc">—</div>
+    </div>
+    <div class="data-row">
+      <div class="data-label">TIME</div>
+      <div class="data-value" id="idTime">—</div>
+    </div>
+    <div class="data-row">
+      <div class="data-label">STATUS</div>
+      <div class="data-value" id="idResponse">IDLE</div>
+    </div>
+    <div class="data-row">
+      <div class="data-label">QUEUE</div>
+      <div class="data-value" id="idPending">—</div>
+    </div>
+  </div>
+  
+  <div class="tips">
+    <div class="tips-title">Tips</div>
+    <ul>
+      <li>Enable Precise Location.</li>
+      <li>NoSleep will stop your screen from auto-locking.</li>
+    </ul>
+  </div>
+  
+  <div class="kofi">
+    <a href="https://ko-fi.com/ryanpohlner" target="_blank">☕ Support on Ko-fi</a>
+  </div>
+</div>
+<script src="NoSleep.js"></script>
+<script>
+var noSleep = new NoSleep();
+var wakeLockEnabled = false;
+var toggleEl = document.getElementById("btnNoSleep");
+
+toggleEl.addEventListener('click', function() {
+  if (!wakeLockEnabled) {
+    noSleep.enable();
+    wakeLockEnabled = true;
+    toggleEl.innerHTML = "NoSleep On";
+    toggleEl.classList.add("active");
+  } else {
+    noSleep.disable();
+    wakeLockEnabled = false;
+    toggleEl.innerHTML = "NoSleep Off";
+    toggleEl.classList.remove("active");
+  }
+}, false);
+</script>
+</body>
+</html>
