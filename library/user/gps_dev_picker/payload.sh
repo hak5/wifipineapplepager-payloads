@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: GPS Device Picker
 # Description: Manually Choose GPS Dev From Predefined List of Likely devices.
-# Author: William Stone
+# Author: Bilson Wilcox
 # Version: 1.0
 
 # LED setup
