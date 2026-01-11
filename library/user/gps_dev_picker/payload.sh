@@ -8,7 +8,7 @@
 LED R
 
 # Use TEXT_PICKER to enter any device (no validation)
-DEVICE=$(TEXT_PICKER "Enter device (e.g. ttyACM0)" "ttyACM0") || exit 0
+DEVICE=$(TEXT_PICKER "Enter device." "ttyACM0") || exit 0
 
 # Add /dev/ prefix if not already present
 case $DEVICE in
