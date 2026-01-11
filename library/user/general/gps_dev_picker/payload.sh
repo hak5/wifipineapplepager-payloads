@@ -52,61 +52,6 @@ if [ -e "$DEVICE" ]; then
     # Configure GPS with new device and baud (this will start gpsd fresh)
     GPS_CONFIGURE "$DEVICE" "$BAUD"
     GPS_RESULT=$?
-root@pager:/mmc/root/payloads/user/general# cat gps_dev_picker/payload.sh
-#!/bin/bash
-# Title: GPS Device Picker
-# Description: Manually Choose GPS Dev From Predefined List of Likely devices.
-# Author: William Stone
-# Version: 1.0
-
-# LED setup
-LED R
-
-# Use TEXT_PICKER to enter any device (no validation)
-DEVICE=$(TEXT_PICKER "Enter device (e.g. ttyACM0)" "ttyACM0") || exit 0
-
-# Add /dev/ prefix if not already present
-case $DEVICE in
-    /dev/*)
-        # Already has /dev/ prefix, use as-is
-        ;;
-    *)
-        # Add /dev/ prefix
-        DEVICE="/dev/$DEVICE"
-        ;;
-esac
-
-LOG "Selected device: $DEVICE"
-
-# Show spinner while checking device
-SPINNER "Checking device..." &
-SPINNER_PID=$!
-
-# Verify the device exists
-if [ -e "$DEVICE" ]; then
-    kill $SPINNER_PID 2>/dev/null
-    LOG "Device $DEVICE exists and is accessible"
-    LED G
-
-    # Save the device selection
-    echo "$DEVICE" > /tmp/selected_device.txt
-    LOG "Device selection saved to /tmp/selected_device.txt"
-
-    # Present baud rate selection using NUMBER_PICKER
-    BAUD=$(NUMBER_PICKER "Baud Rate" "9600") || BAUD="9600"
-
-    # Configure GPS with the selected device and baud rate
-    SPINNER "Configuring GPS..." &
-    SPINNER_PID=$!
-
-    # Completely stop and kill gpsd to clear all caches
-    /etc/init.d/gpsd stop 2>/dev/null
-    killall gpsd 2>/dev/null
-    sleep 2
-
-    # Configure GPS with new device and baud (this will start gpsd fresh)
-    GPS_CONFIGURE "$DEVICE" "$BAUD"
-    GPS_RESULT=$?
 
     # Wait for gpsd to fully initialize with new device
     sleep 2
