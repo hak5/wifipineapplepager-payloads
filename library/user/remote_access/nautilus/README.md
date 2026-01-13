@@ -8,7 +8,7 @@
 
 <p align="center">
 <img src="https://img.shields.io/badge/Platform-WiFi%20Pineapple%20Pager-00d4aa?style=flat-square" />
-<img src="https://img.shields.io/badge/Version-1.5.2-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.5.3-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Author-JustSomeTrout-purple?style=flat-square" />
 </p>
 <p align="center">
@@ -61,6 +61,8 @@ No more fumbling with D-pad navigation or manual file transfers. Just point, cli
 | **Smart Button Filtering** | Only allowed buttons are clickable - others are dimmed and disabled |
 | **Shell on Any Interface** | ttyd shell now accessible from any network interface, not just br-lan |
 | **Syntax Highlighting Fix** | Fixed View Source display for comments containing quotes |
+| **Settings Panel** | Configure Nautilus preferences via the web UI settings button |
+| **Auto Run Mode** | Skip the background/foreground prompt and auto-start with your preferred mode |
 
 <p align="center">
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />

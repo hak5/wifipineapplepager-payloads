@@ -3,7 +3,7 @@
 # Title: Nautilus
 # Description: Web-based payload launcher with live console output and GitHub integration
 # Author: JustSomeTrout (Trout / troot.)
-# Version: 1.5.2
+# Version: 1.5.3
 # Firmware: Developed for Firmware version 1.0.4
 #
 # Runs uhttpd with CGI to browse and execute payloads from your browser.
@@ -31,7 +31,7 @@ LOG "cyan" '|║║║╠═╣║-║-║-║║--║-║╚═╗|'
 LOG "cyan" '|╝╚╝╩-╩╚═╝-╩-╩╩═╝╚═╝╚═╝|'
 LOG "cyan" '+======================+'
 LOG ""
-LOG "v1.5.2"
+LOG "v1.5.3"
 LOG ""
 LOG "yellow" '|   ~ Web Payload Launcher ~    |'
 LOG ""
@@ -52,7 +52,20 @@ if [ -f "$INIT_SCRIPT" ] && "$INIT_SCRIPT" running 2>/dev/null; then
     exit 0
 fi
 
-resp=$(CONFIRMATION_DIALOG "Run as background service?")
+AUTO_MODE=$(PAYLOAD_GET_CONFIG nautilus auto_mode 2>/dev/null)
+RUN_MODE=$(PAYLOAD_GET_CONFIG nautilus run_mode 2>/dev/null)
+
+if [ "$AUTO_MODE" = "true" ]; then
+    if [ "$RUN_MODE" = "background" ]; then
+        resp="$DUCKYSCRIPT_USER_CONFIRMED"
+        LOG "cyan" "Auto-starting background mode..."
+    else
+        resp=""
+        LOG "cyan" "Auto-starting foreground mode..."
+    fi
+else
+    resp=$(CONFIRMATION_DIALOG "Run as background service?")
+fi
 
 if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
     LOG "cyan" "Starting as service..."
