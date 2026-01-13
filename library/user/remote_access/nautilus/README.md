@@ -63,6 +63,7 @@ No more fumbling with D-pad navigation or manual file transfers. Just point, cli
 | **Syntax Highlighting Fix** | Fixed View Source display for comments containing quotes |
 | **Settings Panel** | Configure Nautilus preferences via the web UI settings button |
 | **Auto Run Mode** | Skip the background/foreground prompt and auto-start with your preferred mode |
+| **Favourites** | Star your most-used payloads from Local or Merged tabs for quick access |
 
 <p align="center">
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
