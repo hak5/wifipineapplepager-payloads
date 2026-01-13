@@ -1833,13 +1833,22 @@ function hideSource(){
 }
 
 function highlightSh(code){
-  return code
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/(#[^\n]*)/g,'<span class="sh-comment">$1</span>')
-    .replace(/("(?:[^"\\]|\\.)*"|'[^']*')/g,'<span class="sh-string">$1</span>')
-    .replace(/\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|local|export|source|in)\b/g,'<span class="sh-keyword">$1</span>')
-    .replace(/(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g,'<span class="sh-variable">$1</span>')
-    .replace(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\(\)/gm,'$1<span class="sh-function">$2</span>()');
+  const tokens=[];
+  let tokenId=0;
+  const placeholder=(type,content)=>{
+    const id='\x00T'+tokenId+++'\x00';
+    tokens.push({id,html:'<span class="sh-'+type+'">'+content+'</span>'});
+    return id;
+  };
+  let result=code
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  result=result.replace(/(#[^\n]*)/g,(m,p1)=>placeholder('comment',p1));
+  result=result.replace(/("(?:[^"\\]|\\.)*"|'[^']*')/g,(m,p1)=>placeholder('string',p1));
+  result=result.replace(/\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|local|export|source|in)\b/g,(m,p1)=>placeholder('keyword',p1));
+  result=result.replace(/(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g,(m,p1)=>placeholder('variable',p1));
+  result=result.replace(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\(\)/gm,(m,p1,p2)=>p1+placeholder('function',p2)+'()');
+  tokens.forEach(t=>{result=result.replace(t.id,t.html);});
+  return result;
 }
 
 async function toggleSource(){

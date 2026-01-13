@@ -3,7 +3,7 @@
 # Title: Nautilus
 # Description: Web-based payload launcher with live console output and GitHub integration
 # Author: JustSomeTrout (Trout / troot.)
-# Version: 1.5.1
+# Version: 1.5.2
 # Firmware: Developed for Firmware version 1.0.4
 #
 # Runs uhttpd with CGI to browse and execute payloads from your browser.
@@ -31,7 +31,7 @@ LOG "cyan" '|║║║╠═╣║-║-║-║║--║-║╚═╗|'
 LOG "cyan" '|╝╚╝╩-╩╚═╝-╩-╩╩═╝╚═╝╚═╝|'
 LOG "cyan" '+======================+'
 LOG ""
-LOG "v1.5.1"
+LOG "v1.5.2"
 LOG ""
 LOG "yellow" '|   ~ Web Payload Launcher ~    |'
 LOG ""
@@ -144,7 +144,7 @@ fi
 
 if command -v ttyd >/dev/null 2>&1; then
     killall ttyd 2>/dev/null
-    ttyd -i br-lan -p 7681 /bin/login &
+    ttyd -p 7681 /bin/login &
     TTYD_STARTED=1
     LOG "cyan" "Shell available on port 7681"
 fi
