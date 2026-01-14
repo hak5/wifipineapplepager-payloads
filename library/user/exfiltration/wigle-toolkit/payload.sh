@@ -2,7 +2,7 @@
 # Title: WiGLE Toolkit
 # Description: Login, logout and upload loot to WiGLE
 # Author: mik
-# Version: 1.0
+# Version: 1.1
 # Category: Exfiltration
 
 LOG blue    "WiGLE Toolkit started
@@ -115,7 +115,11 @@ case ${resp} in
         for file in /root/loot/wigle/*.csv
         do
             [[ -e "${file}" ]] || break
-            resp=$(WIGLE_UPLOAD "${opt}" "${file}")
+            if [[ ${opt} = "" ]]; then
+                resp=$(WIGLE_UPLOAD "${file}")
+            else
+                resp=$(WIGLE_UPLOAD "${opt}" "${file}")
+            fi
             case $? in
                 0)
                     LOG green "${resp}"
