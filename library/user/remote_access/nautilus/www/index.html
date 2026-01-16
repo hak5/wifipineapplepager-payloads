@@ -56,6 +56,16 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .payload.active::before{transform:scaleY(1)}
 .payload .name{color:var(--text);font-weight:500;font-size:0.85em;margin-bottom:2px}
 .payload .desc{color:var(--text2);font-size:0.75em;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.payload .source-badge{display:inline-block;font-size:0.65em;padding:2px 6px;border-radius:4px;margin-left:8px;font-weight:600;text-transform:uppercase}
+.payload .source-badge.local{background:rgba(0,212,170,0.15);color:var(--accent)}
+.payload .source-badge.merged{background:rgba(255,193,7,0.15);color:#ffc107}
+.fav-btn{background:none;border:none;cursor:pointer;padding:4px;display:flex;align-items:center;justify-content:center;opacity:0.5;transition:all 0.2s}
+.fav-btn:hover{opacity:1;transform:scale(1.1)}
+.fav-btn svg{width:20px;height:20px;fill:var(--text2)}
+.fav-btn.active svg{fill:#f1c40f}
+.fav-btn.active{opacity:1}
+.payload.fav-row{display:flex;align-items:center;gap:8px;padding-left:8px}
+.payload.fav-row .fav-info{flex:1;cursor:pointer}
 .detail{padding:20px;background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);flex:1;overflow-y:auto}
 .detail h2{color:var(--text);margin-bottom:8px;font-size:1.2em;font-weight:600}
 .detail .meta{display:flex;gap:16px;color:var(--text2);font-size:0.8em;margin-bottom:12px;flex-wrap:wrap}
@@ -130,14 +140,19 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .login-box .btn{width:100%;justify-content:center}
 .login-error{color:var(--danger);font-size:0.85em;margin-bottom:12px;display:none}
 .login-error.show{display:block}
-.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--surface2)}
+.tabs-container{background:var(--surface2)}
+.tabs-row{display:flex;border-bottom:1px solid var(--border)}
+.tabs-row.favourites-row{border-bottom:none}
 .tab{flex:1;padding:10px 8px;text-align:center;font-size:0.75em;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.5px}
 .tab:hover{color:var(--text);background:rgba(255,255,255,0.03)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent);background:rgba(0,212,170,0.05)}
+.tab.favourites{display:flex;align-items:center;justify-content:center;gap:6px}
+.tab.favourites svg{width:14px;height:14px;fill:currentColor}
+.tab.favourites.active svg{fill:var(--accent)}
 .tab-content{display:none}
 .tab-content.active{display:block}
 .github-loading{padding:40px 20px;text-align:center;color:var(--text2)}
-.github-loading .spinner{width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+.github-loading img{width:100px;height:100px;animation:spin 2s linear infinite;margin:0 auto 16px;display:block}
 @keyframes spin{to{transform:rotate(360deg)}}
 .pr-item{padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:all 0.15s}
 .pr-item:hover{background:var(--surface2)}
@@ -158,7 +173,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .spinner-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:2000;backdrop-filter:blur(4px)}
 .spinner-overlay.show{display:flex}
 .spinner-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,0.4);position:relative;min-width:200px}
-.spinner-box img{width:64px;height:64px;animation:spin 2s linear infinite;margin-bottom:16px}
+.spinner-box img{width:100px;height:100px;animation:spin 2s linear infinite;margin-bottom:16px}
 .spinner-box .spinner-text{color:var(--text);font-size:1em;font-weight:500}
 .spinner-kill{position:absolute;top:8px;right:8px;width:24px;height:24px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text2);transition:all 0.15s}
 .spinner-kill:hover{background:#e74c3c;border-color:#e74c3c;color:#fff}
@@ -243,6 +258,49 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .button-panel .ab-btn.btn-b:active{transform:scale(0.95);filter:brightness(0.9)}
 .button-panel .waiting-hint{color:var(--text2);font-size:0.8em;text-align:center;margin-left:16px}
 .button-panel .waiting-hint .expected{color:var(--accent);font-weight:600}
+.settings-btn{background:none;border:none;color:var(--text2);cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all 0.2s}
+.settings-btn:hover{color:var(--accent);background:var(--surface2)}
+.settings-btn svg{width:20px;height:20px;fill:currentColor}
+.settings-modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:2500;backdrop-filter:blur(4px)}
+.settings-modal.show{display:flex}
+.settings-modal-content{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:90%;max-width:480px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.settings-modal-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.settings-modal-header h3{margin:0;font-size:1.1em;color:var(--text);display:flex;align-items:center;gap:10px}
+.settings-modal-header h3 svg{width:22px;height:22px;fill:var(--accent)}
+.settings-modal-close{background:none;border:none;color:var(--text2);cursor:pointer;padding:4px;display:flex}
+.settings-modal-close:hover{color:var(--text)}
+.settings-modal-close svg{width:20px;height:20px;fill:currentColor}
+.settings-modal-body{flex:1;overflow-y:auto;padding:20px}
+.settings-section{margin-bottom:24px}
+.settings-section:last-child{margin-bottom:0}
+.settings-section-title{font-size:0.75em;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.settings-section-title svg{width:14px;height:14px;fill:currentColor}
+.settings-item{background:var(--surface2);border:1px solid var(--border);border-radius:12px;margin-bottom:10px;overflow:hidden}
+.settings-item:last-child{margin-bottom:0}
+.settings-item-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.settings-item-header-info{flex:1}
+.settings-item-header-label{color:var(--text);font-weight:600;font-size:0.9em}
+.settings-item-body{padding:16px}
+.settings-item-body.disabled{opacity:0.4;pointer-events:none}
+.settings-item-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px}
+.settings-item-info{flex:1}
+.settings-item-label{color:var(--text);font-weight:500;font-size:0.9em;margin-bottom:2px}
+.settings-item-desc{color:var(--text2);font-size:0.8em;line-height:1.4}
+.settings-toggle{position:relative;width:44px;height:24px;background:var(--border);border-radius:12px;cursor:pointer;transition:all 0.2s;flex-shrink:0}
+.settings-toggle::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;background:var(--text2);border-radius:50%;transition:all 0.2s}
+.settings-toggle.on{background:var(--accent)}
+.settings-toggle.on::after{left:23px;background:#000}
+.settings-toggle.disabled{opacity:0.4;cursor:not-allowed}
+.settings-select{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:0.85em;cursor:pointer;min-width:140px}
+.settings-select:focus{outline:none;border-color:var(--accent)}
+.settings-select:disabled{opacity:0.4;cursor:not-allowed}
+.settings-select option{background:var(--surface);color:var(--text)}
+.settings-status{font-size:0.75em;color:var(--text2);margin-top:8px;display:flex;align-items:center;gap:6px}
+.settings-status.saving{color:var(--accent)}
+.settings-status.saved{color:var(--accent)}
+.settings-status.error{color:var(--danger)}
+.settings-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;color:var(--text2);font-size:0.9em}
+.settings-loading img{width:100px;height:100px;animation:spin 2s linear infinite;margin-bottom:16px}
 </style>
 <link rel="stylesheet" href="xterm.css">
 <script src="xterm.min.js"></script>
@@ -265,6 +323,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 <h1>Nautilus</h1>
 </div>
 <div class="header-right">
+<button class="settings-btn" onclick="openSettings()" title="Settings"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></button>
 <div class="status" id="status">Connecting...</div>
 </div>
 </div>
@@ -316,12 +375,59 @@ Scanning for networks...
 </div>
 </div>
 </div>
+<div class="settings-modal" id="settingsModal" onclick="if(event.target===this)closeSettings()">
+<div class="settings-modal-content" onclick="event.stopPropagation()">
+<div class="settings-modal-header">
+<h3><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>Settings</h3>
+<button class="settings-modal-close" onclick="closeSettings()"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+</div>
+<div class="settings-modal-body">
+<div class="settings-loading" id="settingsLoading">
+<img src="nautilus_spinning.png" alt="Loading">
+<div>Loading settings...</div>
+</div>
+<div class="settings-content" id="settingsContent" style="display:none">
+<div class="settings-section">
+<div class="settings-section-title"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>Startup Behavior</div>
+<div class="settings-item">
+<div class="settings-item-header">
+<div class="settings-item-header-info">
+<div class="settings-item-header-label">Auto-select Run Mode</div>
+</div>
+<div class="settings-toggle" id="toggleAutoMode" onclick="toggleAutoMode()"></div>
+</div>
+<div class="settings-item-body" id="autoModeBody">
+<div class="settings-item-info">
+<div class="settings-item-label">Default Run Mode</div>
+<div class="settings-item-desc">Skip the startup prompt and automatically run in this mode</div>
+</div>
+<select class="settings-select" id="selectRunMode" onchange="setRunMode(this.value)" style="margin-top:10px">
+<option value="foreground">Foreground</option>
+<option value="background">Background</option>
+</select>
+</div>
+</div>
+<div class="settings-status" id="settingsStatus"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
 <div class="container">
 <div class="sidebar">
-<div class="tabs">
+<div class="tabs-container">
+<div class="tabs-row favourites-row">
+<div class="tab favourites" data-tab="favourites" onclick="switchTab('favourites')"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>Favourites</div>
+</div>
+<div class="tabs-row">
 <div class="tab active" data-tab="local" onclick="switchTab('local')">Local</div>
 <div class="tab" data-tab="merged" onclick="switchTab('merged')">Merged</div>
 <div class="tab" data-tab="prs" onclick="switchTab('prs')">PRs</div>
+</div>
+</div>
+<div class="tab-content" id="tab-favourites">
+<div class="search"><input type="text" id="searchBoxFavourites" placeholder="Search favourites..." oninput="filterFavourites(this.value)"></div>
+<div id="favouritesList"></div>
 </div>
 <div class="tab-content active" id="tab-local">
 <div class="search"><input type="text" id="searchBox" placeholder="Search payloads..." oninput="filter(this.value)"></div>
@@ -334,7 +440,7 @@ Scanning for networks...
 </div>
 <div class="cache-info" id="mergedCacheInfo"></div>
 <div id="githubCategories">
-<div class="github-loading"><div class="spinner"></div>Loading from GitHub...</div>
+<div class="github-loading"><img src="nautilus_spinning.png" alt="">Loading from GitHub...</div>
 </div>
 </div>
 <div class="tab-content" id="tab-prs">
@@ -344,7 +450,7 @@ Scanning for networks...
 </div>
 <div class="cache-info" id="prsCacheInfo"></div>
 <div id="prList">
-<div class="github-loading"><div class="spinner"></div>Loading pull requests...</div>
+<div class="github-loading"><img src="nautilus_spinning.png" alt="">Loading pull requests...</div>
 </div>
 </div>
 </div>
@@ -402,7 +508,7 @@ Scanning for networks...
 <div class="spinner-overlay" id="spinnerOverlay">
 <div class="spinner-box">
 <button class="spinner-kill" onclick="stop()" title="Stop payload"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
-<img src="nautilus_logo.png" alt="Loading">
+<img src="nautilus_spinning.png" alt="Loading">
 <div class="spinner-text" id="spinnerText">Loading...</div>
 </div>
 </div>
@@ -413,6 +519,7 @@ let currentTab='local';
 let runningSection=null;
 let viewingSource=false;
 let githubPayloads={},filteredGithub={},githubPRs=[],filteredPRs=[];
+let favourites=[],filteredFavourites=[];
 const $=id=>document.getElementById(id);
 
 let shellTerm=null,shellWs=null,shellFitAddon=null;
@@ -839,6 +946,7 @@ function switchTab(tab){
   renderDetail();
   if(tab==='merged'&&Object.keys(githubPayloads).length===0)loadGithubPayloads();
   if(tab==='prs'&&githubPRs.length===0)loadGithubPRs();
+  if(tab==='favourites')renderFavourites();
 }
 
 function filterMerged(q){
@@ -861,6 +969,147 @@ function filterPRs(q){
   renderPRs();
 }
 
+function filterFavourites(q){
+  q=q.toLowerCase();
+  if(!q){filteredFavourites=[...favourites];}
+  else{filteredFavourites=favourites.filter(f=>(f.name+f.source).toLowerCase().includes(q));}
+  renderFavourites();
+}
+
+async function loadFavourites(){
+  try{
+    const resp=await fetch('/cgi-bin/api.sh?action=get_favourites');
+    const data=await resp.json();
+    if(data.success&&Array.isArray(data.favourites)){
+      favourites=data.favourites;
+      filteredFavourites=[...favourites];
+    }
+  }catch(e){console.error('Failed to load favourites:',e);}
+}
+
+async function saveFavourites(){
+  try{
+    await fetch('/cgi-bin/api.sh?action=set_favourites',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({favourites})
+    });
+  }catch(e){console.error('Failed to save favourites:',e);}
+}
+
+function isFavourite(path,source){
+  return favourites.some(f=>f.path===path&&f.source===source);
+}
+
+async function toggleFavourite(path,source,name){
+  const idx=favourites.findIndex(f=>f.path===path&&f.source===source);
+  if(idx>=0){
+    favourites.splice(idx,1);
+  }else{
+    favourites.push({path,source,name});
+  }
+  filteredFavourites=[...favourites];
+  await saveFavourites();
+  if(currentTab==='favourites')renderFavourites();
+  updateFavBtn();
+}
+
+function updateFavBtn(){
+  const btn=$('favBtn');
+  if(!btn||!selected)return;
+  const source=selected.isGithub?'merged':'local';
+  const path=selected.path;
+  const isFav=isFavourite(path,source);
+  btn.classList.toggle('active',isFav);
+  btn.title=isFav?'Remove from Favourites':'Add to Favourites';
+}
+
+function renderFavourites(){
+  if(filteredFavourites.length===0){
+    $('favouritesList').innerHTML='<div class="empty"><h3>No Favourites</h3><p>Star payloads from Local or Merged tabs to add them here</p></div>';
+    return;
+  }
+  const sorted=[...filteredFavourites].sort((a,b)=>(a.name||'').toLowerCase().localeCompare((b.name||'').toLowerCase()));
+  let html='';
+  for(const fav of sorted){
+    const badgeClass=fav.source==='local'?'local':'merged';
+    const badgeText=fav.source==='local'?'Local':'Merged';
+    html+='<div class="payload" data-fav-path="'+escHtml(fav.path)+'" data-fav-source="'+escHtml(fav.source)+'" onclick="selectFavourite(\''+escHtml(fav.path)+'\',\''+escHtml(fav.source)+'\')"><div class="name">'+escHtml(fav.name)+'<span class="source-badge '+badgeClass+'">'+badgeText+'</span></div></div>';
+  }
+  $('favouritesList').innerHTML=html;
+}
+
+function selectFavourite(path,source){
+  if(source==='local'){
+    for(const cat in payloads){
+      const found=payloads[cat].find(p=>p.path===path);
+      if(found){
+        selectFavouriteLocal(found,cat);
+        return;
+      }
+    }
+    $('detail').innerHTML='<div class="empty"><h3>Not Found</h3><p>This local payload no longer exists</p><button class="btn secondary" style="margin-top:12px" onclick="removeStaleFavourite(\''+escHtml(path)+'\',\'local\')"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Remove from Favourites</button></div>';
+  }else if(source==='merged'){
+    for(const cat in githubPayloads){
+      const found=githubPayloads[cat].find(p=>p.path===path);
+      if(found){
+        selectFavouriteMerged(found);
+        return;
+      }
+    }
+    if(Object.keys(githubPayloads).length===0){
+      loadGithubPayloads().then(()=>selectFavourite(path,source));
+      return;
+    }
+    $('detail').innerHTML='<div class="empty"><h3>Not Found</h3><p>This merged payload no longer exists on GitHub</p><button class="btn secondary" style="margin-top:12px" onclick="removeStaleFavourite(\''+escHtml(path)+'\',\'merged\')"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Remove from Favourites</button></div>';
+  }
+}
+
+async function removeStaleFavourite(path,source){
+  const idx=favourites.findIndex(f=>f.path===path&&f.source===source);
+  if(idx>=0){
+    favourites.splice(idx,1);
+    filteredFavourites=[...favourites];
+    await saveFavourites();
+    renderFavourites();
+    $('detail').innerHTML='<div class="empty">Select a payload</div>';
+  }
+}
+
+function selectFavouriteLocal(found,cat){
+  if(running&&runningSection!=='local')stop();
+  hideSource();
+  document.querySelectorAll('.payload').forEach(p=>p.classList.remove('active'));
+  const el=document.querySelector('.payload[data-fav-path="'+found.path+'"][data-fav-source="local"]');
+  if(el)el.classList.add('active');
+  selected=found;
+  const author=selected.author?escHtml(selected.author):'';
+  const desc=selected.desc?escHtml(selected.desc):'';
+  const authorHtml=author?'<span><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'+author+'</span>':'';
+  const descHtml=desc?'<div class="description">'+desc+'</div>':'';
+  const isNautilus=selected.path.includes('/remote_access/nautilus/');
+  const deleteRow=isNautilus?'':'<button class="btn secondary btn-half" id="deleteBtn" onclick="deletePayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete</button>';
+  const favActive=isFavourite(selected.path,'local')?'active':'';
+  $('detail').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><h2>'+escHtml(selected.name)+'</h2><button class="fav-btn '+favActive+'" id="favBtn" onclick="toggleFavourite(\''+escHtml(selected.path)+'\',\'local\',\''+escHtml(selected.name)+'\')" title="'+(favActive?'Remove from Favourites':'Add to Favourites')+'"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">'+authorHtml+'<span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>'+cat+'</span></div>'+descHtml+'<div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="run()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div>'+deleteRow+'</div>';
+  updateRunBtn();
+}
+
+function selectFavouriteMerged(found){
+  if(running&&runningSection!=='merged')stop();
+  hideSource();
+  document.querySelectorAll('.payload').forEach(p=>p.classList.remove('active'));
+  const el=document.querySelector('.payload[data-fav-path="'+found.path+'"][data-fav-source="merged"]');
+  if(el)el.classList.add('active');
+  selected={...found,isGithub:true};
+  const authorHtml=found.author?'<span><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'+escHtml(found.author)+'</span>':'';
+  const versionHtml=found.version?'<span><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>v'+escHtml(found.version)+'</span>':'';
+  const ghUrl='https://github.com/'+GITHUB_REPO+'/tree/'+GITHUB_BRANCH+'/'+found.path;
+  const favActive=isFavourite(found.path,'merged')?'active':'';
+  $('detail').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><h2>'+escHtml(found.title)+'</h2><button class="fav-btn '+favActive+'" id="favBtn" onclick="toggleFavourite(\''+escHtml(found.path)+'\',\'merged\',\''+escHtml(found.title)+'\')" title="'+(favActive?'Remove from Favourites':'Add to Favourites')+'"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">'+authorHtml+versionHtml+'<span><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>GitHub</span></div><div class="description">'+escHtml(found.description||'No description')+'</div><a href="'+ghUrl+'" target="_blank" class="btn secondary" style="width:100%;margin-bottom:8px"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub</a><div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="runGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div><button class="btn secondary btn-half" id="installBtn" onclick="installGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Install Locally</button></div>';
+  updateRunBtn();
+  updateInstallBtn();
+}
+
 const GITHUB_REPO='hak5/wifipineapplepager-payloads';
 const GITHUB_BRANCH='master';
 const GITHUB_API='https://api.github.com';
@@ -879,7 +1128,7 @@ function updateCacheInfo(id,timestamp){
 }
 
 async function loadGithubPayloads(forceRefresh=false){
-  $('githubCategories').innerHTML='<div class="github-loading"><div class="spinner"></div>Loading from GitHub...</div>';
+  $('githubCategories').innerHTML='<div class="github-loading"><img src="nautilus_spinning.png" alt="">Loading from GitHub...</div>';
   $('refreshMerged').classList.add('loading');
     
   if(!forceRefresh){
@@ -970,7 +1219,7 @@ function refreshGithubPayloads(){
 }
 
 async function loadGithubPRs(forceRefresh=false){
-  $('prList').innerHTML='<div class="github-loading"><div class="spinner"></div>Loading pull requests...</div>';
+  $('prList').innerHTML='<div class="github-loading"><img src="nautilus_spinning.png" alt="">Loading pull requests...</div>';
   $('refreshPRs').classList.add('loading');
 
   if(!forceRefresh){
@@ -1086,7 +1335,8 @@ function selectGithubPayload(path){
       const authorHtml=found.author?'<span><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'+escHtml(found.author)+'</span>':'';
       const versionHtml=found.version?'<span><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>v'+escHtml(found.version)+'</span>':'';
       const ghUrl='https://github.com/'+GITHUB_REPO+'/tree/'+GITHUB_BRANCH+'/'+found.path;
-      $('detail').innerHTML='<h2>'+escHtml(found.title)+'</h2><div class="meta">'+authorHtml+versionHtml+'<span><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>GitHub</span></div><div class="description">'+escHtml(found.description||'No description')+'</div><a href="'+ghUrl+'" target="_blank" class="btn secondary" style="width:100%;margin-bottom:8px"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub</a><div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="runGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div><button class="btn secondary btn-half" id="installBtn" onclick="installGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Install Locally</button></div>';
+      const favActive=isFavourite(found.path,'merged')?'active':'';
+      $('detail').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><h2>'+escHtml(found.title)+'</h2><button class="fav-btn '+favActive+'" id="favBtn" onclick="toggleFavourite(\''+escHtml(found.path)+'\',\'merged\',\''+escHtml(found.title)+'\')" title="'+(favActive?'Remove from Favourites':'Add to Favourites')+'"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">'+authorHtml+versionHtml+'<span><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>GitHub</span></div><div class="description">'+escHtml(found.description||'No description')+'</div><a href="'+ghUrl+'" target="_blank" class="btn secondary" style="width:100%;margin-bottom:8px"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub</a><div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="runGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div><button class="btn secondary btn-half" id="installBtn" onclick="installGithub()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Install Locally</button></div>';
       updateRunBtn();
       updateInstallBtn();
       break;
@@ -1120,7 +1370,7 @@ async function loadPRPayloads(number){
   $('console').innerHTML='';
   lineCount=0;
   $('lineCount').textContent='0 lines';
-  $('detail').innerHTML+='<div class="github-loading" style="margin-top:16px"><div class="spinner"></div>Loading PR files...</div>';
+  $('detail').innerHTML+='<div class="github-loading" style="margin-top:16px"><img src="nautilus_spinning.png" alt="">Loading PR files...</div>';
 
   let payloadFiles=[];
   const cache=getPRFilesCache();
@@ -1751,6 +2001,7 @@ async function load(){
     render();
     $('status').textContent='Ready • '+Object.values(payloads).flat().length+' payloads';
     loadWifiStatus();
+    loadFavourites();
   }catch(e){
     $('status').textContent='Error: '+e.message;
     $('status').classList.add('error');
@@ -1813,7 +2064,8 @@ function selectByPath(path){
       const descHtml=desc?'<div class="description">'+desc+'</div>':'';
       const isNautilus=selected.path.includes('/remote_access/nautilus/');
       const deleteRow=isNautilus?'':'<button class="btn secondary btn-half" id="deleteBtn" onclick="deletePayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>Delete</button>';
-      $('detail').innerHTML='<h2>'+escHtml(selected.name)+'</h2><div class="meta">'+authorHtml+'<span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>'+cat+'</span></div>'+descHtml+'<div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="run()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div>'+deleteRow+'</div>';
+      const favActive=isFavourite(selected.path,'local')?'active':'';
+      $('detail').innerHTML='<div style="display:flex;align-items:center;justify-content:space-between"><h2>'+escHtml(selected.name)+'</h2><button class="fav-btn '+favActive+'" id="favBtn" onclick="toggleFavourite(\''+escHtml(selected.path)+'\',\'local\',\''+escHtml(selected.name)+'\')" title="'+(favActive?'Remove from Favourites':'Add to Favourites')+'"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg></button></div><div class="meta">'+authorHtml+'<span><svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>'+cat+'</span></div>'+descHtml+'<div class="actions"><div class="btn-row"><button class="btn" id="runBtn" onclick="run()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">Run Payload</span></button><button class="btn secondary" id="sourceBtn" onclick="toggleSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="sourceBtnText">View Source</span></button></div>'+deleteRow+'</div>';
       updateRunBtn();
       break;
     }
@@ -1833,13 +2085,22 @@ function hideSource(){
 }
 
 function highlightSh(code){
-  return code
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/(#[^\n]*)/g,'<span class="sh-comment">$1</span>')
-    .replace(/("(?:[^"\\]|\\.)*"|'[^']*')/g,'<span class="sh-string">$1</span>')
-    .replace(/\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|local|export|source|in)\b/g,'<span class="sh-keyword">$1</span>')
-    .replace(/(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g,'<span class="sh-variable">$1</span>')
-    .replace(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\(\)/gm,'$1<span class="sh-function">$2</span>()');
+  const tokens=[];
+  let tokenId=0;
+  const placeholder=(type,content)=>{
+    const id='\x00T'+tokenId+++'\x00';
+    tokens.push({id,html:'<span class="sh-'+type+'">'+content+'</span>'});
+    return id;
+  };
+  let result=code
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  result=result.replace(/(#[^\n]*)/g,(m,p1)=>placeholder('comment',p1));
+  result=result.replace(/("(?:[^"\\]|\\.)*"|'[^']*')/g,(m,p1)=>placeholder('string',p1));
+  result=result.replace(/\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|return|exit|local|export|source|in)\b/g,(m,p1)=>placeholder('keyword',p1));
+  result=result.replace(/(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g,(m,p1)=>placeholder('variable',p1));
+  result=result.replace(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*\(\)/gm,(m,p1,p2)=>p1+placeholder('function',p2)+'()');
+  tokens.forEach(t=>{result=result.replace(t.id,t.html);});
+  return result;
 }
 
 async function toggleSource(){
@@ -2260,6 +2521,70 @@ async function respondPrompt(confirmed){
   $('console').appendChild(line);
   $('console').scrollTop=$('console').scrollHeight;
   await fetch('/cgi-bin/api.sh?action=respond&response='+encodeURIComponent(response)).catch(()=>{});
+}
+
+let nautilusConfig={autoMode:false,runMode:'foreground'};
+
+function openSettings(){
+  $('settingsModal').classList.add('show');
+  loadSettings();
+}
+
+function closeSettings(){
+  $('settingsModal').classList.remove('show');
+}
+
+async function loadSettings(){
+  $('settingsLoading').style.display='flex';
+  $('settingsContent').style.display='none';
+  try{
+    const resp=await fetch('/cgi-bin/api.sh?action=get_config&key=auto_mode');
+    const data=await resp.json();
+    nautilusConfig.autoMode=data.value==='true';
+    $('toggleAutoMode').classList.toggle('on',nautilusConfig.autoMode);
+    $('autoModeBody').classList.toggle('disabled',!nautilusConfig.autoMode);
+  }catch(e){}
+  try{
+    const resp=await fetch('/cgi-bin/api.sh?action=get_config&key=run_mode');
+    const data=await resp.json();
+    if(data.value)nautilusConfig.runMode=data.value;
+    $('selectRunMode').value=nautilusConfig.runMode;
+  }catch(e){}
+  $('settingsLoading').style.display='none';
+  $('settingsContent').style.display='block';
+}
+
+async function toggleAutoMode(){
+  const toggle=$('toggleAutoMode');
+  const newVal=!toggle.classList.contains('on');
+  toggle.classList.toggle('on',newVal);
+  $('autoModeBody').classList.toggle('disabled',!newVal);
+  nautilusConfig.autoMode=newVal;
+  showSettingsStatus('saving','Saving...');
+  try{
+    await fetch('/cgi-bin/api.sh?action=set_config&key=auto_mode&value='+(newVal?'true':'false'));
+    showSettingsStatus('saved','Saved');
+  }catch(e){
+    showSettingsStatus('error','Failed to save');
+  }
+}
+
+async function setRunMode(val){
+  nautilusConfig.runMode=val;
+  showSettingsStatus('saving','Saving...');
+  try{
+    await fetch('/cgi-bin/api.sh?action=set_config&key=run_mode&value='+encodeURIComponent(val));
+    showSettingsStatus('saved','Saved');
+  }catch(e){
+    showSettingsStatus('error','Failed to save');
+  }
+}
+
+function showSettingsStatus(type,msg){
+  const el=$('settingsStatus');
+  el.className='settings-status '+type;
+  el.textContent=msg;
+  if(type==='saved')setTimeout(()=>{el.textContent='';el.className='settings-status';},2000);
 }
 
 initAuth();

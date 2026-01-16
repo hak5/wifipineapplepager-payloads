@@ -1847,6 +1847,89 @@ WRAPPER_EOF
     rm -rf "$GITHUB_DIR"
 }
 
+get_config() {
+    local key="$1"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    local value=$(PAYLOAD_GET_CONFIG nautilus "$key" 2>/dev/null)
+    echo "Content-Type: application/json"
+    echo ""
+    if [ -n "$value" ]; then
+        printf '{"key":"%s","value":"%s"}\n' "$key" "$value"
+    else
+        printf '{"key":"%s","value":null}\n' "$key"
+    fi
+}
+
+set_config() {
+    local key="$1"
+    local value="$2"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    PAYLOAD_SET_CONFIG nautilus "$key" "$value" 2>/dev/null
+    local rc=$?
+    echo "Content-Type: application/json"
+    echo ""
+    if [ $rc -eq 0 ]; then
+        printf '{"success":true,"key":"%s","value":"%s"}\n' "$key" "$value"
+    else
+        echo '{"error":"Failed to save config"}'
+    fi
+}
+
+get_favourites() {
+    local value=$(PAYLOAD_GET_CONFIG nautilus "favourites" 2>/dev/null)
+    echo "Content-Type: application/json"
+    echo ""
+    if [ -n "$value" ]; then
+        printf '{"success":true,"favourites":%s}\n' "$value"
+    else
+        echo '{"success":true,"favourites":[]}'
+    fi
+}
+
+set_favourites() {
+    local json_data
+    if [ "$REQUEST_METHOD" = "POST" ]; then
+        json_data=$(cat)
+    fi
+    local favourites=$(echo "$json_data" | jsonfilter -e '@.favourites' 2>/dev/null)
+    if [ -z "$favourites" ]; then
+        favourites="[]"
+    fi
+    PAYLOAD_SET_CONFIG nautilus "favourites" "$favourites" 2>/dev/null
+    local rc=$?
+    echo "Content-Type: application/json"
+    echo ""
+    if [ $rc -eq 0 ]; then
+        echo '{"success":true}'
+    else
+        echo '{"error":"Failed to save favourites"}'
+    fi
+}
+
+del_config() {
+    local key="$1"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    PAYLOAD_DEL_CONFIG nautilus "$key" 2>/dev/null
+    echo "Content-Type: application/json"
+    echo ""
+    printf '{"success":true,"key":"%s"}\n' "$key"
+}
+
 action=""
 rpath=""
 response=""
@@ -1862,6 +1945,8 @@ wifi_password=""
 wifi_encryption=""
 wifi_bssid=""
 wifi_enable=""
+config_key=""
+config_value=""
 IFS='&'
 for param in $QUERY_STRING; do
     key="${param%%=*}"
@@ -1882,6 +1967,8 @@ for param in $QUERY_STRING; do
         encryption) wifi_encryption=$(urldecode "$val") ;;
         bssid) wifi_bssid=$(urldecode "$val") ;;
         enable) wifi_enable=$(urldecode "$val") ;;
+        key) config_key=$(urldecode "$val") ;;
+        value) config_value=$(urldecode "$val") ;;
     esac
 done
 unset IFS
@@ -1926,6 +2013,11 @@ case "$action" in
     wifi_connect) require_auth; wifi_connect "$wifi_ssid" "$wifi_password" "$wifi_encryption" "$wifi_bssid" ;;
     wifi_disconnect) require_auth; wifi_disconnect ;;
     wifi_toggle) require_auth; wifi_toggle_client_mode "$wifi_enable" ;;
+    get_config) require_auth; get_config "$config_key" ;;
+    set_config) require_auth; set_config "$config_key" "$config_value" ;;
+    del_config) require_auth; del_config "$config_key" ;;
+    get_favourites) require_auth; get_favourites ;;
+    set_favourites) require_auth; set_favourites ;;
     *) echo "Content-Type: application/json"; echo ""; echo '{"error":"Unknown action"}' ;;
 esac
 
