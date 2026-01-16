@@ -13,7 +13,11 @@ ALERT_NON_CRACKABLE=1            # Alert even if handshake is not crackable
 
 # Client tracking settings
 TRACK_CLIENTS=1                  # Enable tracking of clients in database (0=disable all client tracking)
-FILTER_RANDOMIZED_MACS=0         # Filter out randomized MAC addresses (prevents spam from iOS/Android devices)
+FILTER_RANDOMIZED_MACS=1         # Filter out randomized MAC addresses (prevents spam from iOS/Android devices)
+
+# Quality threshold (minimum quality rank to trigger alerts)
+# 0=all, 2=PMKID+, 3=M3M4+, 4=M1M2+, 5=M2M3 only
+MIN_QUALITY_RANK=2               # Only alert for PMKID quality or better
 
 
 # You probably don't want to change anything below here
@@ -32,8 +36,8 @@ debug_log() {
 db_exec() {
     local db_file="${2:-$DB_FILE}"
     local sql="$1"
-    local max_retries=5
-    local retry_delay=0.1
+    local max_retries=10
+    local retry_delay=1
     local attempt=1
     
     while [[ $attempt -le $max_retries ]]; do
@@ -41,10 +45,9 @@ db_exec() {
             return 0
         fi
         
-        # Database is locked, retry with exponential backoff
-        debug_log "Database locked, retry $attempt/$max_retries"
+        # Database is locked, retry with constant delay (not exponential)
+        debug_log "Database locked on attempt $attempt/$max_retries, retrying in ${retry_delay}s"
         sleep "$retry_delay"
-        retry_delay=$(awk "BEGIN {print $retry_delay * 2}")
         ((attempt++))
     done
     
@@ -52,28 +55,78 @@ db_exec() {
     return 1
 }
 
+# Acquire filesystem lock to prevent concurrent payload execution
+# Usage: acquire_payload_lock <lock_file> <timeout_seconds>
+# Returns 0 on success, 1 on failure
+acquire_payload_lock() {
+    local lock_file="${1:-/tmp/hashmaster_payload.lock}"
+    local timeout="${2:-30}"
+    local elapsed=0
+    
+    while [[ $elapsed -lt $timeout ]]; do
+        if mkdir "$lock_file" 2>/dev/null; then
+            # Lock acquired - store PID
+            echo $$ > "$lock_file/pid"
+            debug_log "Lock acquired: $lock_file (PID $$)"
+            return 0
+        fi
+        
+        # Check if lock is stale (process died)
+        if [[ -f "$lock_file/pid" ]]; then
+            local lock_pid=$(cat "$lock_file/pid" 2>/dev/null)
+            if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+                debug_log "Removing stale lock (PID $lock_pid no longer exists)"
+                rm -rf "$lock_file"
+                continue
+            fi
+        fi
+        
+        debug_log "Waiting for lock... ($elapsed/${timeout}s)"
+        sleep 1
+        ((elapsed++))
+    done
+    
+    echo "ERROR: Failed to acquire lock after ${timeout}s" >&2
+    return 1
+}
+
+# Release filesystem lock
+# Usage: release_payload_lock <lock_file>
+release_payload_lock() {
+    local lock_file="${1:-/tmp/hashmaster_payload.lock}"
+    
+    if [[ -d "$lock_file" ]]; then
+        rm -rf "$lock_file"
+        debug_log "Lock released: $lock_file"
+    fi
+}
+
 # Database locking wrapper for batch SQL statements (prevents concurrent access)
 # Usage: db_exec_batch "<sql_statements>"
 db_exec_batch() {
     local db_file="${2:-$DB_FILE}"
     local sql="$1"
-    local max_retries=5
-    local retry_delay=0.1
+    local max_retries=10
+    local retry_delay=1
     local attempt=1
+    
+    # Count statements for progress logging
+    local stmt_count=$(echo -e "$sql" | grep -c ';')
+    debug_log "Executing batch with $stmt_count statements"
     
     while [[ $attempt -le $max_retries ]]; do
         if echo -e "BEGIN IMMEDIATE TRANSACTION;\n$sql\nCOMMIT;" | sqlite3 "$db_file" 2>/dev/null; then
+            debug_log "Batch completed successfully on attempt $attempt"
             return 0
         fi
         
-        # Database is locked, retry with exponential backoff
-        debug_log "Database locked, retry $attempt/$max_retries"
+        # Database is locked, retry with constant delay (not exponential)
+        debug_log "Database locked on batch attempt $attempt/$max_retries, retrying in ${retry_delay}s"
         sleep "$retry_delay"
-        retry_delay=$(awk "BEGIN {print $retry_delay * 2}")
         ((attempt++))
     done
     
-    echo "ERROR: Database locked after $max_retries retries" >&2
+    echo "ERROR: Database batch locked after $max_retries retries ($stmt_count statements)" >&2
     return 1
 }
 
@@ -87,7 +140,7 @@ init_handshake_database() {
     fi
     
     # Enable WAL mode for better concurrent write performance
-    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;" 2>/dev/null
+    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000;" 2>/dev/null
     
     # Create tables if they don't exist
     sqlite3 "$db_file" "CREATE TABLE IF NOT EXISTS handshakes (

@@ -33,6 +33,21 @@ HASHCAT_PATH="$_ALERT_HANDSHAKE_HASHCAT_PATH"
 AP_MAC=$(echo "$AP_MAC" | tr 'a-z' 'A-Z')
 CLIENT_MAC=$(echo "$CLIENT_MAC" | tr 'a-z' 'A-Z')
 
+# Debounce: prevent processing same BSSID+CLIENT pair within 5 seconds
+# Use both MACs to handle deauth attacks capturing multiple clients simultaneously
+DEBOUNCE_KEY="${AP_MAC//:/}_${CLIENT_MAC//:/}"
+DEBOUNCE_FILE="/tmp/hashmaster_debounce_${DEBOUNCE_KEY}"
+if [[ -f "$DEBOUNCE_FILE" ]]; then
+    last_time=$(cat "$DEBOUNCE_FILE" 2>/dev/null || echo 0)
+    current_time=$(date +%s)
+    time_diff=$((current_time - last_time))
+    if [[ $time_diff -lt 5 ]]; then
+        debug_log "Debounced: BSSID $AP_MAC + Client $CLIENT_MAC processed ${time_diff}s ago (< 5s threshold)"
+        exit 0
+    fi
+fi
+echo $(date +%s) > "$DEBOUNCE_FILE"
+
 alert_message() {
     local title="$1"
     local ssid="$2"
@@ -65,25 +80,45 @@ SSID=$(get_ssid "$DB_FILE" "$AP_MAC" "$HASHCAT_PATH")
 debug_log "SSID determined: $SSID"
 
 # Validate crackability - compare our logic vs Pager assessment
-local VALIDATED_CRACKABLE=0
-if [[ -f "$HASHCAT_PATH" ]]; then
-    local hash_line=$(grep "^WPA" "$HASHCAT_PATH" | head -1)
-    if [[ -n "$hash_line" ]]; then
-        local validation_result=$(validate_crackable "$hash_line" 2>&1)
-        local validation_status="${validation_result%%:*}"
-        if [[ "$validation_status" == "CRACKABLE" ]]; then
-            VALIDATED_CRACKABLE=1
+VALIDATED_CRACKABLE=0
+
+# Handle both old (with colons) and new (without colons) filename formats
+actual_hashcat_path="$HASHCAT_PATH"
+if [[ ! -f "$actual_hashcat_path" ]]; then
+    # Try removing colons from MAC addresses in filename
+    filename=$(basename "$actual_hashcat_path")
+    dirname=$(dirname "$actual_hashcat_path")
+    no_colon_filename="${filename//:/}"
+    actual_hashcat_path="$dirname/$no_colon_filename"
+    debug_log "Original path not found, trying without colons: $actual_hashcat_path"
+fi
+
+if [[ -f "$actual_hashcat_path" ]]; then
+    file_size=$(stat -c%s "$actual_hashcat_path" 2>/dev/null || echo 0)
+    debug_log "Hash file exists: $actual_hashcat_path (size: $file_size bytes)"
+    
+    if [[ $file_size -gt 0 ]]; then
+        hash_line=$(grep "^WPA" "$actual_hashcat_path" 2>/dev/null | head -1)
+        if [[ -n "$hash_line" ]]; then
+            validation_result=$(validate_crackable "$hash_line" 2>&1)
+            validation_status="${validation_result%%:*}"
+            if [[ "$validation_status" == "CRACKABLE" ]]; then
+                VALIDATED_CRACKABLE=1
+            fi
+            debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
+        else
+            debug_log "No WPA hash line found in $actual_hashcat_path (file may be incomplete or different format)"
+            debug_log "First 3 lines: $(head -3 "$actual_hashcat_path" 2>/dev/null | tr '\n' '|')"
         fi
-        debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
     else
-        debug_log "No WPA hash line found in $HASHCAT_PATH"
+        debug_log "Hash file is empty (0 bytes) - may not be generated yet"
     fi
 else
-    debug_log "Hash file not found: $HASHCAT_PATH"
+    debug_log "Hash file not found: $HASHCAT_PATH (also tried without colons)"
 fi
 
 # Use Pager's assessment (proven accurate), but log comparison
-local ACTUAL_CRACKABLE=0
+ACTUAL_CRACKABLE=0
 [[ "${CRACKABLE,,}" == "true" ]] && ACTUAL_CRACKABLE=1
 debug_log "Pager says: crackable=$CRACKABLE ($ACTUAL_CRACKABLE)"
 debug_log "Comparison: Pager=$ACTUAL_CRACKABLE, Our validation=$VALIDATED_CRACKABLE $([ $ACTUAL_CRACKABLE -ne $VALIDATED_CRACKABLE ] && echo '*** MISMATCH ***' || echo 'Match')"
@@ -120,28 +155,28 @@ if [[ -z "$DB_ENTRY" ]]; then
     debug_log "New network detected. ALERT_NEW_NETWORK=$ALERT_NEW_NETWORK"
     if [[ $ALERT_NEW_NETWORK -eq 1 ]]; then
         debug_log "Sending NEW NETWORK alert"
-        local alert_title="NEW NETWORK"
+        alert_title="NEW NETWORK"
         [[ $ACTUAL_CRACKABLE -eq 1 ]] && alert_title="NEW CRACKABLE NETWORK"
         alert_message "$alert_title" "$SSID" "$AP_MAC" "Quality: $CURRENT_QUALITY\nType: $TYPE\nCrackable: $([ $ACTUAL_CRACKABLE -eq 1 ] && echo 'Yes' || echo 'No')"
     fi
     
-    # Add to database to prevent duplicate alerts
-    local timestamp=$(date +%s)
-    local crackable_int=$ACTUAL_CRACKABLE
+    # Add to database using UPSERT to prevent duplicate alerts and race conditions
+    timestamp=$(date +%s)
+    crackable_int=$ACTUAL_CRACKABLE
     
-    db_exec "INSERT OR IGNORE INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\'}', '${AP_MAC//\'/\'\'}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}');"
+    db_exec "INSERT INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\''}', '${AP_MAC//\'/\'\''}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(ssid, bssid) DO UPDATE SET last_seen=$timestamp, total_captures=total_captures+1;"
     debug_log "Inserted new network into database"
     
     # Track client if present and client tracking enabled
     if [[ $TRACK_CLIENTS -eq 1 && -n "$CLIENT_MAC" ]]; then
-        local is_randomized=0
+        # Skip client tracking for randomized MACs to prevent database bloat
+        # But we still track the network handshake above - it's valuable for cracking
         if [[ $FILTER_RANDOMIZED_MACS -eq 1 ]] && is_randomized_mac "$CLIENT_MAC"; then
-            is_randomized=1
-            debug_log "Client MAC $CLIENT_MAC is randomized (will track but not alert)"
+            debug_log "Client MAC $CLIENT_MAC is randomized - network tracked but client skipped"
+        else
+            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\''}', '${CLIENT_MAC//\'/\'\''}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
+            debug_log "Inserted new client $CLIENT_MAC for network $AP_MAC with quality $CURRENT_QUALITY"
         fi
-        
-        db_exec "INSERT OR IGNORE INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\'}', '${CLIENT_MAC//\'/\'\'}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}');"
-        debug_log "Inserted new client $CLIENT_MAC for network $AP_MAC with quality $CURRENT_QUALITY"
     fi
 else
     # EXISTING NETWORK - check for improvements
@@ -152,11 +187,11 @@ else
     debug_log "Current rank: $CURRENT_RANK, DB rank: $DB_RANK"
     
     # Update database with latest timestamp and increment capture count
-    local timestamp=$(date +%s)
-    local crackable_int=$ACTUAL_CRACKABLE
+    timestamp=$(date +%s)
+    crackable_int=$ACTUAL_CRACKABLE
     
     # Determine if quality should be updated (and file paths)
-    local update_quality="$db_quality"
+    update_quality="$db_quality"
     if [[ $CURRENT_RANK -gt $DB_RANK ]]; then
         update_quality="$CURRENT_QUALITY"
         # Quality improved - update file paths to point to better capture
@@ -169,17 +204,15 @@ else
     
     # Check for new client (if client tracking enabled)
     if [[ $TRACK_CLIENTS -eq 1 && -n "$CLIENT_MAC" ]]; then
-        local is_randomized=0
+        # Skip client tracking for randomized MACs to prevent database bloat
         if [[ $FILTER_RANDOMIZED_MACS -eq 1 ]] && is_randomized_mac "$CLIENT_MAC"; then
-            is_randomized=1
-            debug_log "Client MAC $CLIENT_MAC is randomized (will track but not alert)"
-        fi
-        
-        local client_entry=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM clients WHERE bssid='${AP_MAC//\'/\'\'}'  AND client_mac='${CLIENT_MAC//\'/\'\'}' LIMIT 1;" 2>/dev/null)
+            debug_log "Client MAC $CLIENT_MAC is randomized - network tracked but client skipped"
+        else
+            client_entry=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM clients WHERE bssid='${AP_MAC//\'/\'\''}' AND client_mac='${CLIENT_MAC//\'/\'\''}' LIMIT 1;" 2>/dev/null)
         
         if [[ -z "$client_entry" ]]; then
             # NEW CLIENT for this network
-            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\'}', '${CLIENT_MAC//\'/\'\'}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}');"
+            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\''}', '${CLIENT_MAC//\'/\'\''}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
             debug_log "New client detected: $CLIENT_MAC for $SSID ($AP_MAC) with quality $CURRENT_QUALITY"
             
             # Only alert if not randomized MAC
@@ -189,7 +222,7 @@ else
         else
             # Existing client - check for quality improvement
             IFS='|' read -r client_quality client_crackable <<< "$client_entry"
-            local client_rank=$(quality_rank "$client_quality")
+            client_rank=$(quality_rank "$client_quality")
             debug_log "Existing client $CLIENT_MAC - DB quality: $client_quality (rank $client_rank), Current: $CURRENT_QUALITY (rank $CURRENT_RANK)"
             
             if [[ $CURRENT_RANK -gt $client_rank ]]; then
@@ -206,7 +239,7 @@ else
                 db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=capture_count+1, crackable=$crackable_int WHERE bssid='${AP_MAC//\'/\'\'}'  AND client_mac='${CLIENT_MAC//\'/\'\'}';"
                 debug_log "Updated existing client $CLIENT_MAC (no quality change)"
             fi
-        fi
+        fi        
     fi
     
     # Check if quality improved

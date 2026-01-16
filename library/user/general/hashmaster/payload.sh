@@ -305,18 +305,22 @@ detect_high_value() {
     LOG "Updating database..."
     
     if [[ -n "$sql_inserts" ]]; then
+        LOG "Processing network inserts..."
         db_exec_batch "$sql_inserts"
     fi
     
     if [[ -n "$sql_updates" ]]; then
+        LOG "Processing network updates..."
         db_exec_batch "$sql_updates"
     fi
     
     if [[ -n "$client_inserts" ]]; then
+        LOG "Processing client inserts..."
         db_exec_batch "$client_inserts"
     fi
     
     if [[ -n "$client_updates" ]]; then
+        LOG "Processing client updates..."
         db_exec_batch "$client_updates"
     fi
     
