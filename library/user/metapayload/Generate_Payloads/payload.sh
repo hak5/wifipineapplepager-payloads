@@ -2,7 +2,7 @@
 # Title: Generate Payloads
 # Description: Generates MetaPayload reconnaissance payloads from configuration files
 # Author: spencershepard (GRIMM)
-# Version: 1.1
+# Version: 1.2
 
 
 METAPAYLOAD_DIR="/root/payloads/user/metapayload"
@@ -1078,6 +1078,27 @@ SET_VAR_SCRIPT
     chmod +x "$payload_file"
 }
 
+# Ask user if they want to overwrite existing payloads
+resp=$(CONFIRMATION_DIALOG "Overwrite existing payloads?" "YES: Regenerate all payloads\nNO: Only generate missing payloads")
+case $? in
+    $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
+        LOG red "Error in dialog"
+        exit 1
+        ;;
+esac
+
+OVERWRITE_EXISTING=false
+case "$resp" in
+    $DUCKYSCRIPT_USER_CONFIRMED)
+        OVERWRITE_EXISTING=true
+        LOG purple "Will overwrite existing payloads"
+        ;;
+    $DUCKYSCRIPT_USER_DENIED)
+        OVERWRITE_EXISTING=false
+        LOG purple "Will only generate missing payloads"
+        ;;
+esac
+
 # Extract all unique variables from all configs
 declare -A ALL_VARS
 for config_file in "$CONFIG_DIR"/*.json; do
@@ -1091,15 +1112,31 @@ for config_file in "$CONFIG_DIR"/*.json; do
     payload_count=$(jq '.payloads | length' "$config_file")
     
     for ((i=0; i<$payload_count; i++)); do
-        # Extract payload data
-        name=$(jq -r ".payloads[$i].name" "$config_file")
-        path=$(jq -r ".payloads[$i].path" "$config_file")
-        command=$(jq -r ".payloads[$i].command" "$config_file")
-        required_vars=$(jq -c ".payloads[$i].required_vars" "$config_file")
-        optional_vars=$(jq -c ".payloads[$i].optional_vars" "$config_file")
-        description=$(jq -r ".payloads[$i].description" "$config_file")
-        author=$(jq -r ".payloads[$i].author" "$config_file")
-        required_packages=$(jq -c ".payloads[$i].required_packages" "$config_file")
+        # Extract payload data (single jq call for performance)
+        IFS=$'\t' read -r name path command required_vars optional_vars description author required_packages < <(
+            jq -r ".payloads[$i] | [.name, .path, .command, (.required_vars | tojson), (.optional_vars | tojson), .description, .author, (.required_packages | tojson)] | @tsv" "$config_file"
+        )
+        
+        # Check if payload already exists
+        payload_file="$PAYLOADS_DIR/$path/payload.sh"
+        if [ -f "$payload_file" ] && [ "$OVERWRITE_EXISTING" = false ]; then
+            LOG yellow "Skipping existing payload: $path"
+            
+            # Still collect variables for Set_Variables payloads
+            if [ "$required_vars" != "null" ]; then
+                echo "$required_vars" | jq -r '.[]' | while read -r var; do
+                    ALL_VARS["$var"]=1
+                done
+            fi
+            
+            if [ "$optional_vars" != "null" ]; then
+                echo "$optional_vars" | jq -r 'keys[]' | while read -r var; do
+                    ALL_VARS["$var"]=1
+                done
+            fi
+            
+            continue
+        fi
         
         # Collect variables
         if [ "$required_vars" != "null" ]; then
