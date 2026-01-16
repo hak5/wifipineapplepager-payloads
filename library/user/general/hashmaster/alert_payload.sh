@@ -2,11 +2,11 @@
 # Title: HashMaster Alert
 # Description: Handshake smart alerts for new networks, quality improvements, and status changes
 # Author:  spencershepard
-# Version:  1.2.1
+# Version:  1.2.2
 
 # Alert options are set via hashmaster.sh, not here
 
-ALERT_PAYLOAD_VERSION="1.2.1"
+ALERT_PAYLOAD_VERSION="1.2.2"
 
 DB_FILE="/root/hashmaster.db"
 
@@ -35,23 +35,7 @@ HASHCAT_PATH="$_ALERT_HANDSHAKE_HASHCAT_PATH"
 AP_MAC=$(echo "$AP_MAC" | tr 'a-z' 'A-Z')
 CLIENT_MAC=$(echo "$CLIENT_MAC" | tr 'a-z' 'A-Z')
 
-# Debounce: prevent processing same BSSID+CLIENT pair within 5 seconds
-# Use both MACs to handle deauth attacks capturing multiple clients simultaneously
-DEBOUNCE_KEY="${AP_MAC//:/}_${CLIENT_MAC//:/}"
-DEBOUNCE_FILE="/tmp/hashmaster_debounce_${DEBOUNCE_KEY}"
-if [[ -f "$DEBOUNCE_FILE" ]]; then
-    last_time=$(cat "$DEBOUNCE_FILE" 2>/dev/null || echo 0)
-    current_time=$(date +%s)
-    time_diff=$((current_time - last_time))
-    if [[ $time_diff -lt 5 ]]; then
-        debug_log "Debounced: BSSID $AP_MAC + Client $CLIENT_MAC processed ${time_diff}s ago (< 5s threshold)"
-        exit 0
-    fi
-fi
-echo $(date +%s) > "$DEBOUNCE_FILE"
-
-# Global lock to prevent concurrent alert processing (eliminates database contention)
-# Multiple alerts can fire simultaneously, but only one should process at a time
+# The lock file mechanism probably isn't necessary? Not sure if multiple alerts can run simultaneously
 LOCK_FILE="/tmp/hashmaster_alert.lock"
 LOCK_FD=200
 
@@ -118,59 +102,11 @@ sqlite3 "$DB_FILE" "PRAGMA wal_checkpoint(RESTART);" 2>/dev/null
 SSID=$(get_ssid "$DB_FILE" "$AP_MAC" "$HASHCAT_PATH")
 debug_log "SSID determined: $SSID"
 
-# Validate crackability - compare our logic vs Pager assessment
-VALIDATED_CRACKABLE=0
-
-# Handle both old (with colons) and new (without colons) filename formats
-actual_hashcat_path="$HASHCAT_PATH"
-if [[ ! -f "$actual_hashcat_path" ]]; then
-    # Try removing colons from MAC addresses in filename
-    filename=$(basename "$actual_hashcat_path")
-    dirname=$(dirname "$actual_hashcat_path")
-    no_colon_filename="${filename//:/}"
-    actual_hashcat_path="$dirname/$no_colon_filename"
-    debug_log "Original path not found, trying without colons: $actual_hashcat_path"
-fi
-
-if [[ -f "$actual_hashcat_path" ]]; then
-    # Wait for file to be written and contain WPA hash (up to 5s total)
-    # hcxpcapngtool needs time to process pcap and write the .22000 file
-    hash_line=""
-    file_size=0
-    for attempt in 1 2 3 4 5; do
-        file_size=$(stat -c%s "$actual_hashcat_path" 2>/dev/null || echo 0)
-        if [[ $file_size -gt 100 ]]; then 
-            hash_line=$(grep "^WPA" "$actual_hashcat_path" 2>/dev/null | head -1)
-            if [[ -n "$hash_line" ]]; then
-                debug_log "Hash file ready: $actual_hashcat_path (size: $file_size bytes, attempt $attempt)"
-                break
-            fi
-        fi
-        if [[ $attempt -lt 5 ]]; then
-            debug_log "Hash file not ready (size: $file_size, attempt $attempt), waiting 2s..."
-            sleep 2
-        fi
-    done
-    
-    if [[ -n "$hash_line" ]]; then
-        validation_result=$(validate_crackable "$hash_line" 2>&1)
-        validation_status="${validation_result%%:*}"
-        if [[ "$validation_status" == "CRACKABLE" ]]; then
-            VALIDATED_CRACKABLE=1
-        fi
-        debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
-    else
-        debug_log "Hash file not ready for validation - hcxpcapngtool still processing (trusting Pager assessment)"
-    fi
-else
-    debug_log "Hash file not found: $HASHCAT_PATH (also tried without colons)"
-fi
-
-# Use Pager's assessment (proven accurate), but log comparison
+# Trust the Pager's crackability assessment - it has already validated the handshake
 ACTUAL_CRACKABLE=0
 [[ "${CRACKABLE,,}" == "true" ]] && ACTUAL_CRACKABLE=1
-debug_log "Pager says: crackable=$CRACKABLE ($ACTUAL_CRACKABLE)"
-debug_log "Comparison: Pager=$ACTUAL_CRACKABLE, Our validation=$VALIDATED_CRACKABLE $([ $ACTUAL_CRACKABLE -ne $VALIDATED_CRACKABLE ] && echo '*** MISMATCH ***' || echo 'Match')"
+debug_log "Pager assessment: crackable=$CRACKABLE ($ACTUAL_CRACKABLE)"
+debug_log "Hash file path: $HASHCAT_PATH"
 
 # Determine current quality
 CURRENT_QUALITY=$(determine_quality "$TYPE" "$COMPLETE" "$HASHCAT_PATH")
