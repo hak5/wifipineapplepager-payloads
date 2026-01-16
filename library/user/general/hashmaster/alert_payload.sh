@@ -2,9 +2,11 @@
 # Title: HashMaster Alert
 # Description: Handshake smart alerts for new networks, quality improvements, and status changes
 # Author:  spencershepard
-# Version:  1.0
+# Version:  1.2.1
 
 # Alert options are set via hashmaster.sh, not here
+
+ALERT_PAYLOAD_VERSION="1.2.1"
 
 DB_FILE="/root/hashmaster.db"
 
@@ -48,6 +50,38 @@ if [[ -f "$DEBOUNCE_FILE" ]]; then
 fi
 echo $(date +%s) > "$DEBOUNCE_FILE"
 
+# Global lock to prevent concurrent alert processing (eliminates database contention)
+# Multiple alerts can fire simultaneously, but only one should process at a time
+LOCK_FILE="/tmp/hashmaster_alert.lock"
+LOCK_FD=200
+
+acquire_lock() {
+    exec 200>"$LOCK_FILE"
+    local timeout=15  # Maximum 15s wait for lock
+    local elapsed=0
+    
+    while ! flock -n 200; do
+        if [[ $elapsed -ge $timeout ]]; then
+            debug_log "Failed to acquire lock after ${timeout}s - another alert still processing"
+            exit 0  # Exit gracefully, will process on next alert
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+    debug_log "Lock acquired (waited ${elapsed}s)"
+}
+
+release_lock() {
+    flock -u 200 2>/dev/null
+    debug_log "Lock released"
+}
+
+# Acquire global lock - ensures only one alert processes at a time
+acquire_lock
+
+# Ensure lock is released on exit
+trap release_lock EXIT
+
 alert_message() {
     local title="$1"
     local ssid="$2"
@@ -66,6 +100,8 @@ alert_message() {
     ALERT "$msg"
 }
 
+debug_log "========================================"
+debug_log "HashMaster Alert Payload v${ALERT_PAYLOAD_VERSION}"
 debug_log "Processing handshake alert for BSSID: $AP_MAC, Type: $TYPE, Crackable: $CRACKABLE"
 debug_log "$(env)"
 
@@ -74,6 +110,9 @@ if ! init_handshake_database "$DB_FILE"; then
     ERROR_DIALOG "Failed to initialize handshake tracking database at $DB_FILE"
     exit 1
 fi
+
+# Force WAL checkpoint to clear any stale locks before we start
+sqlite3 "$DB_FILE" "PRAGMA wal_checkpoint(RESTART);" 2>/dev/null
 
 # Get SSID
 SSID=$(get_ssid "$DB_FILE" "$AP_MAC" "$HASHCAT_PATH")
@@ -108,18 +147,10 @@ if [[ -f "$actual_hashcat_path" ]]; then
             fi
         fi
         if [[ $attempt -lt 5 ]]; then
-            debug_log "Hash file not ready (size: $file_size, attempt $attempt), waiting 1s..."
-            sleep 1
+            debug_log "Hash file not ready (size: $file_size, attempt $attempt), waiting 2s..."
+            sleep 2
         fi
     done
-    
-    if [[ $file_size -eq 0 ]]; then
-        debug_log "Hash file is empty after waiting: $actual_hashcat_path"
-    fi
-    
-    if [[ $file_size -eq 0 ]]; then
-        debug_log "Hash file is empty after waiting: $actual_hashcat_path"
-    fi
     
     if [[ -n "$hash_line" ]]; then
         validation_result=$(validate_crackable "$hash_line" 2>&1)
@@ -129,8 +160,7 @@ if [[ -f "$actual_hashcat_path" ]]; then
         fi
         debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
     else
-        debug_log "No WPA hash line found in $actual_hashcat_path after retries"
-        debug_log "First 3 lines: $(head -3 "$actual_hashcat_path" 2>/dev/null | tr '\n' '|')"
+        debug_log "Hash file not ready for validation - hcxpcapngtool still processing (trusting Pager assessment)"
     fi
 else
     debug_log "Hash file not found: $HASHCAT_PATH (also tried without colons)"
@@ -167,10 +197,12 @@ fi
 
 # Query database for this network
 DB_ENTRY=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';" 2>/dev/null)
-debug_log "DB query result: '$DB_ENTRY'"
+debug_log "DB query result: '$DB_ENTRY' (length: ${#DB_ENTRY})"
+debug_log "About to check if DB_ENTRY is empty..."
 
 if [[ -z "$DB_ENTRY" ]]; then
     # NEW NETWORK
+    debug_log "==> NEW NETWORK PATH: Empty DB_ENTRY"
     debug_log "New network detected. ALERT_NEW_NETWORK=$ALERT_NEW_NETWORK"
     if [[ $ALERT_NEW_NETWORK -eq 1 ]]; then
         debug_log "Sending NEW NETWORK alert"
@@ -183,7 +215,13 @@ if [[ -z "$DB_ENTRY" ]]; then
     timestamp=$(date +%s)
     crackable_int=$ACTUAL_CRACKABLE
     
-    db_exec "INSERT INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\''}', '${AP_MAC//\'/\'\''}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(ssid, bssid) DO UPDATE SET last_seen=$timestamp, total_captures=total_captures+1;"
+    db_exec "INSERT INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\''}', '${AP_MAC//\'/\'\''}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(ssid, bssid) DO UPDATE SET last_seen=$timestamp, total_captures=total_captures+1;" "$DB_FILE"
+    
+    if [[ $? -ne 0 ]]; then
+        debug_log "Failed to insert network - database busy, will retry on next handshake"
+        exit 0
+    fi
+    
     debug_log "Inserted new network into database"
     
     # Track client if present and client tracking enabled
@@ -199,25 +237,62 @@ if [[ -z "$DB_ENTRY" ]]; then
     fi
 else
     # EXISTING NETWORK - check for improvements
+    debug_log "==> EXISTING NETWORK PATH"
     IFS='|' read -r db_quality db_crackable <<< "$DB_ENTRY"
-    debug_log "Existing network - DB quality: $db_quality, DB crackable: $db_crackable"
+    
+    # Set defaults for any empty values
+    [[ -z "$db_quality" ]] && db_quality="$CURRENT_QUALITY"
+    [[ -z "$db_crackable" ]] && db_crackable=0
     
     DB_RANK=$(quality_rank "$db_quality")
-    debug_log "Current rank: $CURRENT_RANK, DB rank: $DB_RANK"
+    debug_log "DB: quality=$db_quality (rank $DB_RANK), crackable=$db_crackable | Current: quality=$CURRENT_QUALITY (rank $CURRENT_RANK), crackable=$ACTUAL_CRACKABLE"
     
-    # Update database with latest timestamp and increment capture count
+    # Prepare SQL parameters with validation
     timestamp=$(date +%s)
-    crackable_int=$ACTUAL_CRACKABLE
-    
-    # Determine if quality should be updated (and file paths)
+    crackable_int=${ACTUAL_CRACKABLE:-0}
     update_quality="$db_quality"
+    
+    # Validate critical parameters before SQL construction
+    if ! validate_sql_params \
+        "timestamp" "$timestamp" \
+        "crackable_int" "$crackable_int" \
+        "update_quality" "$update_quality" \
+        "SSID" "$SSID" \
+        "AP_MAC" "$AP_MAC"; then
+        debug_log "FATAL: Cannot update database - invalid parameters"
+        exit 1
+    fi
+    
     if [[ $CURRENT_RANK -gt $DB_RANK ]]; then
+        # Quality improved - update with new file paths
         update_quality="$CURRENT_QUALITY"
-        # Quality improved - update file paths to point to better capture
-        db_exec "UPDATE handshakes SET best_quality='$update_quality', last_seen=$timestamp, total_captures=total_captures+1, crackable=$crackable_int, best_pcap_path='${PCAP_PATH//\'/\'\'}', best_hashcat_path='${HASHCAT_PATH//\'/\'\'}'  WHERE ssid='${SSID//\'/\'\'}' AND bssid='${AP_MAC//\'/\'\'}';"
+        
+        # Validate file paths
+        if ! validate_sql_params \
+            "PCAP_PATH" "$PCAP_PATH" \
+            "HASHCAT_PATH" "$HASHCAT_PATH"; then
+            debug_log "FATAL: Cannot update with file paths - invalid parameters"
+            exit 1
+        fi
+        
+        sql=$(build_update_sql "handshakes" "ssid='${SSID//\'/\'\'}' AND bssid='${AP_MAC//\'/\'\'}'" \
+            "best_quality" "$update_quality" \
+            "last_seen" "$timestamp" \
+            "total_captures" "total_captures+1" \
+            "crackable" "$crackable_int" \
+            "best_pcap_path" "${PCAP_PATH}" \
+            "best_hashcat_path" "${HASHCAT_PATH}")
+        
+        db_exec "$sql"
     else
         # No quality improvement - just update metadata
-        db_exec "UPDATE handshakes SET best_quality='$update_quality', last_seen=$timestamp, total_captures=total_captures+1, crackable=$crackable_int WHERE ssid='${SSID//\'/\'\'}' AND bssid='${AP_MAC//\'/\'\'}';"
+        sql=$(build_update_sql "handshakes" "ssid='${SSID//\'/\'\'}' AND bssid='${AP_MAC//\'/\'\'}'" \
+            "best_quality" "$update_quality" \
+            "last_seen" "$timestamp" \
+            "total_captures" "total_captures+1" \
+            "crackable" "$crackable_int")
+        
+        db_exec "$sql"
     fi
     debug_log "Updated existing network in database"
     
@@ -277,4 +352,5 @@ else
     fi
 fi
 
+debug_log "Exiting normally"
 exit 0

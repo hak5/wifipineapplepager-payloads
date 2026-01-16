@@ -1,9 +1,11 @@
 #!/bin/bash
-# Title: HashMaster
+# Title: HashMaster22000
 # Description: Analyze current collection and detect new/improved captures from any source
 # Author:  spencershepard
-# Version:  4.0
+# Version:  5.1
 # Category: general
+
+ANALYSIS_PAYLOAD_VERSION="5.1"
 
 # Configuration
 DB_FILE="/root/hashmaster.db"
@@ -18,6 +20,11 @@ else
     LOG red "ERROR: Cannot find hashmaster.sh at $HSMANAGER" >&2
     exit 1
 fi
+
+debug_log "========================================"
+debug_log "HashMaster Analysis Payload v${ANALYSIS_PAYLOAD_VERSION}"
+debug_log "HashMaster Library v${HASHMASTER_LIB_VERSION}"
+debug_log "Scanning directory: $HANDSHAKE_DIR"
 
 if [[ ! -d "$HANDSHAKE_DIR" ]]; then
     LOG red "Directory not found: $HANDSHAKE_DIR"
@@ -247,10 +254,10 @@ detect_high_value() {
             if [[ $best_rank -gt $existing_rank ]]; then
                 update_quality="$best_quality"
                 # Quality improved - update file paths too
-                sql_updates+="UPDATE handshakes SET best_quality='${update_quality//\'/\'\'}', last_seen=$timestamp, total_captures=$new_total, crackable=$is_crackable, best_pcap_path='$pcap_sql', best_hashcat_path='$hashcat_sql' WHERE ssid='$ssid_sql' AND bssid='$bssid_sql';\n"
+                sql_updates+="UPDATE handshakes SET best_quality='${update_quality//\'/\'\'}', last_seen=$timestamp, total_captures=$file_count, crackable=$is_crackable, best_pcap_path='$pcap_sql', best_hashcat_path='$hashcat_sql' WHERE ssid='$ssid_sql' AND bssid='$bssid_sql';\n"
             else
                 # No improvement - don't update file paths
-                sql_updates+="UPDATE handshakes SET best_quality='${update_quality//\'/\'\'}', last_seen=$timestamp, total_captures=$new_total, crackable=$is_crackable WHERE ssid='$ssid_sql' AND bssid='$bssid_sql';\n"
+                sql_updates+="UPDATE handshakes SET best_quality='${update_quality//\'/\'\'}', last_seen=$timestamp, total_captures=$file_count, crackable=$is_crackable WHERE ssid='$ssid_sql' AND bssid='$bssid_sql';\n"
             fi
         fi
     done
@@ -372,6 +379,37 @@ if ! init_handshake_database "$DB_FILE"; then
     ERROR_DIALOG "Failed to initialize handshake tracking database at $DB_FILE"
     exit 1
 fi
+
+# Acquire global lock to prevent conflicts with alert payloads
+# Uses same lock file as alert_payload.sh for mutual exclusion
+LOCK_FILE="/tmp/hashmaster_alert.lock"
+LOCK_FD=200
+
+acquire_lock() {
+    exec 200>"$LOCK_FILE"
+    local timeout=30  # Maximum 30s wait (user payload can wait longer than alerts)
+    local elapsed=0
+    
+    while ! flock -n 200; do
+        if [[ $elapsed -ge $timeout ]]; then
+            ERROR_DIALOG "Failed to acquire lock after ${timeout}s - alert payloads still processing"
+            exit 1
+        fi
+        sleep 1
+        ((elapsed++))
+    done
+    [[ $elapsed -gt 0 ]] && LOG "Waited ${elapsed}s for alert processing to complete"
+}
+
+release_lock() {
+    flock -u 200 2>/dev/null
+}
+
+# Acquire lock before any database operations
+acquire_lock
+
+# Ensure lock is released on exit
+trap release_lock EXIT
 
 # Parse files and detect high value captures
 if parse_handshakes; then

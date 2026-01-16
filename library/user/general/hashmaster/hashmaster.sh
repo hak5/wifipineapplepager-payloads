@@ -1,5 +1,8 @@
 #!/bin/bash
 # These functions are shared between user and alert metapayloads for Handshake Manager
+# Version: 1.2
+
+HASHMASTER_LIB_VERSION="1.2.1"
 
 # Debug logging (1=enabled, 0=disabled)
 DEBUG=1                          # Enable verbose debug logging to /root/hashmaster_debug.log
@@ -28,7 +31,60 @@ ALERT_PAYLOAD_DISABLED="/root/payloads/alerts/handshake_captured/DISABLED.hashma
 # Debug logging function - returns early if DEBUG not enabled
 debug_log() {
     [[ $DEBUG -eq 1 ]] || return 0
-    echo "$1" >> /tmp/hashmaster_debug.log
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> /tmp/hashmaster_debug.log
+}
+
+# Validate required SQL parameters - exits script if any are invalid
+# Usage: validate_sql_params "param1_name" "$param1_value" "param2_name" "$param2_value" ...
+validate_sql_params() {
+    local all_valid=true
+    while [[ $# -gt 0 ]]; do
+        local param_name="$1"
+        local param_value="$2"
+        shift 2
+        
+        if [[ -z "$param_value" ]]; then
+            debug_log "ERROR: SQL parameter '$param_name' is empty or unset"
+            all_valid=false
+        else
+            debug_log "SQL param OK: $param_name='$param_value'"
+        fi
+    done
+    
+    if [[ "$all_valid" == false ]]; then
+        debug_log "FATAL: SQL validation failed - cannot construct safe query"
+        return 1
+    fi
+    return 0
+}
+
+# Safe SQL UPDATE builder - validates all params before constructing query
+# Usage: build_update_sql <table> <where_clause> "col1" "val1" "col2" "val2" ...
+build_update_sql() {
+    local table="$1"
+    local where_clause="$2"
+    shift 2
+    
+    local set_clause=""
+    local separator=""
+    
+    while [[ $# -gt 0 ]]; do
+        local col="$1"
+        local val="$2"
+        shift 2
+        
+        # For numeric values (no quotes), check if it's a number
+        if [[ "$val" =~ ^[0-9]+$ ]]; then
+            set_clause+="${separator}${col}=${val}"
+        else
+            # Escape single quotes for SQL string literals
+            local escaped_val="${val//\'/\'\'}"
+            set_clause+="${separator}${col}='${escaped_val}'"
+        fi
+        separator=", "
+    done
+    
+    echo "UPDATE ${table} SET ${set_clause} WHERE ${where_clause};"
 }
 
 # Database locking wrapper for single SQL statement (prevents concurrent access)
@@ -40,65 +96,30 @@ db_exec() {
     local retry_delay=1
     local attempt=1
     
+    # Log the full SQL for debugging
+    debug_log "Executing SQL: $sql"
+    
     while [[ $attempt -le $max_retries ]]; do
-        if sqlite3 "$db_file" "BEGIN IMMEDIATE TRANSACTION; $sql COMMIT;" 2>/dev/null; then
+        local error_output
+        # Set busy_timeout on each connection (each sqlite3 invocation is a new connection)
+        # 5s timeout is sufficient with flock serialization - fail fast if issues occur
+        error_output=$(sqlite3 "$db_file" "PRAGMA busy_timeout=5000; BEGIN IMMEDIATE TRANSACTION; $sql; COMMIT;" 2>&1)
+        if [[ $? -eq 0 ]]; then
             return 0
         fi
         
-        # Database is locked, retry with constant delay (not exponential)
-        debug_log "Database locked on attempt $attempt/$max_retries, retrying in ${retry_delay}s"
+        # Distinguish between lock and other errors
+        if [[ "$error_output" == *"locked"* ]]; then
+            debug_log "Database locked on attempt $attempt/$max_retries, retrying in ${retry_delay}s"
+        else
+            debug_log "SQL error on attempt $attempt: $error_output"
+        fi
         sleep "$retry_delay"
         ((attempt++))
     done
     
-    echo "ERROR: Database locked after $max_retries retries" >&2
+    echo "ERROR: Database operation failed after $max_retries retries" >&2
     return 1
-}
-
-# Acquire filesystem lock to prevent concurrent payload execution
-# Usage: acquire_payload_lock <lock_file> <timeout_seconds>
-# Returns 0 on success, 1 on failure
-acquire_payload_lock() {
-    local lock_file="${1:-/tmp/hashmaster_payload.lock}"
-    local timeout="${2:-30}"
-    local elapsed=0
-    
-    while [[ $elapsed -lt $timeout ]]; do
-        if mkdir "$lock_file" 2>/dev/null; then
-            # Lock acquired - store PID
-            echo $$ > "$lock_file/pid"
-            debug_log "Lock acquired: $lock_file (PID $$)"
-            return 0
-        fi
-        
-        # Check if lock is stale (process died)
-        if [[ -f "$lock_file/pid" ]]; then
-            local lock_pid=$(cat "$lock_file/pid" 2>/dev/null)
-            if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
-                debug_log "Removing stale lock (PID $lock_pid no longer exists)"
-                rm -rf "$lock_file"
-                continue
-            fi
-        fi
-        
-        debug_log "Waiting for lock... ($elapsed/${timeout}s)"
-        sleep 1
-        ((elapsed++))
-    done
-    
-    echo "ERROR: Failed to acquire lock after ${timeout}s" >&2
-    return 1
-}
-
-# Release filesystem lock
-# Usage: release_payload_lock <lock_file>
-release_payload_lock() {
-    local lock_file="${1:-/tmp/hashmaster_payload.lock}"
-    
-    if [[ -d "$lock_file" ]]; then
-        rm -rf "$lock_file"
-        debug_log "Lock released: $lock_file"
-    fi
 }
 
 # Database locking wrapper for batch SQL statements (prevents concurrent access)
@@ -115,13 +136,21 @@ db_exec_batch() {
     debug_log "Executing batch with $stmt_count statements"
     
     while [[ $attempt -le $max_retries ]]; do
-        if echo -e "BEGIN IMMEDIATE TRANSACTION;\n$sql\nCOMMIT;" | sqlite3 "$db_file" 2>/dev/null; then
+        local error_output
+        # Set busy_timeout on each connection (each sqlite3 invocation is a new connection)
+        # 5s timeout is sufficient with flock serialization - fail fast if issues occur
+        error_output=$(echo -e "PRAGMA busy_timeout=5000;\nBEGIN IMMEDIATE TRANSACTION;\n$sql\nCOMMIT;" | sqlite3 "$db_file" 2>&1)
+        if [[ $? -eq 0 ]]; then
             debug_log "Batch completed successfully on attempt $attempt"
             return 0
         fi
         
-        # Database is locked, retry with constant delay (not exponential)
-        debug_log "Database locked on batch attempt $attempt/$max_retries, retrying in ${retry_delay}s"
+        # Database is locked or error occurred
+        if [[ "$error_output" == *"locked"* ]]; then
+            debug_log "Database locked on batch attempt $attempt/$max_retries, retrying in ${retry_delay}s"
+        else
+            debug_log "Batch SQL error on attempt $attempt: $error_output"
+        fi
         sleep "$retry_delay"
         ((attempt++))
     done
@@ -140,7 +169,8 @@ init_handshake_database() {
     fi
     
     # Enable WAL mode for better concurrent write performance
-    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=30000;" 2>/dev/null
+    # 5s timeout is sufficient with flock serialization
+    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;" 2>/dev/null
     
     # Create tables if they don't exist
     sqlite3 "$db_file" "CREATE TABLE IF NOT EXISTS handshakes (
