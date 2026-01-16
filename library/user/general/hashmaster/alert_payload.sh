@@ -94,24 +94,43 @@ if [[ ! -f "$actual_hashcat_path" ]]; then
 fi
 
 if [[ -f "$actual_hashcat_path" ]]; then
-    file_size=$(stat -c%s "$actual_hashcat_path" 2>/dev/null || echo 0)
-    debug_log "Hash file exists: $actual_hashcat_path (size: $file_size bytes)"
-    
-    if [[ $file_size -gt 0 ]]; then
-        hash_line=$(grep "^WPA" "$actual_hashcat_path" 2>/dev/null | head -1)
-        if [[ -n "$hash_line" ]]; then
-            validation_result=$(validate_crackable "$hash_line" 2>&1)
-            validation_status="${validation_result%%:*}"
-            if [[ "$validation_status" == "CRACKABLE" ]]; then
-                VALIDATED_CRACKABLE=1
+    # Wait for file to be written and contain WPA hash (up to 5s total)
+    # hcxpcapngtool needs time to process pcap and write the .22000 file
+    hash_line=""
+    file_size=0
+    for attempt in 1 2 3 4 5; do
+        file_size=$(stat -c%s "$actual_hashcat_path" 2>/dev/null || echo 0)
+        if [[ $file_size -gt 100 ]]; then 
+            hash_line=$(grep "^WPA" "$actual_hashcat_path" 2>/dev/null | head -1)
+            if [[ -n "$hash_line" ]]; then
+                debug_log "Hash file ready: $actual_hashcat_path (size: $file_size bytes, attempt $attempt)"
+                break
             fi
-            debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
-        else
-            debug_log "No WPA hash line found in $actual_hashcat_path (file may be incomplete or different format)"
-            debug_log "First 3 lines: $(head -3 "$actual_hashcat_path" 2>/dev/null | tr '\n' '|')"
         fi
+        if [[ $attempt -lt 5 ]]; then
+            debug_log "Hash file not ready (size: $file_size, attempt $attempt), waiting 1s..."
+            sleep 1
+        fi
+    done
+    
+    if [[ $file_size -eq 0 ]]; then
+        debug_log "Hash file is empty after waiting: $actual_hashcat_path"
+    fi
+    
+    if [[ $file_size -eq 0 ]]; then
+        debug_log "Hash file is empty after waiting: $actual_hashcat_path"
+    fi
+    
+    if [[ -n "$hash_line" ]]; then
+        validation_result=$(validate_crackable "$hash_line" 2>&1)
+        validation_status="${validation_result%%:*}"
+        if [[ "$validation_status" == "CRACKABLE" ]]; then
+            VALIDATED_CRACKABLE=1
+        fi
+        debug_log "Our validation: '$validation_result' -> crackable=$VALIDATED_CRACKABLE"
     else
-        debug_log "Hash file is empty (0 bytes) - may not be generated yet"
+        debug_log "No WPA hash line found in $actual_hashcat_path after retries"
+        debug_log "First 3 lines: $(head -3 "$actual_hashcat_path" 2>/dev/null | tr '\n' '|')"
     fi
 else
     debug_log "Hash file not found: $HASHCAT_PATH (also tried without colons)"
