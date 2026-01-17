@@ -31,34 +31,71 @@ A Passpoint/Hotspot 2.0 reconnaissance tool for the WiFi Pineapple Pager. Detect
 
 - WiFi Pineapple Pager
 - Monitor mode capable WiFi adapter (wlan1mon)
-- wpa_supplicant with interworking/HS2.0 support
+- `wpad` for ANQP queries (optional - payload can install it)
 
 ## Installation
 
-### Prerequisites
+### Method 1: From Payload Library (Recommended)
 
-Install wpa_supplicant with Hotspot 2.0 support (required for ANQP queries):
+Pull the payload directly from the Hak5 payload library on your Pager.
+
+### Method 2: Manual Install via SCP
+
+```bash
+# Create the directory on Pager
+ssh root@172.16.52.1 'mkdir -p /root/payloads/user/reconnaissance/passpoint_scanner'
+
+# Copy the payload
+scp payload.sh root@172.16.52.1:/root/payloads/user/reconnaissance/passpoint_scanner/
+```
+
+### Method 3: Clone via Git on Pager
+
+```bash
+ssh root@172.16.52.1
+cd /root/payloads/user/reconnaissance/
+git clone https://github.com/WiFivomFranMan/Pager-Passpoint-Scanner.git passpoint_scanner
+```
+
+### ANQP Support (Optional)
+
+For full Passpoint analysis including ANQP queries, `wpad` is required. The payload will:
+1. Detect if it's missing on startup
+2. Offer to install it automatically (requires internet)
+3. Fall back to beacon-only mode if unavailable
+
+#### Package Replacement Notice
+
+A fresh Pager comes with `wpad-basic-mbedtls` installed. To enable ANQP queries, the payload will offer to replace it with `wpad`.
+
+**What this means:**
+- `wpad` is a **full replacement** with the same functionality plus HS2.0 support
+- All WiFi functions (AP mode, client mode, monitor mode) continue to work normally
+- The only difference is the crypto library (openssl vs mbedtls) and added HS2.0/interworking support
+
+You will see a confirmation prompt:
+```
+Package conflict detected:
+  wpad-basic-mbedtls
+
+wpad will REPLACE this.
+It has same features + HS2.0.
+All WiFi functions will still work.
+
+[A] Replace  [B] Cancel
+```
+
+Press **[A]** to proceed with the replacement, or **[B]** to cancel and use beacon-only mode.
+
+#### Manual Installation
 
 ```bash
 opkg update
-opkg install wpa-supplicant-openssl
+opkg remove wpad-basic-mbedtls
+opkg install wpad wpa-cli
 ```
 
-> **Note**: The standard `wpa-supplicant` package may not include HS2.0/interworking support. The `-openssl` variant includes these features.
-
-### On WiFi Pineapple Pager
-
-Copy the payload to the Pager's payload directory:
-
-```bash
-scp payload.sh root@172.16.52.1:/root/payloads/library/user/reconnaissance/passpoint_scanner/payload.sh
-```
-
-Or clone directly on the Pager:
-```bash
-cd /root/payloads/library/user/reconnaissance/
-git clone https://github.com/WiFivomFranMan/Pager-Passpoint-Scanner.git passpoint_scanner
-```
+> **Note**: Without `wpad`, the scanner runs in **Beacon-Only Mode** - it will detect Passpoint APs and decode RCOIs from beacons, but won't query ANQP data (NAI realms, domains, venue info).
 
 ## Usage
 
