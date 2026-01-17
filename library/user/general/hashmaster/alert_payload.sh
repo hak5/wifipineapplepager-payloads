@@ -2,11 +2,11 @@
 # Title: HashMaster Alert
 # Description: Handshake smart alerts for new networks, quality improvements, and status changes
 # Author:  spencershepard
-# Version:  1.2.2
+# Version:  1.2.3
 
 # Alert options are set via hashmaster.sh, not here
 
-ALERT_PAYLOAD_VERSION="1.2.2"
+ALERT_PAYLOAD_VERSION="1.2.3"
 
 DB_FILE="/root/hashmaster.db"
 
@@ -132,9 +132,20 @@ if [[ $ALERT_BEST_QUALITY_ONLY -eq 1 ]] && [[ "$CURRENT_QUALITY" != "EAPOL_M2M3_
 fi
 
 # Query database for this network
-DB_ENTRY=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';" 2>/dev/null)
-debug_log "DB query result: '$DB_ENTRY' (length: ${#DB_ENTRY})"
-debug_log "About to check if DB_ENTRY is empty..."
+debug_log "Executing query: SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';"
+DB_ENTRY=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';" 2>&1)
+DB_QUERY_EXIT=$?
+debug_log "Query exit code: $DB_QUERY_EXIT"
+debug_log "Query result: '$DB_ENTRY' (length: ${#DB_ENTRY})"
+
+if [[ $DB_QUERY_EXIT -ne 0 ]]; then
+    debug_log "ERROR: Database query failed with exit code $DB_QUERY_EXIT"
+    debug_log "Error output: $DB_ENTRY"
+    exit 1
+fi
+
+debug_log "About to evaluate if DB_ENTRY is empty..."
+debug_log "DB_ENTRY value check: empty=$([[ -z "$DB_ENTRY" ]] && echo 'YES' || echo 'NO')"
 
 if [[ -z "$DB_ENTRY" ]]; then
     # NEW NETWORK
@@ -151,7 +162,7 @@ if [[ -z "$DB_ENTRY" ]]; then
     timestamp=$(date +%s)
     crackable_int=$ACTUAL_CRACKABLE
     
-    db_exec "INSERT INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\''}', '${AP_MAC//\'/\'\''}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(ssid, bssid) DO UPDATE SET last_seen=$timestamp, total_captures=total_captures+1;" "$DB_FILE"
+    db_exec "INSERT INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('${SSID//\'/\'\'}', '${AP_MAC//\'/\'\'}', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}') ON CONFLICT(ssid, bssid) DO UPDATE SET last_seen=$timestamp, total_captures=total_captures+1;" "$DB_FILE"
     
     if [[ $? -ne 0 ]]; then
         debug_log "Failed to insert network - database busy, will retry on next handshake"
@@ -167,7 +178,7 @@ if [[ -z "$DB_ENTRY" ]]; then
         if [[ $FILTER_RANDOMIZED_MACS -eq 1 ]] && is_randomized_mac "$CLIENT_MAC"; then
             debug_log "Client MAC $CLIENT_MAC is randomized - network tracked but client skipped"
         else
-            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\''}', '${CLIENT_MAC//\'/\'\''}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
+            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\'}', '${CLIENT_MAC//\'/\'\'}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
             debug_log "Inserted new client $CLIENT_MAC for network $AP_MAC with quality $CURRENT_QUALITY"
         fi
     fi
@@ -238,11 +249,11 @@ else
         if [[ $FILTER_RANDOMIZED_MACS -eq 1 ]] && is_randomized_mac "$CLIENT_MAC"; then
             debug_log "Client MAC $CLIENT_MAC is randomized - network tracked but client skipped"
         else
-            client_entry=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM clients WHERE bssid='${AP_MAC//\'/\'\''}' AND client_mac='${CLIENT_MAC//\'/\'\''}' LIMIT 1;" 2>/dev/null)
+            client_entry=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM clients WHERE bssid='${AP_MAC//\'/\'\'}' AND client_mac='${CLIENT_MAC//\'/\'\'}' LIMIT 1;" 2>/dev/null)
         
         if [[ -z "$client_entry" ]]; then
             # NEW CLIENT for this network
-            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\''}', '${CLIENT_MAC//\'/\'\''}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\''}', '${HASHCAT_PATH//\'/\'\''}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
+            db_exec "INSERT INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('${AP_MAC//\'/\'\'}', '${CLIENT_MAC//\'/\'\'}', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '${PCAP_PATH//\'/\'\'}', '${HASHCAT_PATH//\'/\'\'}') ON CONFLICT(bssid, client_mac) DO UPDATE SET last_seen=$timestamp, capture_count=capture_count+1;"
             debug_log "New client detected: $CLIENT_MAC for $SSID ($AP_MAC) with quality $CURRENT_QUALITY"
             
             # Only alert if not randomized MAC
@@ -257,7 +268,7 @@ else
             
             if [[ $CURRENT_RANK -gt $client_rank ]]; then
                 # Quality improved for this specific client-AP pair - update with new file paths
-                db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=capture_count+1, best_quality='$CURRENT_QUALITY', crackable=$crackable_int, best_pcap_path='${PCAP_PATH//\'/\'\'}', best_hashcat_path='${HASHCAT_PATH//\'/\'\'}'  WHERE bssid='${AP_MAC//\'/\'\'}'  AND client_mac='${CLIENT_MAC//\'/\'\'}';"
+                db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=capture_count+1, best_quality='$CURRENT_QUALITY', crackable=$crackable_int, best_pcap_path='${PCAP_PATH//\'/\'\'}', best_hashcat_path='${HASHCAT_PATH//\'/\'\'}' WHERE bssid='${AP_MAC//\'/\'\'}' AND client_mac='${CLIENT_MAC//\'/\'\'}';" 
                 debug_log "Client quality improved from $client_quality to $CURRENT_QUALITY"
                 
                 # Only alert if not randomized MAC
@@ -266,7 +277,7 @@ else
                 fi
             else
                 # No quality improvement - just update metadata
-                db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=capture_count+1, crackable=$crackable_int WHERE bssid='${AP_MAC//\'/\'\'}'  AND client_mac='${CLIENT_MAC//\'/\'\'}';"
+                db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=capture_count+1, crackable=$crackable_int WHERE bssid='${AP_MAC//\'/\'\'}' AND client_mac='${CLIENT_MAC//\'/\'\'}';" 
                 debug_log "Updated existing client $CLIENT_MAC (no quality change)"
             fi
         fi        
