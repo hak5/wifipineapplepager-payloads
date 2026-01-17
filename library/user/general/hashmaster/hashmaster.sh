@@ -170,7 +170,8 @@ init_handshake_database() {
     
     # Enable WAL mode for better concurrent write performance
     # 5s timeout is sufficient with flock serialization
-    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;" 2>/dev/null
+    # Quiet PRAGMA outputs to avoid noise on stdout in headless runs
+    sqlite3 "$db_file" "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;" >/dev/null 2>&1
     
     # Create tables if they don't exist
     sqlite3 "$db_file" "CREATE TABLE IF NOT EXISTS handshakes (

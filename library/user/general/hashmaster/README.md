@@ -111,3 +111,9 @@ Both methods update the same database. When a handshake is processed:
 - Duplicate of existing capture? → Stay silent
 
 Everything is tracked by the unique combination of network name (SSID) and access point address (BSSID).
+
+
+## Planned Impovements & Issues
+- Encode SSIDs properly to handle special characters
+- Add feature to delete old/duplicate captures from disk
+- Add Hashtopolis integration
