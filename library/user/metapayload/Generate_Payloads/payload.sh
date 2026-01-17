@@ -244,10 +244,13 @@ TRIM_CODE
     cat >> "$payload_file" << 'METADATA_START'
 
 # Build metadata string (just names, no values)
-METADATA="{{DESCRIPTION}}"
+METADATA="{{DESCRIPTION}}
+
+Author: {{AUTHOR}}"
 METADATA_START
     
     sed -i "s|{{DESCRIPTION}}|${description}|g" "$payload_file"
+    sed -i "s|{{AUTHOR}}|${author}|g" "$payload_file"
     
     # Add required var names (without values) to metadata
     if [ -n "$required_vars" ] && [ "$required_vars" != "null" ] && [ "$required_vars" != "[]" ]; then
@@ -258,10 +261,9 @@ METADATA_START
 METADATA="$METADATA
 "
 METADATA_REQUIRED_HEADER
-            echo "Required:" >> "$payload_file"
             echo "$required_vars" | jq -r '.[]' | while read -r var; do
                 echo "METADATA=\"\$METADATA" >> "$payload_file"
-                echo "[$var]\"" >> "$payload_file"
+                echo "$var [\${$var}]\"" >> "$payload_file"
             done
         fi
     fi
@@ -1079,7 +1081,7 @@ SET_VAR_SCRIPT
 }
 
 # Ask user if they want to overwrite existing payloads
-resp=$(CONFIRMATION_DIALOG "Overwrite existing payloads?" "YES: Regenerate all payloads\nNO: Only generate missing payloads")
+resp=$(CONFIRMATION_DIALOG "Overwrite existing payloads? (recommended) \nYES: Regenerate all payloads\nNO: Only generate missing payloads")
 case $? in
     $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         LOG red "Error in dialog"

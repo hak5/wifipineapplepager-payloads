@@ -111,6 +111,18 @@
       "required_packages": [],
       "description": "Recursively search file contents for pattern (GREP_OPTIONS: -i=case-insensitive)",
       "author": "MetaPayload"
+    },
+    {
+      "name": "MP-Speedtest Download",
+      "path": "user/metapayload_sys_utils/MP_Speedtest_Download",
+      "command": "echo 'Starting speed test...'; SIZE_BYTES=$((SIZE_MB * 1024 * 1024)); START_TIME=$(date +%s); wget -O /tmp/speedtest.bin \"https://speedtest.accessfiber.net.prod.hosts.ooklaserver.net:8080/download?size=$SIZE_BYTES\" 2>&1 | tail -2; END_TIME=$(date +%s); ELAPSED=$((END_TIME - START_TIME)); SPEED_MBPS=$(awk \"BEGIN {printf \\\"%.2f\\\", ($SIZE_MB * 8) / $ELAPSED}\"); echo \"Downloaded ${SIZE_MB}MB in ${ELAPSED}s\"; echo \"Average speed: ${SPEED_MBPS} Mbps\"; rm -f /tmp/speedtest.bin",
+      "required_vars": [],
+      "optional_vars": {
+        "SIZE_MB": 25
+      },
+      "required_packages": [],
+      "description": "Test download speed by fetching a file from speedtest server (size in MB, default 25MB)",
+      "author": "MetaPayload"
     }
   ]
 }
