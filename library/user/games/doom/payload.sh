@@ -2,7 +2,7 @@
 # Title: DOOM
 # Description: The classic 1993 FPS, optimized for Pager
 # Author: @lmacken
-# Version: 5.0
+# Version: 6.0
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom"

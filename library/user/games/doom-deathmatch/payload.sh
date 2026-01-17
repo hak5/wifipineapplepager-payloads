@@ -2,7 +2,7 @@
 # Title: DOOM Deathmatch
 # Description: Multiplayer deathmatch with item respawns!
 # Author: @lmacken
-# Version: 5.0
+# Version: 6.0
 # Category: Games
 
 PAYLOAD_DIR="/root/payloads/user/games/doom-deathmatch"
