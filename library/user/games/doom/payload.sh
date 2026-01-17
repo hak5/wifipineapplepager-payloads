@@ -26,15 +26,15 @@ WAD_FILE=$(ls "$PAYLOAD_DIR"/*.wad 2>/dev/null | head -1)
     exit 1
 }
 
-# Display controls
-LOG "DOOM"
-LOG ""
-LOG "D-pad=Move  Red=Fire  Green=Select"
-LOG "Green+Up=Use  Green+L/R=Strafe"
-LOG "Red+Green=Quit"
-LOG ""
-LOG "Press any button to start..."
-sleep 0.1
+# Display controls (single LOG for faster rendering)
+LOG "DOOM
+
+D-pad=Move  Red=Fire  Power=Weapon
+Green+Up=Use  Green+L/R=Strafe
+Green+Pwr=Save  Red+Pwr=Load
+Red+Green=Menu
+
+Press any button to start..."
 WAIT_FOR_INPUT >/dev/null 2>&1
 
 # Show spinner while loading
@@ -61,6 +61,5 @@ sleep 0.5
 /etc/init.d/pineapplepager start 2>/dev/null &
 /etc/init.d/pineapd start 2>/dev/null &
 
-LOG ""
 LOG "DOOM exited. Press any button..."
 WAIT_FOR_INPUT >/dev/null 2>&1
