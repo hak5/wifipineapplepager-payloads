@@ -1,4 +1,4 @@
-# 🎯 HashMaster
+# 🎯 HashMaster 22000
 
 Your WiFi Pineapple Pager is great at collecting handshakes - but which ones are actually useful? HashMaster tracks everything via Pager alerts and by analyzing your .22000 hashcat files, giving you smart notifications and clear insights into what you've captured.
 

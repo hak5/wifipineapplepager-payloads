@@ -674,5 +674,6 @@ else
 fi
 
 LOG "Database updated:  $db_total_networks networks tracked, $db_total_captures lifetime captures"
+debug_log "Payload completed successfully."
 
 exit 0
