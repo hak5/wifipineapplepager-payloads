@@ -2,11 +2,11 @@
 # Title: HashMaster Alert
 # Description: Handshake smart alerts for new networks, quality improvements, and status changes
 # Author:  spencershepard
-# Version:  1.2.3
+# Version:  1.3.1
+ALERT_PAYLOAD_VERSION="1.3.1"
 
 # Alert options are set via hashmaster.sh, not here
 
-ALERT_PAYLOAD_VERSION="1.2.3"
 
 DB_FILE="/root/hashmaster.db"
 
@@ -30,6 +30,16 @@ fi
 
 
 # ===================================
+
+# $_ALERT_HANDSHAKE_SUMMARY             human-readable handshake summary "handshake AP ... CLIENT ... packets..."
+# $_ALERT_HANDSHAKE_AP_MAC_ADDRESS      ap/bssid mac of handshake
+# $_ALERT_HANDSHAKE_CLIENT_MAC_ADDRESS  client mac address
+# $_ALERT_HANDSHAKE_TYPE                eapol | pmkid
+# $_ALERT_HANDSHAKE_COMPLETE            (eapol only) complete 4-way handshake + beacon captured
+# $_ALERT_HANDSHAKE_CRACKABLE           (eapol only) handshake is potentially crackable
+# $_ALERT_HANDSHAKE_PCAP_PATH           path to pcap file
+# $_ALERT_HANDSHAKE_HASHCAT_PATH        path to hashcat-converted file
+
 
 # Get variables from alert event
 AP_MAC="$_ALERT_HANDSHAKE_AP_MAC_ADDRESS"
@@ -108,9 +118,46 @@ fi
 # Force WAL checkpoint to clear any stale locks before we start
 sqlite3 "$DB_FILE" "PRAGMA wal_checkpoint(RESTART);" 2>/dev/null
 
-# Get SSID
-SSID=$(get_ssid "$DB_FILE" "$AP_MAC" "$HASHCAT_PATH")
-debug_log "SSID determined: $SSID"
+# Wait up to 20s (every 3s) for the hashcat file to be available
+MAX_WAIT=20
+WAIT_INTERVAL=3
+elapsed=0
+if [ ! -f "$HASHCAT_PATH" ]; then
+    debug_log "Hashcat file not found yet: $HASHCAT_PATH"
+fi
+while [ ! -f "$HASHCAT_PATH" ] && [ "$elapsed" -lt "$MAX_WAIT" ]; do
+    sleep "$WAIT_INTERVAL"
+    elapsed=$((elapsed+WAIT_INTERVAL))
+    debug_log "Waiting for hashcat file (${elapsed}/${MAX_WAIT}s): $HASHCAT_PATH"
+done
+if [ ! -f "$HASHCAT_PATH" ]; then
+    ALERT "[ERROR] HashMaster waited ${MAX_WAIT}s after handshake capture, but hashcat file is still missing: $HASHCAT_PATH"
+    debug_log "Exiting: hashcat file missing after wait"
+    exit 1
+fi
+
+# Get SSID hex and printable
+SSID_HEX=$(get_ssid_hex "$AP_MAC" "$HASHCAT_PATH")
+SSID_PRINTABLE=$(hex_to_printable_ssid "$SSID_HEX")
+debug_log "SSID determined: hex=$SSID_HEX printable=$SSID_PRINTABLE"
+
+# If we previously stored an unknown SSID for this BSSID, and now we know the SSID hex,
+# promote the row by updating ssid_hex + ssid_printable for that BSSID.
+SSID_PROMOTED=0
+if [ -n "$SSID_HEX" ]; then
+    BSSID_ESC_PROMO=$(sql_escape "$AP_MAC")
+    SSID_HEX_ESC_PROMO=$(sql_escape "$SSID_HEX")
+    SSID_PRINTABLE_ESC_PROMO=$(sql_escape "$SSID_PRINTABLE")
+    # Check if there is an unknown-SSID row for this BSSID
+    unknown_row=$(sqlite3 "$DB_FILE" "SELECT 1 FROM handshakes WHERE bssid='$BSSID_ESC_PROMO' AND (ssid_hex IS NULL OR ssid_hex='') LIMIT 1;" 2>/dev/null)
+    if [ "$unknown_row" = "1" ]; then
+        db_exec "UPDATE handshakes SET ssid_hex='$SSID_HEX_ESC_PROMO', ssid_printable='$SSID_PRINTABLE_ESC_PROMO' WHERE bssid='$BSSID_ESC_PROMO' AND (ssid_hex IS NULL OR ssid_hex='');" "$DB_FILE"
+        SSID_PROMOTED=1
+        debug_log "SSID promotion: BSSID $AP_MAC upgraded to hex=$SSID_HEX printable=$SSID_PRINTABLE"
+        # Send immediate alert about SSID discovery
+        alert_message "SSID DISCOVERED" "$SSID_PRINTABLE" "$AP_MAC" "SSID discovered for previously unknown network"
+    fi
+fi
 
 # Trust the Pager's crackability assessment - it has already validated the handshake
 ACTUAL_CRACKABLE=0
@@ -119,8 +166,8 @@ if [ "$CRACKABLE_LC" = "true" ]; then ACTUAL_CRACKABLE=1; fi
 debug_log "Pager assessment: crackable=$CRACKABLE ($ACTUAL_CRACKABLE)"
 debug_log "Hash file path: $HASHCAT_PATH"
 
-# Determine current quality
-CURRENT_QUALITY=$(determine_quality "$TYPE" "$COMPLETE" "$HASHCAT_PATH")
+# Determine current quality from the hash file
+CURRENT_QUALITY=$(determine_file_quality "$HASHCAT_PATH")
 CURRENT_RANK=$(quality_rank "$CURRENT_QUALITY")
 debug_log "Quality: $CURRENT_QUALITY (rank $CURRENT_RANK), Min threshold: $MIN_QUALITY_RANK, Crackable: $ACTUAL_CRACKABLE"
 
@@ -143,8 +190,8 @@ if [ "$ALERT_BEST_QUALITY_ONLY" -eq 1 ] && [ "$CURRENT_QUALITY" != "EAPOL_M2M3_B
 fi
 
 # Query database for this network
-debug_log "Executing query: SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';"
-DB_ENTRY=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM handshakes WHERE ssid='$SSID' AND bssid='$AP_MAC';" 2>&1)
+debug_log "Executing query: SELECT best_quality, crackable FROM handshakes WHERE ssid_hex='$SSID_HEX' AND bssid='$AP_MAC';"
+DB_ENTRY=$(sqlite3 "$DB_FILE" "SELECT best_quality, crackable FROM handshakes WHERE ssid_hex='$SSID_HEX' AND bssid='$AP_MAC';" 2>&1)
 DB_QUERY_EXIT=$?
 debug_log "Query exit code: $DB_QUERY_EXIT"
 debug_log "Query result: '$DB_ENTRY' (length: ${#DB_ENTRY})"
@@ -163,20 +210,21 @@ if [ -z "$DB_ENTRY" ]; then
     # NEW NETWORK
     debug_log "==> NEW NETWORK PATH: Empty DB_ENTRY"
     debug_log "New network detected. ALERT_NEW_NETWORK=$ALERT_NEW_NETWORK"
-    debug_log "Preparing DB insert/update for SSID='$SSID' BSSID='$AP_MAC' quality='$CURRENT_QUALITY' crackable='$ACTUAL_CRACKABLE'"
+    debug_log "Preparing DB insert/update for SSID='$SSID_PRINTABLE' BSSID='$AP_MAC' quality='$CURRENT_QUALITY' crackable='$ACTUAL_CRACKABLE'"
     
     # Add to database using portable pattern (INSERT OR IGNORE + UPDATE)
     timestamp=$(date +%s)
     crackable_int=$ACTUAL_CRACKABLE
-    # Pre-escape single quotes for SQL safety
-    SSID_ESC=${SSID//\'/\'\'}
-    BSSID_ESC=${AP_MAC//\'/\'\'}
-    PCAP_ESC=${PCAP_PATH//\'/\'\'}
-    HASHCAT_ESC=${HASHCAT_PATH//\'/\'\'}
+    # Pre-escape single quotes for SQL safety via shared helper
+    SSID_HEX_ESC=$(sql_escape "$SSID_HEX")
+    SSID_PRINTABLE_ESC=$(sql_escape "$SSID_PRINTABLE")
+    BSSID_ESC=$(sql_escape "$AP_MAC")
+    PCAP_ESC=$(sql_escape "$PCAP_PATH")
+    HASHCAT_ESC=$(sql_escape "$HASHCAT_PATH")
     
     debug_log "DB: executing INSERT then UPDATE for new network"
-    sql_insert="INSERT OR IGNORE INTO handshakes (ssid, bssid, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('$SSID_ESC', '$BSSID_ESC', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '$PCAP_ESC', '$HASHCAT_ESC');"
-    sql_update="UPDATE handshakes SET last_seen=$timestamp, total_captures=COALESCE(total_captures,0)+1, best_quality='$CURRENT_QUALITY', crackable=$crackable_int, best_pcap_path='$PCAP_ESC', best_hashcat_path='$HASHCAT_ESC' WHERE ssid='$SSID_ESC' AND bssid='$BSSID_ESC';"
+    sql_insert="INSERT OR IGNORE INTO handshakes (ssid_hex, bssid, ssid_printable, best_quality, first_seen, last_seen, total_captures, crackable, best_pcap_path, best_hashcat_path) VALUES ('$SSID_HEX_ESC', '$BSSID_ESC', '$SSID_PRINTABLE_ESC', '$CURRENT_QUALITY', $timestamp, $timestamp, 1, $crackable_int, '$PCAP_ESC', '$HASHCAT_ESC');"
+    sql_update="UPDATE handshakes SET last_seen=$timestamp, total_captures=COALESCE(total_captures,0)+1, ssid_printable='$SSID_PRINTABLE_ESC', best_quality='$CURRENT_QUALITY', crackable=$crackable_int, best_pcap_path='$PCAP_ESC', best_hashcat_path='$HASHCAT_ESC' WHERE ssid_hex='$SSID_HEX_ESC' AND bssid='$BSSID_ESC';"
     if ! db_exec "$sql_insert" "$DB_FILE"; then
         debug_log "FATAL: INSERT failed for new network"
         exit 0
@@ -192,7 +240,7 @@ if [ -z "$DB_ENTRY" ]; then
         debug_log "Sending NEW NETWORK alert"
         alert_title="NEW NETWORK"
         if [ "$ACTUAL_CRACKABLE" -eq 1 ]; then alert_title="NEW CRACKABLE NETWORK"; fi
-        alert_message "$alert_title" "$SSID" "$AP_MAC" "Quality: $CURRENT_QUALITY\nType: $TYPE\nCrackable: $([ $ACTUAL_CRACKABLE -eq 1 ] && echo 'Yes' || echo 'No')"
+        alert_message "$alert_title" "$SSID_PRINTABLE" "$AP_MAC" "Quality: $CURRENT_QUALITY\nType: $TYPE\nCrackable: $([ $ACTUAL_CRACKABLE -eq 1 ] && echo 'Yes' || echo 'No')"
     fi
     
     # Track client if present and client tracking enabled
@@ -205,7 +253,7 @@ if [ -z "$DB_ENTRY" ]; then
             debug_log "Client MAC $CLIENT_MAC is randomized - network tracked but client skipped"
         else
             debug_log "DB: INSERT OR IGNORE client row"
-            CLIENT_ESC=${CLIENT_MAC//\'/\'\'}
+            CLIENT_ESC=$(sql_escape "$CLIENT_MAC")
             db_exec "INSERT OR IGNORE INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('$BSSID_ESC', '$CLIENT_ESC', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '$PCAP_ESC', '$HASHCAT_ESC');" "$DB_FILE"
             debug_log "DB: UPDATE client metadata/counts"
             db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=COALESCE(capture_count,0)+1 WHERE bssid='$BSSID_ESC' AND client_mac='$CLIENT_ESC';" "$DB_FILE"
@@ -229,27 +277,27 @@ else
     crackable_int=${ACTUAL_CRACKABLE:-0}
     update_quality="$db_quality"
     # Pre-escape single quotes for SQL safety (existing-network path)
-    SSID_ESC=${SSID//\'/\'\'}
-    BSSID_ESC=${AP_MAC//\'/\'\'}
-    CLIENT_ESC=${CLIENT_MAC//\'/\'\'}
-    PCAP_ESC=${PCAP_PATH//\'/\'\'}
-    HASHCAT_ESC=${HASHCAT_PATH//\'/\'\'}
+    SSID_HEX_ESC=$(sql_escape "$SSID_HEX")
+    BSSID_ESC=$(sql_escape "$AP_MAC")
+    CLIENT_ESC=$(sql_escape "$CLIENT_MAC")
+    PCAP_ESC=$(sql_escape "$PCAP_PATH")
+    HASHCAT_ESC=$(sql_escape "$HASHCAT_PATH")
+    SSID_PRINTABLE_ESC=$(sql_escape "$SSID_PRINTABLE")
     
     # Validate critical parameters before SQL construction
     if ! validate_sql_params \
         "timestamp" "$timestamp" \
         "crackable_int" "$crackable_int" \
         "update_quality" "$update_quality" \
-        "SSID" "$SSID" \
         "AP_MAC" "$AP_MAC"; then
         debug_log "FATAL: Cannot update database - invalid parameters"
         exit 1
     fi
     
     if [ "$CURRENT_RANK" -gt "$DB_RANK" ]; then
-        # Quality improved - update with new file paths
+        # Quality improved - update with new file paths (use explicit SQL to increment numeric column)
         update_quality="$CURRENT_QUALITY"
-        
+
         # Validate file paths
         if ! validate_sql_params \
             "PCAP_PATH" "$PCAP_PATH" \
@@ -257,25 +305,26 @@ else
             debug_log "FATAL: Cannot update with file paths - invalid parameters"
             exit 1
         fi
-        
-        sql=$(build_update_sql "handshakes" "ssid='$SSID_ESC' AND bssid='$BSSID_ESC'" \
-            "best_quality" "$update_quality" \
-            "last_seen" "$timestamp" \
-            "total_captures" "total_captures+1" \
-            "crackable" "$crackable_int" \
-            "best_pcap_path" "$PCAP_ESC" \
-            "best_hashcat_path" "$HASHCAT_ESC")
-        
-        db_exec "$sql"
+
+        sql_update="UPDATE handshakes SET \
+            last_seen=$timestamp, \
+            total_captures=COALESCE(total_captures,0)+1, \
+            ssid_printable='$SSID_PRINTABLE_ESC', \
+            best_quality='$update_quality', \
+            crackable=$crackable_int, \
+            best_pcap_path='$PCAP_ESC', \
+            best_hashcat_path='$HASHCAT_ESC' \
+            WHERE ssid_hex='$SSID_HEX_ESC' AND bssid='$BSSID_ESC';"
+        db_exec "$sql_update"
     else
         # No quality improvement - just update metadata
-        sql=$(build_update_sql "handshakes" "ssid='$SSID_ESC' AND bssid='$BSSID_ESC'" \
-            "best_quality" "$update_quality" \
-            "last_seen" "$timestamp" \
-            "total_captures" "total_captures+1" \
-            "crackable" "$crackable_int")
-        
-        db_exec "$sql"
+        sql_update="UPDATE handshakes SET \
+            last_seen=$timestamp, \
+            total_captures=COALESCE(total_captures,0)+1, \
+            ssid_printable='$SSID_PRINTABLE_ESC', \
+            crackable=$crackable_int \
+            WHERE ssid_hex='$SSID_HEX_ESC' AND bssid='$BSSID_ESC';"
+        db_exec "$sql_update"
     fi
     debug_log "Updated existing network in database"
     
@@ -293,10 +342,10 @@ else
                 # NEW CLIENT for this network
                 db_exec "INSERT OR IGNORE INTO clients (bssid, client_mac, first_seen, last_seen, capture_count, best_quality, crackable, best_pcap_path, best_hashcat_path) VALUES ('$BSSID_ESC', '$CLIENT_ESC', $timestamp, $timestamp, 1, '$CURRENT_QUALITY', $crackable_int, '$PCAP_ESC', '$HASHCAT_ESC');" "$DB_FILE"
                 db_exec "UPDATE clients SET last_seen=$timestamp, capture_count=COALESCE(capture_count,0)+1 WHERE bssid='$BSSID_ESC' AND client_mac='$CLIENT_ESC';" "$DB_FILE"
-                debug_log "New client detected: $CLIENT_MAC for $SSID ($AP_MAC) with quality $CURRENT_QUALITY"
+                debug_log "New client detected: $CLIENT_MAC for $SSID_PRINTABLE ($AP_MAC) with quality $CURRENT_QUALITY"
                 # Only alert if enabled and not randomized MAC
                 if [ "$ALERT_NEW_CLIENT" -eq 1 ] && [ "$is_randomized" -eq 0 ]; then
-                    alert_message "NEW CLIENT DETECTED" "$SSID" "$AP_MAC" "Client: $CLIENT_MAC\nQuality: $CURRENT_QUALITY"
+                    alert_message "NEW CLIENT DETECTED" "$SSID_PRINTABLE" "$AP_MAC" "Client: $CLIENT_MAC\nQuality: $CURRENT_QUALITY"
                 fi
             else
                 # Existing client - check for quality improvement
@@ -309,7 +358,7 @@ else
                     debug_log "Client quality improved from $client_quality to $CURRENT_QUALITY"
                     # Only alert if enabled and not randomized MAC
                     if [ "$ALERT_QUALITY_IMPROVED" -eq 1 ] && [ "$is_randomized" -eq 0 ]; then
-                        alert_message "CLIENT QUALITY IMPROVED" "$SSID" "$AP_MAC" "Client: $CLIENT_MAC\nPrevious: $client_quality\nNew: $CURRENT_QUALITY"
+                        alert_message "CLIENT QUALITY IMPROVED" "$SSID_PRINTABLE" "$AP_MAC" "Client: $CLIENT_MAC\nPrevious: $client_quality\nNew: $CURRENT_QUALITY"
                     fi
                 else
                     # No quality improvement - just update metadata
@@ -325,12 +374,12 @@ else
         debug_log "Quality improved. ALERT_QUALITY_IMPROVED=$ALERT_QUALITY_IMPROVED"
         if [ "$ALERT_QUALITY_IMPROVED" -eq 1 ]; then
             debug_log "Sending QUALITY IMPROVED alert"
-            alert_message "QUALITY IMPROVED" "$SSID" "$AP_MAC" "Previous: $db_quality\nNew: $CURRENT_QUALITY"
+            alert_message "QUALITY IMPROVED" "$SSID_PRINTABLE" "$AP_MAC" "Previous: $db_quality\nNew: $CURRENT_QUALITY"
         fi
     elif [ "$db_crackable" != "1" ] && [ "$ACTUAL_CRACKABLE" -eq 1 ]; then
         # Network was not crackable before, now it is
         debug_log "Sending NOW CRACKABLE alert"
-        alert_message "NOW CRACKABLE" "$SSID" "$AP_MAC" "Quality: $CURRENT_QUALITY"
+        alert_message "NOW CRACKABLE" "$SSID_PRINTABLE" "$AP_MAC" "Quality: $CURRENT_QUALITY"
     else
         debug_log "No alert condition met: rank not improved and already crackable"
     fi

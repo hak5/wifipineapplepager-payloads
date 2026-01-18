@@ -1,8 +1,7 @@
 #!/bin/bash
 # These functions are shared between user and alert metapayloads for Handshake Manager
-# Version: 1.2
 
-HASHMASTER_LIB_VERSION="1.2.1"
+HASHMASTER_LIB_VERSION="1.2.2"
 
 # Debug logging (1=enabled, 0=disabled)
 DEBUG=1                          # Enable verbose debug logging to /root/hashmaster_debug.log
@@ -85,6 +84,18 @@ build_update_sql() {
     done
     
     echo "UPDATE ${table} SET ${set_clause} WHERE ${where_clause};"
+}
+
+# Escape single quotes and strip newlines for safe SQL literals
+# Usage: sql_escape "value"
+sql_escape() {
+    local s="$1"
+    # Replace newlines/carriage returns with spaces to keep SQL tidy
+    s="${s//$'\n'/ }"
+    s="${s//$'\r'/ }"
+    # Escape single quotes by doubling
+    s="${s//\'/\'\'}"
+    echo -n "$s"
 }
 
 # Database locking wrapper for single SQL statement (prevents concurrent access)
@@ -175,8 +186,9 @@ init_handshake_database() {
     
     # Create tables if they don't exist
     sqlite3 "$db_file" "CREATE TABLE IF NOT EXISTS handshakes (
-        ssid TEXT NOT NULL,
+        ssid_hex TEXT NOT NULL,
         bssid TEXT NOT NULL,
+        ssid_printable TEXT,
         best_quality TEXT,
         first_seen INTEGER,
         last_seen INTEGER,
@@ -184,7 +196,7 @@ init_handshake_database() {
         crackable INTEGER DEFAULT 0,
         best_pcap_path TEXT,
         best_hashcat_path TEXT,
-        PRIMARY KEY (ssid, bssid)
+        PRIMARY KEY (ssid_hex, bssid)
     );
     CREATE TABLE IF NOT EXISTS clients (
         bssid TEXT NOT NULL,
@@ -200,12 +212,18 @@ init_handshake_database() {
     );" 2>/dev/null
     
     # Migrate existing databases - add new columns if they don't exist
+    sqlite3 "$db_file" "ALTER TABLE handshakes ADD COLUMN ssid_hex TEXT;" 2>/dev/null || true
+    sqlite3 "$db_file" "ALTER TABLE handshakes ADD COLUMN ssid_printable TEXT;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE handshakes ADD COLUMN best_pcap_path TEXT;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE handshakes ADD COLUMN best_hashcat_path TEXT;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE clients ADD COLUMN best_quality TEXT;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE clients ADD COLUMN crackable INTEGER DEFAULT 0;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE clients ADD COLUMN best_pcap_path TEXT;" 2>/dev/null || true
     sqlite3 "$db_file" "ALTER TABLE clients ADD COLUMN best_hashcat_path TEXT;" 2>/dev/null || true
+
+    # Helpful indexes for common lookups
+    sqlite3 "$db_file" "CREATE INDEX IF NOT EXISTS idx_handshakes_bssid ON handshakes(bssid);" >/dev/null 2>&1
+    sqlite3 "$db_file" "CREATE INDEX IF NOT EXISTS idx_handshakes_ssid_hex ON handshakes(ssid_hex);" >/dev/null 2>&1
     
     return 0
 }
@@ -355,75 +373,311 @@ validate_crackable() {
     return 1
 }
 
-# Get SSID from database if it exists, otherwise from hashcat file
-# Usage: get_ssid <db_file> <bssid> <hashcat_path>
-get_ssid() {
-    local db_file="$1"
-    local bssid="$2"
-    local hashcat_path="$3"
-    
-    local ssid=$(sqlite3 "$db_file" "SELECT ssid FROM handshakes WHERE bssid='$bssid' LIMIT 1;" 2>/dev/null)
-    
-    if [[ -z "$ssid" ]] && [[ -f "$hashcat_path" ]]; then
-        # Extract SSID from hashcat 22000 format
-        local hash_line=$(grep "^WPA" "$hashcat_path" | head -1)
-        IFS='*' read -ra fields <<< "$hash_line"
-        local ssid_hex="${fields[5]}"
-        if [[ -n "$ssid_hex" ]]; then
-            # Convert hex to ASCII
-            ssid=$(hex_to_ascii "$ssid_hex" 2>/dev/null)
-            # Check for non-printable chars
-            if [[ "$ssid" =~ [^[:print:]] ]]; then
-                ssid="UNKNOWN_SSID"
-            fi
-        else
-            ssid="UNKNOWN_SSID"
-        fi
+# Extract hex SSID from .22000 line
+# Usage: get_hex_ssid <hashline>
+get_hex_ssid() {
+    local hash_line="$1"
+    IFS='*' read -ra fields <<< "$hash_line"
+    local ssid_hex="${fields[5]}"
+    echo "$ssid_hex"
+}
+# Get SSID hex by matching BSSID within a .22000 file
+# Usage: get_ssid_hex <bssid_with_colons> <hashcat_path>
+get_ssid_hex() {
+    local bssid="$1"
+    local hashcat_path="$2"
+    local ssid_hex=""
+
+    # Validate inputs
+    if [[ -z "$bssid" ]] || [[ ! -f "$hashcat_path" ]]; then
+        debug_log "get_ssid_hex: invalid inputs (bssid='$bssid', hashcat_path='$hashcat_path')"
+        echo "$ssid_hex"
+        return 0
     fi
-    
+
+    # Normalize BSSID to hashcat field format (12 hex, uppercase, no colons)
+    local bssid_hex
+    bssid_hex=$(echo "$bssid" | tr -d ':' | tr 'a-z' 'A-Z')
+    if [[ ! "$bssid_hex" =~ ^[0-9A-F]{12}$ ]]; then
+        debug_log "get_ssid_hex: bssid normalization failed for '$bssid' -> '$bssid_hex'"
+        echo ""
+        return 0
+    fi
+
+    # Scan WPA lines and pick the first matching BSSID
+    local line
+    local match_count=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        # Trim Windows CR and any leading BOM
+        line="${line%$'\r'}"
+        [[ -z "$line" ]] && continue
+        # Only process lines that start with WPA*
+        local prefix="${line%%\**}"
+        local prefix_uc
+        prefix_uc=$(echo "$prefix" | tr 'a-z' 'A-Z')
+        [[ "$prefix_uc" != "WPA" ]] && continue
+
+        IFS='*' read -ra fields <<< "$line"
+
+        local ap_hex="${fields[3]}"
+        local ap_hex_uc
+        ap_hex_uc=$(echo "$ap_hex" | tr 'a-f' 'A-F')
+        if [[ "$ap_hex_uc" == "$bssid_hex" ]]; then
+            ((match_count++))
+            local candidate_hex="${fields[5]}"
+            # Validate hex
+            if [[ -n "$candidate_hex" ]] && [[ "$candidate_hex" =~ ^[0-9A-Fa-f]+$ ]] && (( ${#candidate_hex} % 2 == 0 )); then
+                ssid_hex=$(echo "$candidate_hex" | tr 'a-f' 'A-F')
+                debug_log "get_ssid_hex: match ${match_count} for $bssid_hex, ssid_hex='$ssid_hex' (len=${#ssid_hex})"
+            fi
+            if [[ -z "$ssid_hex" ]]; then
+                debug_log "get_ssid_hex: match ${match_count} for $bssid_hex but ESSID hex invalid or empty (candidate='${fields[5]}')"
+            fi
+            break
+        fi
+    done < "$hashcat_path"
+
+    if [[ $match_count -eq 0 ]]; then
+        debug_log "get_ssid_hex: no WPA lines found for BSSID '$bssid_hex' in '$hashcat_path'"
+    fi
+
+    echo "$ssid_hex"
+}
+
+# Convert hex SSID to alphanumeric ASCII (path-safe) with validation
+# Usage: hex_to_printable_ssid <hex_ssid>
+hex_to_printable_ssid() {
+    local ssid_hex="$1"
+
+    # Validate hex: non-empty, even length, only hex digits
+    if [[ -z "$ssid_hex" ]] || [[ ! "$ssid_hex" =~ ^[0-9A-Fa-f]+$ ]] || (( ${#ssid_hex} % 2 != 0 )); then
+        echo "UNKNOWN_SSID"
+        return 0
+    fi
+
+    # Portable hex → ASCII using awk without strtonum (BusyBox-compatible)
+    # Converts two hex chars to a byte via manual mapping
+    local ssid
+    ssid=$(echo "$ssid_hex" | awk 'BEGIN{ORS=""; map="0123456789ABCDEF"} {
+        s=toupper($0);
+        for(i=1;i<=length(s);i+=2){
+            c1=index(map, substr(s,i,1))-1;
+            c2=index(map, substr(s,i+1,1))-1;
+            if (c1<0 || c2<0) continue;
+            val=c1*16 + c2;
+            printf "%c", val;
+        }
+    }' 2>/dev/null)
+
+    # Fallback if decoding failed
+    if [[ -z "$ssid" ]]; then
+        echo "UNKNOWN_SSID"
+        return 0
+    fi
+
+    # Keep allowed ASCII: letters/digits + space + underscore + dash + dot
+    # Avoid POSIX character classes due to BusyBox tr limitations
+    ssid=$(printf "%s" "$ssid" | sed 's/[^A-Za-z0-9 _.-]//g')
+
+    # Final fallback if sanitization empties the value
     [[ -z "$ssid" ]] && ssid="UNKNOWN_SSID"
+
     echo "$ssid"
 }
 
-# Determine quality level from the capture
-# Usage: determine_quality <type> <complete> <hashcat_path>
-determine_quality() {
-    local type="$1"
-    local complete="$2"
-    local hashcat_path="$3"
-    local quality="UNKNOWN"
-    local type_lower="${type,,}"
-    
-    if [[ "$type_lower" == "pmkid" ]]; then
-        quality="PMKID"
-    elif [[ "$type_lower" == "eapol" ]]; then
-        if [[ "${complete,,}" == "true" ]]; then
-            # Try to determine EAPOL quality from hashcat file if it exists
-            if [[ -f "$hashcat_path" ]]; then
-                # Parse msgpair from hashcat 22000 format
-                local hash_line=$(grep "^WPA" "$hashcat_path" | head -1)
-                IFS='*' read -ra fields <<< "$hash_line"
-                local msgpair="${fields[8]}"
-                if [[ -n "$msgpair" ]]; then
-                    local msgpair_dec=$((16#$msgpair))
-                    case "$msgpair_dec" in
-                        1|3|129|131) quality="EAPOL_M2M3_BEST" ;;
-                        0|2|128|130) quality="EAPOL_M1M2" ;;
-                        4|5|132|133) quality="EAPOL_M3M4" ;;
-                        *) quality="EAPOL_LEGACY" ;;
-                    esac
-                else
-                    quality="EAPOL_LEGACY"
-                fi
-            else
-                quality="EAPOL_LEGACY"
-            fi
-        else
-            quality="EAPOL_M1M2"  # Incomplete, assume M1M2
-        fi
+# Get SSID by matching BSSID within a .22000 file (no DB fallback)
+# Usage: get_ssid <bssid_with_colons> <hashcat_path>
+get_ssid() {
+    local bssid="$1"
+    local hashcat_path="$2"
+    local ssid="UNKNOWN_SSID"
+
+    # Validate inputs
+    if [[ -z "$bssid" ]] || [[ ! -f "$hashcat_path" ]]; then
+        echo "$ssid"
+        return 0
     fi
-    
-    echo "$quality"
+
+    # Normalize BSSID to hashcat field format (12 hex, uppercase, no colons)
+    local bssid_hex
+    bssid_hex=$(echo "$bssid" | tr -d ':' | tr 'a-z' 'A-Z')
+    if [[ ! "$bssid_hex" =~ ^[0-9A-F]{12}$ ]]; then
+        echo "$ssid"
+        return 0
+    fi
+
+    # Scan WPA lines and pick the first matching BSSID
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        IFS='*' read -ra fields <<< "$line"
+
+        # fields[3] = AP MAC (12 hex, uppercase, no colons)
+        local ap_hex="${fields[3]}"
+        if [[ "$ap_hex" == "$bssid_hex" ]]; then
+            # fields[5] = SSID hex; validate and sanitize
+            local ssid_hex="${fields[5]}"
+            if [[ -n "$ssid_hex" ]] && [[ "$ssid_hex" =~ ^[0-9A-Fa-f]+$ ]] && (( ${#ssid_hex} % 2 == 0 )); then
+                ssid=$(hex_to_printable_ssid "$ssid_hex")
+                [[ -z "$ssid" ]] && ssid="UNKNOWN_SSID"
+            else
+                ssid="UNKNOWN_SSID"
+            fi
+            break
+        fi
+    done < <(grep -E '^WPA' "$hashcat_path" 2>/dev/null)
+
+    echo "$ssid"
+}
+
+# Determine best quality level from a .22000 file by scanning all lines
+# Usage: determine_file_quality <hashcat_path>
+determine_file_quality() {
+    local hashcat_path="$1"
+    local best_quality="UNKNOWN"
+    local best_rank=0
+
+    # Validate input
+    if [[ -z "$hashcat_path" || ! -f "$hashcat_path" ]]; then
+        echo "$best_quality"
+        return 0
+    fi
+
+    # Iterate over all WPA lines and choose the highest-ranked crackable entry
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local status
+        status=$(validate_crackable "$line")
+
+        # status format: CRACKABLE:<DETAIL> or INVALID:<REASON>
+        local verdict="${status%%:*}"
+        local detail="${status##*:}"
+        detail="${detail# }"
+
+        if [[ "$verdict" == "CRACKABLE" ]]; then
+            # Map detail to a quality label used by quality_rank
+            local qlabel="$detail"
+            # Treat unknown msgpair as legacy for ranking purposes
+            [[ "$qlabel" == "EAPOL_UNKNOWN_MSGPAIR" ]] && qlabel="EAPOL_LEGACY"
+
+            local rank
+            rank=$(quality_rank "$qlabel")
+            if [[ "$rank" -gt "$best_rank" ]]; then
+                best_rank="$rank"
+                best_quality="$qlabel"
+                # Early exit if we reached the highest possible rank
+                if [[ "$best_rank" -ge 5 ]]; then
+                    break
+                fi
+            fi
+        fi
+    done < <(grep -E '^WPA' "$hashcat_path" 2>/dev/null)
+
+    echo "$best_quality"
+}
+
+# Parse .22000 hashcat files and derive per-handshake metadata
+# Usage: parse_handshake_files <handshake_dir> <out_data_file> <out_quality_file>
+# - Writes lines to out_data:    SSID|BSSID|CLIENT_MAC|TYPE_NAME
+# - Writes lines to out_quality: SSID|BSSID|CLIENT_MAC|QUALITY|DETAIL|TYPE_NAME|PCAP_PATH|HASHCAT_PATH
+parse_handshake_files() {
+    local input_path="$1"
+    local out_data="$2"
+    local out_quality="$3"
+
+    if [[ -z "$input_path" || -z "$out_data" || -z "$out_quality" ]]; then
+        echo "ERROR: Missing args to parse_handshake_files" >&2
+        return 1
+    fi
+
+    local line_count=0
+    local found_any=false
+
+    # Build list of .22000 files to process (supports single file or directory)
+    local files=()
+    local file_count=0
+
+    if [[ -f "$input_path" ]]; then
+        # Single file
+        if [[ "$input_path" == *.22000 ]]; then
+            files+=("$input_path")
+        else
+            debug_log "Input file is not a .22000: $input_path"
+            return 1
+        fi
+    elif [[ -d "$input_path" ]]; then
+        # Directory of files
+        while IFS= read -r f; do
+            files+=("$f")
+        done < <(find "$input_path" -name "*.22000" -type f 2>/dev/null)
+    else
+        debug_log "Input path not found: $input_path"
+        return 1
+    fi
+
+    file_count=${#files[@]}
+    if [[ $file_count -eq 0 ]]; then
+        debug_log "No .22000 files found in $input_path"
+        return 1
+    fi
+
+    debug_log "Extracting WPA lines from $file_count .22000 file(s) (shared parser)"
+
+    # Use grep -H to include filenames for each WPA line over the file set
+    while IFS= read -r file_and_line; do
+        found_any=true
+        ((line_count++))
+
+        # Split filename from hash line (grep -H output: "filename:line")
+        local hashcat_file="${file_and_line%%:*}"
+        local line="${file_and_line#*:}"
+        local pcap_file="${hashcat_file%.22000}.pcap"
+
+        IFS='*' read -ra fields <<< "$line"
+
+        local type="${fields[1]}"
+        local ap_mac="${fields[3]}"
+        local client_mac="${fields[4]}"
+        local ssid_hex="${fields[5]}"
+
+        # Normalize MAC addresses to uppercase with colons
+        ap_mac=$(echo "$ap_mac" | sed 's/../&:/g;s/:$//' | tr 'a-z' 'A-Z')
+        client_mac=$(echo "$client_mac" | sed 's/../&:/g;s/:$//' | tr 'a-z' 'A-Z')
+
+        # Convert SSID from hex using shared helper
+        local ssid
+        ssid=$(hex_to_ascii "$ssid_hex" 2>/dev/null)
+        if [[ -z "$ssid" ]] || [[ "$ssid" =~ [^[:print:]] ]]; then
+            ssid="UNKNOWN_SSID"
+        fi
+
+        # Determine type name
+        local type_name="UNKNOWN"
+        [[ "$type" == "01" ]] && type_name="PMKID"
+        [[ "$type" == "02" ]] && type_name="EAPOL"
+
+        # Validate crackability and extract detail
+        local quality_status
+        quality_status=$(validate_crackable "$line")
+        local quality="${quality_status%%:*}"
+        local detail="${quality_status##*:}"
+        detail="${detail# }"  # Strip leading space
+
+        # Emit records
+        echo "$ssid|$ap_mac|$client_mac|$type_name" >> "$out_data"
+        echo "$ssid|$ap_mac|$client_mac|$quality|$detail|$type_name|$pcap_file|$hashcat_file" >> "$out_quality"
+
+    done < <(grep -H "^WPA" "${files[@]}" 2>/dev/null)
+
+    if ! $found_any; then
+        debug_log "Shared parser found no WPA lines in .22000 file(s)"
+        return 1
+    fi
+
+    debug_log "Shared parser wrote $line_count handshake records"
+    return 0
 }
 
 
