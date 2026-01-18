@@ -1,6 +1,6 @@
 # 🎯 HashMaster 22000
 
-Your WiFi Pineapple Pager is great at collecting handshakes - but which ones are actually useful? HashMaster tracks everything via Pager alerts and by analyzing your .22000 hashcat files, giving you smart notifications and clear insights into what you've captured.
+Your WiFi Pineapple Pager is great at collecting handshakes - but which ones are actually useful? HashMaster tracks everything via Pager alerts, giving you smart notifications and clear insights into what you've captured.
 
 ## 🤔 Why HashMaster?
 
@@ -31,9 +31,7 @@ DEBUG=0                      # Enable debug logging (0=off, 1=on)
 ALERT_NEW_NETWORK=1          # Alert when you capture a brand new network
 ALERT_QUALITY_IMPROVED=1     # Alert when you get a better version of something you have
 ALERT_NEW_CLIENT=1           # Alert when a new device connects to a tracked network
-ALERT_BEST_QUALITY_ONLY=0    # Only alert for the best captures (M2+M3), ignore the rest
-ALERT_NON_CRACKABLE=1        # Alert even if the capture isn't crackable
-MIN_QUALITY_RANK=2           # Minimum quality to care about (2=PMKID+, 4=M1M2+, 5=M2M3 only)
+MIN_QUALITY_RANK=2     # Minimum quality to care about (2=PMKID+, 4=M1M2+, 5=M2M3 only)
 
 TRACK_CLIENTS=1              # Track which clients connect to each network (0=disable)
 FILTER_RANDOMIZED_MACS=1     # Filter out randomized MAC addresses (prevents spam from phones)
@@ -55,9 +53,9 @@ HashMaster knows the difference between good and bad captures:
 
 The system remembers everything it's seen, so you'll only get alerts for genuinely new or improved captures. Even when you delete files from disk, HashMaster keeps track of what you've had.
 
-## 👀 What You'll See
+## 👀 What You'll See - SSID!
 
-**When you run the analyzer, you get:**
+**When you run the report payload, you get:**
 - Summary of your entire collection (how many networks, which are crackable)
 - Breakdown by network showing quality status: [***] Excellent, [OK] Ready, [X] Not Crackable
 - Clear indicators for new networks and quality improvements
@@ -100,11 +98,11 @@ tail -f /tmp/hashmaster_debug.log  # Watch in real-time
 
 ## ⚡ How It Works
 
-HashMaster tracks via **two methods**:
-1. **Alert Payload** - Runs automatically on every capture, updates database in real-time. (optional install during main payload run)
-2. **HashMaser Payload** - Scans .22000 hashcat files on disk, updates database, and provides detailed reports. 
+HashMaster operates via **two payloads**:
+1. **Alert Payload** - Runs automatically on every capture and updates the database in real-time (installed during the main payload run).
+2. **User Payload** - Displays a snapshot report from the database.
 
-Both methods update the same database. When a handshake is processed:
+When a handshake is processed:
 - New network never seen before? → Alert
 - Better quality than what we have? → Alert  
 - New client on a known network? → Alert
@@ -112,8 +110,6 @@ Both methods update the same database. When a handshake is processed:
 
 Everything is tracked by the unique combination of network name (SSID) and access point address (BSSID).
 
-
 ## Planned Impovements & Issues
-- Encode SSIDs properly to handle special characters
 - Add feature to delete old/duplicate captures from disk
 - Add Hashtopolis integration
