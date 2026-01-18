@@ -15,6 +15,7 @@ Designed as a simple reverse shell along with extras such as file transfer, on-d
 * Basic session security
 * Single user ID access
 * Changeable working directory
+* Use all Linux and Duckyscript commands
 * Batched messages for large outputs
 * On-device setup
 
@@ -38,7 +39,7 @@ Designed as a simple reverse shell along with extras such as file transfer, on-d
 * Change CHANNEL_ID_HERE to the channel ID of your channel you intend to use for this.
 * Change 'password' to your own (use a unique password, it will be viewable to anyone in the channel selected)
 
-*Once this is done you can run the payload again and you should get a 'session waiting' message in discord. Only your user ID will be able to interact.*
+*Once this is done you can run the payload again and you should get a 'session waiting' message in discord. Only your user ID will be able to interact with the session.*
 
 ## Commands
 
