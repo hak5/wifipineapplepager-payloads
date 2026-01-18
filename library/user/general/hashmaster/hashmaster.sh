@@ -1,7 +1,6 @@
 #!/bin/bash
 # These functions are shared between user and alert metapayloads for Handshake Manager
-
-HASHMASTER_LIB_VERSION="1.2.2"
+HASHMASTER_LIB_VERSION="1.2.3"
 
 # Debug logging (1=enabled, 0=disabled)
 DEBUG=1                          # Enable verbose debug logging to /root/hashmaster_debug.log
@@ -9,20 +8,17 @@ DEBUG=1                          # Enable verbose debug logging to /root/hashmas
 # Enable/disable specific alert types (1=enabled, 0=disabled) (affects alert payload behavior only)
 ALERT_NEW_NETWORK=1              # Alert when a completely new network is captured (unique SSID/BSSID combo)
 ALERT_QUALITY_IMPROVED=1         # Alert when capture quality improves (e.g., M1M2 -> M2M3)
-ALERT_NEW_CLIENT=1               # Alert when a new client connects to a known network
-ALERT_BEST_QUALITY_ONLY=0        # Only alert for EAPOL_M2M3_BEST quality captures
-ALERT_NON_CRACKABLE=1            # Alert even if handshake is not crackable
 
 # Client tracking settings
 TRACK_CLIENTS=1                  # Enable tracking of clients in database (0=disable all client tracking)
+ALERT_NEW_CLIENT=1               # Alert when a new client connects to a known network
 FILTER_RANDOMIZED_MACS=1         # Filter out randomized MAC addresses (prevents spam from iOS/Android devices)
 
-# Quality threshold (minimum quality rank to trigger alerts)
-# 0=all, 2=PMKID+, 3=M3M4+, 4=M1M2+, 5=M2M3 only
-MIN_QUALITY_RANK=2               # Only alert for PMKID quality or better
+# Minimum quality rank to consider for alerts and tracking
+MIN_QUALITY_RANK=2         #  0=all, 2=PMKID+, 3=M3M4+, 4=M1M2+, 5=M2M3 only
 
 
-# You probably don't want to change anything below here
+# You probably don't want to change anything below here!
 ALERT_PAYLOAD_SRC="/root/payloads/user/general/hashmaster/alert_payload.sh"
 ALERT_PAYLOAD_DEST="/root/payloads/alerts/handshake_captured/hashmaster/payload.sh"
 ALERT_PAYLOAD_DISABLED="/root/payloads/alerts/handshake_captured/DISABLED.hashmaster/payload.sh"

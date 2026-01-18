@@ -171,21 +171,10 @@ CURRENT_QUALITY=$(determine_file_quality "$HASHCAT_PATH")
 CURRENT_RANK=$(quality_rank "$CURRENT_QUALITY")
 debug_log "Quality: $CURRENT_QUALITY (rank $CURRENT_RANK), Min threshold: $MIN_QUALITY_RANK, Crackable: $ACTUAL_CRACKABLE"
 
-# Exit if not crackable and we only care about crackable
-if [ "$ACTUAL_CRACKABLE" -eq 0 ] && [ "$ALERT_NON_CRACKABLE" -eq 0 ]; then
-    debug_log "Exiting: not crackable and ALERT_NON_CRACKABLE=0"
-    exit 0
-fi
 
 # Check minimum quality threshold
 if [ "$CURRENT_RANK" -lt "$MIN_QUALITY_RANK" ]; then
     debug_log "Exiting: quality rank $CURRENT_RANK below threshold $MIN_QUALITY_RANK"
-    exit 0
-fi
-
-# Check if best quality only filter is enabled
-if [ "$ALERT_BEST_QUALITY_ONLY" -eq 1 ] && [ "$CURRENT_QUALITY" != "EAPOL_M2M3_BEST" ]; then
-    debug_log "Exiting: ALERT_BEST_QUALITY_ONLY enabled but quality is $CURRENT_QUALITY"
     exit 0
 fi
 
