@@ -1112,26 +1112,78 @@ LOG ""
 # Save original interface state before modifying
 save_interface_state
 
-# Phase 1: Scan for SSIDs
-if ! scan_ssids; then
-    exit 1
-fi
+# =============================================================================
+# MAIN SCAN/CONNECT LOOP
+# =============================================================================
+# Loop allows user to retry after connection failures
+while true; do
+    # Phase 1: Scan for SSIDs
+    if ! scan_ssids; then
+        resp=$(CONFIRMATION_DIALOG "Scan failed!\n\nWould you like to\ntry again?")
+        case $? in
+            "$DUCKYSCRIPT_REJECTED"|"$DUCKYSCRIPT_CANCELLED")
+                LOG "User chose to exit"
+                exit 0
+                ;;
+        esac
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            continue
+        else
+            exit 0
+        fi
+    fi
 
-# Phase 2: Select target SSID
-if ! select_ssid; then
-    exit 1
-fi
+    # Phase 2: Select target SSID
+    if ! select_ssid; then
+        resp=$(CONFIRMATION_DIALOG "Selection cancelled.\n\nWould you like to\nscan again?")
+        case $? in
+            "$DUCKYSCRIPT_REJECTED"|"$DUCKYSCRIPT_CANCELLED")
+                LOG "User chose to exit"
+                exit 0
+                ;;
+        esac
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            continue
+        else
+            exit 0
+        fi
+    fi
 
-# Phase 3: Connect to network
-if ! connect_to_network; then
-    exit 1
-fi
+    # Phase 3: Connect to network
+    if ! connect_to_network; then
+        resp=$(CONFIRMATION_DIALOG "Connection failed!\n\nWould you like to\ntry another network?")
+        case $? in
+            "$DUCKYSCRIPT_REJECTED"|"$DUCKYSCRIPT_CANCELLED")
+                LOG "User chose to exit"
+                exit 0
+                ;;
+        esac
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            continue
+        else
+            exit 0
+        fi
+    fi
 
-# Phase 4: Detect captive portal
-if ! detect_captive_portal; then
-    LOG "No portal to clone"
-    exit 1
-fi
+    # Phase 4: Detect captive portal
+    if ! detect_captive_portal; then
+        resp=$(CONFIRMATION_DIALOG "No captive portal found\non this network.\n\nTry another network?")
+        case $? in
+            "$DUCKYSCRIPT_REJECTED"|"$DUCKYSCRIPT_CANCELLED")
+                LOG "User chose to exit"
+                exit 0
+                ;;
+        esac
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            continue
+        else
+            exit 0
+        fi
+    fi
+
+    # If we get here, we found a portal - break out of loop
+    break
+done
 
 # Phase 5: Clone the portal
 if ! clone_portal; then
