@@ -3,7 +3,7 @@
 # Title: PageCord
 # Description: Control your poager through discord!
 # Author: beigeworm
-# Version: 1.2
+# Version: 1.0
 # Firmware: Developed for firmware version 1.0.4
 
 
@@ -15,22 +15,20 @@ ENV_FILE="$DCCONTROL_DIR/.env"
 PIDFILE="$DCCONTROL_DIR/logs/dc_control.pid"
 LOGFILE="$DCCONTROL_DIR/logs/dc_control.log"
 
+
 # -------- splash screen ---------
 LOG ""
 LOG blue "+===========================+"
 LOG blue "| ------- PageCord -------- |"
 LOG blue "| - Discord Pager Control - |"
-LOG blue "+========== v1.2 ===========+"
+LOG blue "+========== v1.3 ===========+"
 LOG ""
 LOG yellow "| Control Your Pager Through Discord! |"
 LOG ""
 
 
 
-# ==================================
-# - SETUP
-# ==================================
-
+# ----------- setup ----------------
 LOG blue "1 : Starting Setup..."
 
 if [ ! -d "$DCCONTROL_DIR/logs" ] ; then
@@ -132,14 +130,24 @@ fi
 
 
 
-# ==================================
-# - DEFINE DISCORD FUNCTIONS
-# ==================================
+
+# --------- define functions ------------
 
 LOG blue "3 : Setting up Discord functions..."
 
 
-# -------------- background function --------------------
+generate_random_letters() {
+    local letters="0123456789"
+    local password=""
+    for i in {1..6}; do
+        random_index=$((RANDOM % ${#letters}))
+        password+=${letters:$random_index:1}
+    done
+    echo "$password"
+    sleep 1
+}
+
+
 Background_Session() {
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
     LOG yellow "Already running in background (pid $(cat "$PIDFILE"))"
@@ -160,9 +168,8 @@ Background_Session() {
   exit 0
 }
 
-
-# -------------- Authenticate function --------------------
 Authenticate() {
+
     if [[ "$command_result" == *"$password"* ]]; then
         recent_message=$(curl -s -H "Authorization: Bot $token" "https://discord.com/api/v10/channels/$chan/messages?limit=1")
         auth_user_id=$(echo "$recent_message" | grep -o '"author":{"id":"[^"]*' | grep -o '[^"]*$')
@@ -178,8 +185,8 @@ Authenticate() {
           \"content\": \"\",
           \"embeds\": [
             {
-              \"title\": \":white_check_mark:   **Session Connected**   :white_check_mark:\",
-              \"description\": \"Current Directory :\`$cwd\`\",
+              \"title\": \":pager:   **PageCord Session Connected!**   :pager:\",
+              \"description\": \"-# ---- Control Your WiFi Pineapple Pager Through Discord! ---- \n\n*You can use regular Linux and Duckyscript commands. Large outputs are split into 2000 character chunks to avoid Discord Limits. Only the authenticated userID will be able to interact* \n\n **Additional Commands** \n- **options**  - Show the options list\n- **pause**    - Pause this session (re-authenticate to resume)\n- **background**  - Restart the payload in the background\n- **sysinfo**    - Show basic system information and public IP address\n- **close**    - Close this session permanently\n- **download**   - Send a file to Discord [download path/to/file.txt]\n- **upload**     - Upload file to Pager [attach to 'upload' command] \n\nCurrent Directory :\`$cwd\`\",
               \"color\": 65280
             }
           ]
@@ -197,15 +204,13 @@ Authenticate() {
     fi
 }
 
-
-# -------------- options function --------------------
 Option_List() {
         json_payload="{
           \"content\": \"\",
           \"embeds\": [
             {
               \"title\": \":link: **Options List** :link:\",
-              \"description\": \"- **options**  - Show the options list\n- **pause**    - Pause this session (re-authenticate to resume)\n- **background**  - Restart the payload in the background\n- **sysinfo**    - Show basic system information\n- **close**    - Close this session permanently\n- **download**   - Send a file to Discord [download path/to/file.txt]\n- **upload**     - Upload file to Pager [attach to 'upload' command]\n*You can also use regular Linux and Duckyscript commands. Output is split into 2000 character chunks.* \",
+              \"description\": \"- **options**  - Show the options list\n- **pause**    - Pause this session (re-authenticate to resume)\n- **background**  - Restart the payload in the background\n- **sysinfo**    - Show basic system information and public IP address\n- **close**    - Close this session permanently\n- **download**   - Send a file to Discord [download path/to/file.txt]\n- **upload**     - Upload file to Pager [attach to 'upload' command]\n*You can also use regular Linux and Duckyscript commands. Large outputs are split into 2000 character chunks to avoid Discord Limits. Only the authenticated userID will be able to interact.* \",
               \"color\": 16777215
             }
           ]
@@ -213,8 +218,26 @@ Option_List() {
         curl -X POST -H "Authorization: Bot $token" -H "Content-Type: application/json" -d "$json_payload" "https://discord.com/api/v10/channels/$chan/messages"
 }
 
+get_recent_message() {
+    recent_message=$(curl -s -H "Authorization: Bot $token" "https://discord.com/api/v10/channels/$chan/messages?limit=1")
+    user_id=$(echo "$recent_message" | grep -o '"author":{"id":"[^"]*' | grep -o '[^"]*$')
+    bot_check=$(echo "$recent_message" | grep -o '"bot":true')
+    if [ -n "$user_id" ] && [ -z "$bot_check" ]; then
+        recent_message=$(echo "$recent_message" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | head -n 1)
+        echo "$recent_message"
+    else
+        echo ""
+    fi
+}
 
-# -------------- sysinfo function --------------------
+sanitize_json() {
+    sanitized_result="${1//\"/\\\"}"
+    sanitized_result="${sanitized_result//\\/\\\\}"
+    sanitized_result="${sanitized_result//\\n/\\\\n}"
+    sanitized_result="${sanitized_result//\\ / }"
+    echo "$sanitized_result"
+}
+
 get_linux_info() {
     os_info=$(uname -a)
     kernel_version=$(uname -r)
@@ -223,34 +246,36 @@ get_linux_info() {
     mem_info=$(free -h | grep "Mem" | awk '{print "Total: " $2, " Used: " $3}')
     disk_info=$(df -h --total | grep "total" | awk '{print "Total disk space: " $2, " Used: " $3}')
     public_ip=$(curl -s https://api.ipify.org)
+    
     linux_info="OS Info: $os_info\nKernel Version: $kernel_version\nUptime: $uptime\nCPU: $cpu_info\nMemory: $mem_info\nDisk: $disk_info\nPublic IP: $public_ip"
     echo "$linux_info"
 }
 
-
-# -------------- download function --------------------
 send_file_to_discord() {
     local file_path="$1"
     local token="$token"
-    local chan="$chan" 
+    local chan="$chan"
+    
     if [ -z "$file_path" ]; then
         echo "Error: File path not provided."
         return 1
-    fi 
+    fi
+    
     if [ ! -f "$file_path" ]; then
         echo "Error: File does not exist at $file_path."
         return 1
     fi
+    
     local file_name=$(basename "$file_path")
+
     curl -X POST \
          -H "Authorization: Bot $token" \
          -F "file=@$file_path;filename=$file_name" \
          "https://discord.com/api/v10/channels/$chan/messages"
 }
 
-
-# ------------------ Upload function -----------------------
 download_attachment() {
+
     recent_message=$(curl -s -H "Authorization: Bot $token" "https://discord.com/api/v10/channels/$chan/messages?limit=1")
     user_id=$(echo "$recent_message" | grep -o '"author":{"id":"[^"]*' | grep -o '[^"]*$')
     bot_check=$(echo "$recent_message" | grep -o '"bot":true')
@@ -259,11 +284,18 @@ download_attachment() {
     else
         echo ""
     fi
+
     attachment_url=$(echo "$recent_message" | grep -oE 'https://cdn\.discordapp\.com/attachments/[^"]+')
     if [ -n "$attachment_url" ]; then
         echo "Received 'download' command with attachment URL: $attachment_url"
+        
+        # Extract the filename from the URL
         file_name=$(basename "$attachment_url")
+
+        # Download the file using curl
         curl -O -J -L "$attachment_url"
+        
+        # Check if the download was successful
         if [ $? -eq 0 ]; then
             echo "File downloaded successfully: $file_name"
         else
@@ -274,12 +306,6 @@ download_attachment() {
     fi
 }
 
-
-# ==================================
-# - DEFINE SCRIPT FUNCTIONS
-# ==================================
-
-# ------------------- Interperet messages function ----------------------
 execute_command() {
     command_result=$(eval "$1" 2>&1)
     recent_message=$(curl -s -H "Authorization: Bot $token" "https://discord.com/api/v10/channels/$chan/messages?limit=1")
@@ -373,7 +399,7 @@ execute_command() {
             curl -X POST -H "Authorization: Bot $token" -H "Content-Type: application/json" -d "$json_payload" "https://discord.com/api/v10/channels/$chan/messages"
             return
         fi
-        # Batch long outputs
+        
         if [ $? -eq 0 ]; then
             if [ -n "$command_result" ]; then
                 LOG "Shell Command Received"
@@ -421,30 +447,6 @@ execute_command() {
     fi
 }
 
-
-# ------------------- check messages ---------------------
-get_recent_message() {
-    recent_message=$(curl -s -H "Authorization: Bot $token" "https://discord.com/api/v10/channels/$chan/messages?limit=1")
-    user_id=$(echo "$recent_message" | grep -o '"author":{"id":"[^"]*' | grep -o '[^"]*$')
-    bot_check=$(echo "$recent_message" | grep -o '"bot":true')
-    if [ -n "$user_id" ] && [ -z "$bot_check" ]; then
-        recent_message=$(echo "$recent_message" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | head -n 1)
-        echo "$recent_message"
-    else
-        echo ""
-    fi
-}
-
-# ------------------ sanitizer --------------------
-sanitize_json() {
-    sanitized_result="${1//\"/\\\"}"
-    sanitized_result="${sanitized_result//\\/\\\\}"
-    sanitized_result="${sanitized_result//\\n/\\\\n}"
-    sanitized_result="${sanitized_result//\\ / }"
-    echo "$sanitized_result"
-}
-
-# -------------- Main loop function ------------------
 Main_Loop() {
 while true; do
     recent_message=$(get_recent_message)
@@ -462,19 +464,11 @@ while true; do
 done
 }
 
-
-# ==================================
-# - START CONNECTION 
-# ==================================
-
-# ------------------------ Check and start connection ------------------------
 LOG blue "4 : Starting Connection..."
-password=""
+
 authenticated=0
 auth_user_id=""
 current_user_id=""
-random_letters=$(generate_random_letters)
-password="$pass"
 last_command_file=$(mktemp)
 
 json_payload="{
@@ -487,6 +481,55 @@ json_payload="{
     }
   ]
 }"
+
+
+RUN_MODE="fg"
+if [ "${1:-}" = "--bg" ]; then
+  RUN_MODE="bg"
+fi
+
+
+if [ "$RUN_MODE" = "bg" ]; then
+
+json_payload="{
+  \"content\": \"\",
+  \"embeds\": [
+    {
+      \"title\": \":hourglass: Session Waiting :hourglass:\",
+      \"description\": \"**Enter Your Password Below** \n-# You can change this in \`.env\` in your /pagecord directory \",
+      \"color\": 16776960
+    }
+  ]
+}"
+
+    ALERT "+===========================+ \n| ------- PageCord -------- | \n| - Discord Pager Control - | \n+========== v1.3 ===========+ \n\n-==- Background Mode -==- \n---------- Started ----------"
+    password="$pass"
+
+else
+
+json_payload="{
+  \"content\": \"\",
+  \"embeds\": [
+    {
+      \"title\": \":hourglass: Session Waiting :hourglass:\",
+      \"description\": \"**Enter Your Session Code** \n-# Displayed on your WiFi Pineapple Pager\",
+      \"color\": 16776960
+    }
+  ]
+}"
+
+    random_letters=$(generate_random_letters)
+    password="${password}${random_letters}"
+    LOG ""
+    LOG green "-==- Foreground Mode -==-"
+    LOG ""
+    LOG cyan "+=======================+"
+    LOG cyan "| SESSION CODE : $password |"
+    LOG cyan "+=======================+"
+
+fi
+
+
 
 # Send Discord message and get status
 HTTP_STATUS=$(curl -s -o /tmp/pagecord_response.json -w "%{http_code}" \
@@ -509,8 +552,9 @@ if [[ "$HTTP_STATUS" -ne 200 && "$HTTP_STATUS" -ne 201 ]]; then
     exit 1
 fi
 
-LOG green "Setup Complete"
 LOG ""
+LOG green "Setup Complete"
 LOG yellow "Session Waiting..."
 
+# ----------- Start main loop -----------
 Main_Loop
