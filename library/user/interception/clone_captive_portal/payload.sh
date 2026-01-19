@@ -987,7 +987,7 @@ mkdir -p "$TEMP_DIR"
 # DEPENDENCY CHECK
 # =============================================================================
 # Map commands to their package names (command:package)
-DEPENDENCIES="curl:curl wget:wget iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa_supplicant"
+DEPENDENCIES="curl:curl wget:wget iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
 
 LOG "Checking dependencies..."
 
