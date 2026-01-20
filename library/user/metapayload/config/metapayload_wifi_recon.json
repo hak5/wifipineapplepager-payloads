@@ -8,21 +8,19 @@
             "optional_vars": {},
             "required_packages": [],
             "description": "Lookup the vendor/manufacturer information for the selected client's MAC address using whoismac",
-            "author": "MetaPayload"
+            "author": "MetaPayload Wifi Recon"
         },
         {
-            "name": "MP-Examine Channel",
-            "path": "recon/access_point/MP_Examine_Channel",
-            "command": "PINEAPPLE_EXAMINE_CHANNEL $_RECON_SELECTED_AP_CHANNEL $SECONDS",
-            "required_vars": [
-                "$_RECON_SELECTED_AP_CHANNEL"
-            ],
+            "name": "MP-PINEAPPLE Examine BSSID",
+            "path": "recon/access_point/MP_PINEAPPLE_Examine_BSSID",
+            "command": "PINEAPPLE_EXAMINE_BSSID $_RECON_SELECTED_AP_BSSID $TIMEOUT_SECS",
+            "required_vars": [],
             "optional_vars": {
-                "SECONDS": 60
+                "TIMEOUT_SECS": "60"
             },
             "required_packages": [],
             "description": "Locks recon to the selected AP's channel for focused monitoring (optional time limit in seconds)",
-            "author": "MetaPayload"
+            "author": "MetaPayload Wifi Recon"
         },
         {
             "name": "MP-Log AP Details",
@@ -32,7 +30,7 @@
             "optional_vars": {},
             "required_packages": [],
             "description": "Log all visible details of the selected access point. Then press RIGHT to export to loot or Discord.",
-            "author": "MetaPayload"
+            "author": "MetaPayload Wifi Recon"
         }
     ]
 }

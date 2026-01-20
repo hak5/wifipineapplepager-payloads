@@ -675,7 +675,7 @@ fi
 LOG "Log tail:"
 LOG "$(tail -n 200 "$TASK_LOG")"
 LOG ""
-LOG yellow "# LEFT:View | RIGHT:Export | DOWN:Delete Task #"
+LOG yellow "# LEFT:View | RIGHT:Export | DOWN:Kill Task #"
 LOG yellow "#->"
 
 resp=$(WAIT_FOR_INPUT "Press directional button or B to cancel")
@@ -708,8 +708,8 @@ case "$resp" in
     "DOWN")
         # Delete task
         RINGTONE bonus
-        LOG cyan "#--> Delete task..."
-        resp=$(CONFIRMATION_DIALOG "Delete task $TASK_ID?" "This will remove all task data and logs.")
+        LOG cyan "#--> Kill task..."
+        resp=$(CONFIRMATION_DIALOG "Kill and delete task $TASK_ID?" "This will remove all task data and logs.")
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
                 LOG red "Error in dialog"

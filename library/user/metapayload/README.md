@@ -184,8 +184,10 @@ The system automatically selects the appropriate UI picker based on variable nam
 - Existing payload wrapper - to allow other payloads to be run within the metapayload framework
 - YAML configuration support
 - Refactoring for maintainability
+- Probably shift to file stubs for generated payloads instead of inline generation
 
 ## Known Issues (planned to fix)
 - Backgrounded tasks may produce log output into other payloads' UI logs if multiple tasks are running simultaneously. 
 - Directional button responsiveness when trying to background a running task can be inconsistent; multiple presses may be required.
 - Killing running tasks via the task management payloads is a bit slow; please be patient for now. 
+- Complex commands with nested quotes may require careful escaping to function correctly within the JSON configuration (aka 'escaping hell').
