@@ -2,7 +2,7 @@
 
 # The Swiss Army Knife of Payloads for the Wifi Pineapple Pager! 🍍
 
-👉**Includes more than 20 payloads out of the box!** See the [Included Payload Packs](#included-payload-packs-📦) section below for details.
+👉**Includes more than 25 payloads out of the box!** See the [Included Payload Packs](#included-payload-packs-📦) section below for details.
 
 Run payloads, keep track of results, export logs to Discord and more - all from the Pager interface!
 
@@ -21,7 +21,7 @@ Watch Hak5's Darren Kitchen review MetaPayload and demonstrate its features on t
 ## Included Payload Packs
 
 ### 🔭 MetaPayload Recon 
-metapayload_recon.json includes a variety of reconnaissance-focused payloads powered by nmap and arp-scan.  These payloads provide everything from quick network discovery to comprehensive port scanning and service detection.
+metapayload_recon.json includes a variety of network reconnaissance-focused payloads powered by nmap and arp-scan.  These payloads provide everything from quick network discovery to comprehensive port scanning and service detection.
 
 - **Quick Hosts Scan**: [TARGET_SUBNET]
 - **ARP Network Scan**: [TARGET_SUBNET]
@@ -45,6 +45,21 @@ metapayload_sysutils.json includes a set of essential system utility payloads fo
 - **Find Files by Name (find)**
 - **Find File Content (grep -r)**
 - **Install Package (opkg)**
+
+### 📡 MetaPayload Wifi Recon
+metapayload_wifi_recon.json includes a collection of payloads for passive reconnaissance
+
+- **MP-WhoIs MAC**: Lookup vendor/manufacturer information for selected client's MAC address [Targets selected Client via Recon]
+- **MP-PINEAPPLE Examine BSSID**: Lock recon to selected AP's channel for focused monitoring [Targets selected AP via Recon]
+- **MP-Log AP Details**: Log all visible details of the selected access point for export [Targets selected AP via Recon]
+
+### 👊 MetaPayload Wifi Attacks
+metapayload_wifi_attacks.json includes a set of targeted Wifi Pineapple-focused attack payloads for authorized penetration testing engagements.
+
+- **MP-WPS Brute Force (Reaver)**: Brute force WPS PIN attack (reaver) [Targets selected AP via Recon]
+- **MP-WPS Pixie Dust (Reaver)**: Fast WPS Pixie Dust attack (reaver) [Targets selected AP via Recon]
+- **MP-AP Deauth (aireplay-ng)**: Deauth Clients (aircrack-ng) [Targets selected AP via Recon]
+- **MP-PMKID Capture (hcxdumptool)**: Aggressive PMKID capture using hcxdumptool [Targets selected AP via Recon]
 
 
 #
