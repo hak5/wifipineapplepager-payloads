@@ -20,7 +20,7 @@
 
 [github.com/OSINTI4L](https://github.com/OSINTI4L)
 
-Built on Pineapple Pager firmware `v1.0.6`
+Built on WiFi Pineapple Pager firmware `v1.0.6`
 
 ### [What is Tunnel Rat?](#what-is-tunnel-jump) | [Payload Workflow](#payload-jump) | [Dependencies and Configuration](#dependencies-jump)
 
