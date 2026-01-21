@@ -108,7 +108,7 @@ Tunnel Rat is a [Hak5 Pineapple Pager](https://shop.hak5.org/products/pager) pay
       `Line 9: MAPPASS="Enter-Management-Portal-Password-Here"`
 
 ### PineAP
-  - Ensure PineAP (in pager settings) is set to collect handshakes: `PineAP > Collect Handshakes > enable`
+  - Ensure PineAP (in pager settings) is set to collect handshakes: `PineAP > "Collect Handshakes" > enable`
 
 <div align="center">
   
