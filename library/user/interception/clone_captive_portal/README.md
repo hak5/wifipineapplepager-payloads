@@ -8,14 +8,43 @@ This payload provides end-to-end automation for captive portal reconnaissance an
 
 ## Features
 
+### Core Features
 - **SSID Scanning** - Scan nearby networks sorted by signal strength
 - **Auto-Connection** - Connect to open or WPA-protected networks
-- **Portal Detection** - Detect captive portals via standard connectivity check endpoints
-- **Recursive Cloning** - Download portal HTML, CSS, JS, and images
+- **Recursive Cloning** - Download portal HTML, CSS, JS, and images (level=2)
 - **Credential Capture** - Auto-modify forms to submit to `/captiveportal/`
 - **Evil Twin Setup** - Configure Open AP with cloned SSID and optional MAC
 - **SSID Pool** - Add target SSID to pool for future use
 - **State Restoration** - Save and restore interface and Open AP state on exit
+
+### Enhanced Portal Detection (v1.1+)
+- **DNS Hijack Detection** - Detect portals that intercept all DNS queries
+- **HTTP Connectivity Check** - Standard method using known endpoints
+- **HTTPS Detection** - Detect HTTPS-only portals (with cert bypass)
+- **JavaScript Redirect Extraction** - Parse JS redirects from portal pages
+- **WISPr XML Parsing** - Support for enterprise hotspot protocols
+- **Gateway Direct Access** - Fallback check on network gateway
+- **Headless Browser** - Optional JS rendering (requires phantomjs/chromium)
+
+### Advanced Analysis (v1.3)
+- **MAC Bypass Detection** - Detect if portal whitelists by MAC address
+- **AJAX/API Detection** - Find XHR, fetch, axios API endpoints
+- **Form Field Analysis** - Identify password fields, CSRF tokens, hidden fields
+- **Cookie Analysis** - Track session cookies and expiration times
+- **SSL Certificate Extraction** - Extract CN, issuer, validity from HTTPS portals
+- **Template Detection** - Identify Cisco, Aruba, Meraki, UniFi, etc.
+
+### Robustness (v1.2+)
+- **Cookie Preservation** - Maintain session across requests
+- **User Agent Rotation** - Rotate between iOS, Android, Windows, macOS agents
+- **Rate Limit Handling** - Detect HTTP 429 with exponential backoff
+- **Auto-Reconnect** - Recover from connection drops during cloning
+- **Signal/Band Filtering** - Filter by signal strength and 2.4/5GHz
+
+### Form Handling
+- **URL Parameter Preservation** - Keep Coova/ChilliSpot params as hidden fields
+- **Form Action Rewriting** - Redirect submissions to credential handler
+- **Method Conversion** - Convert GET forms to POST
 
 ## Usage
 
@@ -58,6 +87,7 @@ Cloned portals are compatible with:
 
 ## Dependencies
 
+### Required
 | Package | Purpose | Auto-Install |
 |---------|---------|--------------|
 | `iw` | WiFi scanning and interface management | No (built-in) |
@@ -65,19 +95,44 @@ Cloned portals are compatible with:
 | `curl` | Portal detection and fallback cloning | No (built-in) |
 | `wget` | Recursive portal cloning | Yes (if missing) |
 
+### Optional (Enhanced Features)
+| Package | Purpose | Auto-Install |
+|---------|---------|--------------|
+| `openssl-util` | SSL certificate extraction | Yes (prompted) |
+| `grep` | GNU grep for advanced pattern matching | Yes (prompted) |
+| `phantomjs` or `chromium` | Headless browser for JS-heavy portals | No (manual) |
+
 ## Captive Portal Detection
 
-The payload checks these standard connectivity endpoints:
+The payload uses multiple detection methods in sequence:
 
+### Method 1: DNS Hijack Detection
+Checks if DNS queries for known domains return unexpected IPs (indicates portal intercepting all DNS).
+
+### Method 2: HTTP Connectivity Check
+Tests standard connectivity endpoints:
 - `http://connectivitycheck.gstatic.com/generate_204` (Google/Android)
-- `http://www.gstatic.com/generate_204` (Google)
-- `http://clients3.google.com/generate_204` (Google)
 - `http://captive.apple.com/hotspot-detect.html` (Apple)
-- `http://www.apple.com/library/test/success.html` (Apple)
 - `http://detectportal.firefox.com/success.txt` (Firefox)
 - `http://www.msftconnecttest.com/connecttest.txt` (Microsoft)
 
-A captive portal is detected when these URLs return a redirect (HTTP 302) or unexpected content.
+### Method 3: HTTPS Connectivity Check
+Tests HTTPS endpoints for HTTPS-only portals:
+- `https://www.google.com/generate_204`
+- `https://captive.apple.com/hotspot-detect.html`
+
+### Method 4: Gateway Direct Access
+Checks the network gateway directly for portal content.
+
+### Method 5: Headless Browser (Optional)
+If enabled, uses phantomjs/chromium to render JavaScript-heavy portals.
+
+### Detection Triggers
+- HTTP 301/302/307 redirects
+- Unexpected content in response
+- WISPr XML response
+- JavaScript redirects (`window.location`, meta refresh)
+- Portal keywords in content
 
 ## Configuration
 
@@ -117,6 +172,63 @@ For authorized red team engagements:
 
 ## Changelog
 
+### Version 1.3
+- **Advanced Portal Analysis**
+  - MAC-based bypass detection (detects if portal whitelists by MAC)
+  - AJAX/API endpoint detection (finds XHR, fetch, axios calls)
+  - Form field analysis (password fields, CSRF tokens, hidden fields)
+  - Cookie expiration analysis (session planning)
+  - SSL certificate extraction (CN, issuer, validity)
+- **Reliability**
+  - Auto-reconnect if connection drops during cloning
+  - Session timeout detection and handling
+  - Response time tracking for rate-limit tuning
+  - wpa_supplicant driver fallback (nl80211 → wext → auto)
+- **Portal Processing**
+  - HTML sanitization (removes Google Analytics, Facebook Pixel, etc.)
+  - Portal archive export (`.tar.gz` for backup/transfer)
+  - Goodportal integration (auto-deploy to `/www/portals`)
+- **User Experience**
+  - Configuration persistence (save/load settings)
+  - Extended analysis report files saved with clone
+  - Optional dependency installation prompt
+- **Compatibility**
+  - BusyBox grep support (replaced grep -P with sed/awk)
+  - OpenSSL availability check with graceful degradation
+  - Fixed date command for BusyBox (seconds instead of nanoseconds)
+
+### Version 1.2
+- **Robustness Improvements**
+  - Cookie preservation across requests (session handling)
+  - User agent rotation (iOS, Android, Windows, macOS, iPad)
+  - Rate limit detection (HTTP 429) with automatic backoff
+  - Multi-language portal keywords (EN, ES, FR, DE)
+- **Portal Analysis**
+  - Template detection (Cisco, Aruba, Meraki, UniFi, Ruckus, FortiGate, MikroTik, etc.)
+  - Portal screenshot capture (when headless browser enabled)
+  - Asset inlining (CSS/images as base64 for offline use)
+  - Portal verification (checks for broken references)
+- **Scan Filtering**
+  - Signal strength filter (hide weak networks < -85 dBm)
+  - Band selection (2.4GHz only, 5GHz only, or all)
+- **Logging**
+  - Detailed log file saved to `/root/loot/captive_portals/clone_*.log`
+
+### Version 1.1
+- **Enhanced Portal Detection**
+  - DNS hijack detection (intercepts all DNS)
+  - HTTPS connectivity check (HTTPS-only portals)
+  - JavaScript redirect extraction (window.location, meta refresh)
+  - WISPr XML parsing (enterprise hotspots)
+  - Optional headless browser support (phantomjs/chromium)
+- **Improved Cloning**
+  - Multi-page recursive cloning (level=2)
+  - URL parameter preservation (Coova/ChilliSpot support)
+- **User Experience**
+  - Graceful exit options after failures
+  - Headless browser prompt (optional)
+  - Better error messages with detection method info
+
 ### Version 1.0
 - Initial release
 - SSID scanning with signal strength sorting
@@ -131,18 +243,33 @@ For authorized red team engagements:
 - SSID Pool integration
 - Open AP config backup/restore
 
+## Output Files
+
+Each cloned portal includes analysis reports:
+
+| File | Description |
+|------|-------------|
+| `portal_info.txt` | Clone metadata (SSID, BSSID, URL, timestamp) |
+| `ssl_cert_info.txt` | SSL certificate details (HTTPS portals) |
+| `api_endpoints.txt` | Detected AJAX/API endpoints |
+| `form_analysis.txt` | Form field analysis (password, CSRF, hidden) |
+| `cookie_analysis.txt` | Cookie expiration and session info |
+| `screenshot.png` | Portal screenshot (if headless enabled) |
+| `{name}.tar.gz` | Portable archive of entire portal |
+
 ## Todo
 
 - [ ] Support for 802.1X/Enterprise network authentication
-- [ ] Automatic goodportal_configure integration (start portal after clone)
-- [ ] JavaScript-based portal detection for SPAs
-- [ ] Option to clone multiple pages (follow links)
+- [x] ~~Automatic goodportal_configure integration~~ (v1.3)
 - [ ] Certificate cloning for HTTPS portals
+- [ ] Social OAuth flow interception
+- [ ] Captive portal bypass techniques (MAC spoofing automation)
+- [ ] Multi-portal comparison (diff between clones)
 
 ## Troubleshooting
 
 ### "No networks found"
-- Ensure wlan1 is not in use by another process
+- Ensure wlan0cli is not in use by another process
 - Try moving closer to target networks
 - Check if interface exists: `iw dev`
 
