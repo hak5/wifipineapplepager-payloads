@@ -112,7 +112,7 @@ else
     exit 0
 fi
 
-# Check and establish SSH tunnel to VPS C2:
+# Check and establish reverse SSH tunnel to VPS C2:
 PINGVPS() {
     ping -c1 "$VPSIP"
 }
@@ -141,17 +141,17 @@ TUNNELCHECK() {
 }
 if TUNNELCHECK; then
     sleep 1
-    LOG green "SSH tunnel successfully established!"
+    LOG green "Reverse SSH tunnel successfully established!"
     curl -H "Content-Type: application/json" \
     -X POST \
-    -d "{\"content\": \"SSH tunnel successfully established! Access pager shell at VPS C2: ssh -p 2222 root@127.0.0.1\"}" \
+    -d "{\"content\": \"Reverse SSH tunnel successfully established! Access pager shell at VPS C2: ssh -p 2222 root@127.0.0.1\"}" \
     "$DISCORD_WEBHOOK"
 else
     ALERT "VPS tunnel could not be established!"
     LOG red "Exiting."
         curl -H "Content-Type: application/json" \
         -X POST \
-        -d "{\"content\": \"SSH tunnel could not be established! Exiting.\"}" \
+        -d "{\"content\": \"Reverse SSH tunnel could not be established! Exiting.\"}" \
         "$DISCORD_WEBHOOK"
     exit 0
 fi
