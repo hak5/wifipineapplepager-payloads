@@ -144,7 +144,7 @@ if TUNNELCHECK; then
     LOG green "Reverse SSH tunnel successfully established!"
     curl -H "Content-Type: application/json" \
     -X POST \
-    -d "{\"content\": \"Reverse SSH tunnel successfully established! Access pager shell at VPS C2: ssh -p 2222 root@127.0.0.1\"}" \
+    -d "{\"content\": \"Reverse SSH tunnel successfully established! Access pager root shell at VPS C2: ssh -p 2222 root@127.0.0.1\"}" \
     "$DISCORD_WEBHOOK"
 else
     ALERT "VPS tunnel could not be established!"
