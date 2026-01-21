@@ -46,7 +46,7 @@ DEAUTHTARG() {
     _pineap DEAUTH "$TARGETMAC" "FF:FF:FF:FF:FF:FF" "$TARGETCH"
 }
  
- # If PCAP configure filename/spawn MGMT AP, else deauth/sleep 1 minutes and check again, loop until PCAP:
+ # If PCAP configure filename/spawn MGMT AP, else deauth/sleep 1 minute and check again, loop until PCAP:
 if [ -n "$PCAP" ]; then
     LOG green "Handshake found!"
     sleep 1.5
