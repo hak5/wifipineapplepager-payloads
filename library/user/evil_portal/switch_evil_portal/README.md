@@ -29,26 +29,6 @@ By updating the `current` symlink, Evil Portal immediately begins serving a diff
 - Evil Portal installed and working
 - Multiple portals installed in `/root/portals/`
 - A `current` symlink must exist: `/root/portals/current`
-- Evil Portal init script must support: `/etc/init.d/evilportal switch <portal-name>`
-
-> ## Important
-> The switch command is not part of Evil Portal by default.
-> See Notes below for details.
-
----
-
-## Installation
-
-Copy this payload directory to: `/root/payloads/user/evil_portal/switch_evil_portal`
-
-The final layout should be:
-
-```text
-/root/payloads/user/evil_portal/
-└── switch_evil_portal
-    ├── payload.sh
-    └── README.md
-```
 
 ---
 
@@ -83,22 +63,6 @@ Portal switches are logged via syslog:
 ```bash
 logread | grep evilportal
 ```
-
----
-
-## Notes on Compatibility
-
-This payload **requires an enhancement** to the Evil Portal init script that adds:
-
-```bash
-/etc/init.d/evilportal switch <portal-name>
-```
-
-That enhancement is **not included** in this payload repository.
-
-For installation instructions and the init script patch, see:
-
-[evilportal_switch](https://github.com/knight-scott/evilportal-switch)
 
 ---
 
