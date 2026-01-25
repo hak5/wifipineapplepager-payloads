@@ -1,5 +1,5 @@
     #!/bin/bash
-    # Title: Update All
+    # Title: Update AIO
     # Description: Unified updater for Payloads, Themes, and Ringtones.
     # Author: Z3r0L1nk (based on cococode's work)
     # Version: 1.0.0
