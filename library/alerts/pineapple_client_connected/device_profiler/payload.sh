@@ -1,6 +1,6 @@
 #!/bin/bash
 # Title: Device Profiler
-# Description: MAC OUI lookup to identify device manufacturer
+# Description: Profile connected devices via OUI lookup, detect randomized MACs, track unique clients with CSV/JSON logging
 # Author: z3r0l1nk
 # Version: 2.0
 
