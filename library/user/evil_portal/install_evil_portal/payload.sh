@@ -1,8 +1,8 @@
 #!/bin/bash
 # Name: Install Evil Portal
 # Description: Complete Evil Portal installation for WiFi Pineapple Pager (OpenWrt 24.10.1)
-# Author: PentestPlaybook
-# Version: 1.9
+# Author: PentestPlaybook / 0x4B
+# Version: 1.9.1
 # Category: Evil Portal
 
 # ====================================================================
@@ -320,6 +320,10 @@ LOG "SUCCESS: API files created"
 LOG "Step 3: Creating portal interface files..."
 mkdir -p /root/portals/Default
 
+# Create symlink
+LOG "Creating default symlink..."
+ln -sf /root/portals/Default /root/portals/current
+
 LOG "Creating index.php..."
 cat > /root/portals/Default/index.php << 'EOF'
 <?php
@@ -557,6 +561,10 @@ cat > /etc/init.d/evilportal << INITEOF
 
 START=99
 
+## Add Extra Commands
+EXTRA_COMMANDS="switch"
+EXTRA_HELP="switch <portal>    Switch active Evil Portal"
+
 # Helper function to add temporary nft rules directly to dstnat chain
 # (dstnat always exists, dstnat_lan only exists when UCI rules are present)
 add_nft_rules() {
@@ -616,11 +624,12 @@ start_services() {
     dnsmasq --no-hosts --no-resolv --address=/#/${PORTAL_IP} -p 5353 &
     rm -f /www/captiveportal
     ln -s /pineapple/ui/modules/evilportal/assets/api /www/captiveportal
-    ln -sf /root/portals/Default/index.php /www/index.php
-    ln -sf /root/portals/Default/MyPortal.php /www/MyPortal.php
-    ln -sf /root/portals/Default/helper.php /www/helper.php
-	ln -sf /root/portals/Default/generate_204.html /www/generate_204
-    ln -sf /root/portals/Default/hotspot-detect.html /www/hotspot-detect.html
+    ln -sf /root/portals/current/index.php /www/index.php
+    ln -sf /root/portals/current/assets /www/assets
+    ln -sf /root/portals/current/MyPortal.php /www/MyPortal.php
+    ln -sf /root/portals/current/helper.php /www/helper.php
+	ln -sf /root/portals/current/generate_204.html /www/generate_204
+    ln -sf /root/portals/current/hotspot-detect.html /www/hotspot-detect.html
 
     # Start whitelist daemon
     /usr/bin/evilportal-whitelist-daemon &
@@ -636,6 +645,45 @@ stop_services() {
 
     # Remove whitelist rules
     remove_whitelist_rules
+}
+
+# Helper function to switch portals 
+switch() {
+    NEW_PORTAL="\$1"
+    PORTAL_BASE="/root/portals"
+    CURRENT_LINK="\$PORTAL_BASE/current"
+
+    if [ -z "\$NEW_PORTAL" ]; then
+        echo "Usage: /etc/init.d/evilportal switch <portal_name>"
+        logger -t evilportal "Switch failed: no portal specified"
+        return 1
+    fi
+
+    if [ ! -d "\$PORTAL_BASE/\$NEW_PORTAL" ]; then
+        echo "Portal does not exist: \$NEW_PORTAL"
+        logger -t evilportal "Switch failed: portal not found (\$NEW_PORTAL)"
+        return 1
+    fi
+
+    # Remove current symlink
+    rm -rf "$\CURRENT_LINK"
+    # Update symlink atomically
+    ln -sfn "\$PORTAL_BASE/\$NEW_PORTAL" "\$PORTAL_BASE/current"
+    if [ \$? -ne 0 ]; then
+        echo "Failed to update portal symlink"
+        logger -t evilportal "Switch failed: symlink update error"
+        return 1
+    fi
+
+    # If Evil Portal is currently running, restart services
+    if pidof nginx >/dev/null 2>&1; then
+        restart
+    fi
+
+    echo "Portal switched to \$NEW_PORTAL"
+    logger -t evilportal "Portal switched to \$NEW_PORTAL"
+
+    return 0
 }
 
 start() {
@@ -916,6 +964,7 @@ LOG "  Enable:  /etc/init.d/evilportal enable   (Portal ON after reboot)"
 LOG "  Disable: /etc/init.d/evilportal disable  (Portal OFF after reboot)"
 LOG "  Start:   /etc/init.d/evilportal start    (Portal ON now)"
 LOG "  Stop:    /etc/init.d/evilportal stop     (Portal OFF now)"
+LOG "  Switch:  /etc/init.d/evilportal switch <portal-name> (Switch Active Portal)"
 LOG "  Restart: /etc/init.d/evilportal restart  (restart portal)"
 LOG "=================================================="
 
