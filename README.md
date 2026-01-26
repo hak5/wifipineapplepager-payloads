@@ -33,7 +33,7 @@
             ░  ░         ░    ░      ░     ░
 
                         FENRIR
-                 COMPLETE ATTACK ENGINE v2.0.7
+                 COMPLETE ATTACK ENGINE v2.1.0
 ```
 
 ---
@@ -64,10 +64,13 @@ Each payload is designed to chain into the next. One tool feeds another. Togethe
   ║   [1] HUGINN ──────► Passive recon, target identification    ║
   ║         │                                                     ║
   ║         ▼                                                     ║
+  ║   [7] VERDANDI ────► Probe fingerprinting, defeat MAC rand   ║
+  ║         │                                                     ║
+  ║         ▼                                                     ║
   ║   [2] FENRIS ──────► Deauth storm, force disconnection       ║
   ║         │                                                     ║
   ║         ▼                                                     ║
-  ║   [3] SKOLL ───────► Evil Twin, karma lure, catch victims    ║
+  ║   [3] SKOLL ───────► Evil Twin, karma lure, catch targets    ║
   ║         │                                                     ║
   ║         ├──────────► [4] LOKI (credential harvest)           ║
   ║         │                  └─► Phishing portals, MFA capture ║
@@ -94,7 +97,8 @@ Payloads are numbered in attack order so you always know what comes next:
 ├── 3_skoll/            [ATTACK]   Karma/Evil Twin luring
 ├── 4_loki/             [HARVEST]  Credential phishing portals
 ├── 5_hati/             [CRACK]    Clientless WPA hash capture
-└── 6_einherjar/        [C2]       Multi-Pager swarm control
+├── 6_einherjar/        [C2]       Multi-Pager swarm control
+└── 7_verdandi/         [RECON]    Probe fingerprinting (defeats MAC randomization)
 ```
 
 ---
@@ -103,12 +107,13 @@ Payloads are numbered in attack order so you always know what comes next:
 
 | # | Payload | Norse Reference | Function | Chains To |
 |---|---------|-----------------|----------|-----------|
-| 1 | **HUGINN** | Odin's thought raven | WiFi + BLE recon | FENRIS |
+| 1 | **HUGINN** | Odin's thought raven | WiFi + BLE recon | VERDANDI, FENRIS |
 | 2 | **FENRIS** | The bound wolf | Deauth storms | SKOLL |
 | 3 | **SKOLL** | Wolf chasing sun | Karma/Evil Twin | LOKI, HATI |
 | 4 | **LOKI** | The trickster god | Credential harvest | EINHERJAR |
 | 5 | **HATI** | Wolf chasing moon | WPA PMKID capture | (offline crack) |
 | 6 | **EINHERJAR** | Odin's army | Swarm coordination | (scales attacks) |
+| 7 | **VERDANDI** | Norn of the present | Probe fingerprinting | FENRIS (persistent tracking) |
 
 ---
 
@@ -130,7 +135,26 @@ Payloads are numbered in attack order so you always know what comes next:
 
 **Output:** Correlated WiFi+BLE device pairs with confidence scores
 
-**Chains to:** FENRIS (you now know WHO to attack)
+**Chains to:** VERDANDI (fingerprint for persistent tracking), FENRIS (attack)
+
+---
+
+### Stage 7: VERDANDI (Fingerprinting) - v1.0.0
+- Extracts Information Elements from probe requests
+- Creates device fingerprints from HT/VHT Capabilities
+- Maps all observed MACs to their true fingerprint
+- Detects MAC randomization in real-time
+- Enables persistent device tracking
+
+**Fingerprint Elements:**
+- HT Capabilities (802.11n) - 26 bytes of device-specific data
+- VHT Capabilities (802.11ac) - 12 bytes of device-specific data
+- Supported Rates - transmission speeds the radio supports
+- Frame structure patterns
+
+**Output:** Fingerprint database mapping device identities across MAC changes
+
+**Chains to:** FENRIS (now you can track the SAME device even after MAC rotation)
 
 ---
 
@@ -200,6 +224,7 @@ scp -r 3_skoll/ root@172.16.52.1:/root/payloads/user/fenrir/
 scp -r 4_loki/ root@172.16.52.1:/root/payloads/user/fenrir/
 scp -r 5_hati/ root@172.16.52.1:/root/payloads/user/fenrir/
 scp -r 6_einherjar/ root@172.16.52.1:/root/payloads/user/fenrir/
+scp -r 7_verdandi/ root@172.16.52.1:/root/payloads/user/fenrir/
 ```
 
 ### 2. Run the Attack Chain
@@ -249,6 +274,7 @@ All       → Run SKOLL simultaneously
 ```
 /root/loot/
 ├── huginn/          # Probe logs, BLE scans, correlations
+├── verdandi/        # Probe fingerprints, MAC-to-fingerprint mappings
 ├── fenris/          # Deauth attack logs
 ├── skoll/           # SSID collections, karma sessions
 ├── loki/            # HARVESTED CREDENTIALS
@@ -298,6 +324,14 @@ FENRIR is designed for **authorized penetration testing** and **security researc
 ---
 
 ## VERSION
+
+**2.1.0** (2026-01-25)
+- NEW: VERDANDI v1.0.0 - Probe Fingerprint Engine
+  - Defeats MAC randomization by fingerprinting probe request IEs
+  - Extracts HT/VHT Capabilities, Supported Rates from raw frames
+  - Creates persistent device fingerprints that survive MAC rotation
+  - Enables true device tracking when HUGINN correlation isn't enough
+- Complete 7-payload attack engine
 
 **2.0.7** (2026-01-11)
 - Complete 6-payload attack engine
