@@ -2,10 +2,10 @@
 # Title: Device Profiler
 # Description: Profile connected devices via OUI lookup, detect randomized MACs, track unique clients with CSV/JSON logging
 # Author: z3r0l1nk
-# Version: 2.0
+# Version: 2.1
 
 # Configuration
-DATA_DIR="/root/device_profiler"
+DATA_DIR="/root/loot/device_profiler"
 OUI_DB="/tmp/oui_cache.txt"
 DEVICE_LOG="$DATA_DIR/connections.csv"
 DEVICE_JSON="$DATA_DIR/connections.json"
