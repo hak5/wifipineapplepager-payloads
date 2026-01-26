@@ -2,7 +2,7 @@
     # Title:  Resource_Manager
     # Description: Unified payload with two modes: Download All or Update Installed Only
     # Author: Z3r0L1nk (based on cococode's work)
-    # Version: 2.1.0
+    # Version: 2.1.1
 
     # === CONFIGURATION ===
     CACHE_ROOT="/mmc/root/pager_update_cache"
@@ -22,6 +22,10 @@
     COUNT_SKIPPED=0
     LOG_BUFFER=""
     UPDATE_MODE=""          # "DOWNLOAD_ALL" or "UPDATE_INSTALLED"
+    SELF_UPDATE_SRC=""
+    SELF_UPDATE_DST=""
+    SELF_UPDATE_LABEL=""
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
     # === UTILITIES ===
 
@@ -174,6 +178,15 @@
         local dst="$2"
         local label="$3"
         local do_overwrite=false
+
+        # Detect self-update and defer it
+        if [[ "$dst" == "$SCRIPT_DIR"* ]] || [[ "$dst" == "$SCRIPT_DIR" ]]; then
+            SELF_UPDATE_SRC="$src"
+            SELF_UPDATE_DST="$dst"
+            SELF_UPDATE_LABEL="$label"
+            LOG_BUFFER+="[ DEFERRED ] $label (self-update queued for end)\n"
+            return
+        fi
 
         # Bulk Choice
         if [ "$FIRST_CONFLICT" = true ]; then
@@ -333,6 +346,19 @@
         else
             LOG "\n$LOG_BUFFER"
             LOG "Done (Download All): $COUNT_NEW Downloaded, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
+        fi
+
+        # Apply deferred self-update if queued
+        if [ -n "$SELF_UPDATE_SRC" ]; then
+            LED SETUP
+            if [ "$(CONFIRMATION_DIALOG "Apply self-update: $SELF_UPDATE_LABEL?")" == "1" ]; then
+                LOG "Applying self-update..."
+                rm -rf "$SELF_UPDATE_DST"
+                cp -rf "$SELF_UPDATE_SRC" "$SELF_UPDATE_DST"
+                LOG "Self-update complete. Restart payload to use new version."
+            else
+                LOG "Self-update skipped."
+            fi
         fi
     }
 
