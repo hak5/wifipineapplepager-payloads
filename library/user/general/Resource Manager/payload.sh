@@ -2,7 +2,7 @@
     # Title:  Resource_Manager
     # Description: Unified payload with two modes: Download All or Update Installed Only
     # Author: Z3r0L1nk (based on cococode's work)
-    # Version: 2.0.0
+    # Version: 2.1.0
 
     # === CONFIGURATION ===
     CACHE_ROOT="/mmc/root/pager_update_cache"
@@ -149,25 +149,21 @@
                 fi
             fi
 
-            # Logic: New vs Update
-            if [ ! -e "$target_path" ]; then
-                if [ "$type" == "PAYLOAD_DIRS" ] && [[ "$item_rel_path" =~ ^alerts/ ]]; then
-                    target_path="$(dirname "$target_path")/DISABLED.$(basename "$target_path")"
-                fi
-
-                mkdir -p "$(dirname "$target_path")"
-                cp -rf "$src_item" "$target_path"
-                LOG_BUFFER+="[ NEW ] $name: $item_title\n"
-                COUNT_NEW=$((COUNT_NEW + 1))
-            else
-                # Diff Check
-                if diff -r -q "$src_item" "$target_path" > /dev/null; then
-                    continue # No changes
-                fi
-                
-                # Conflict
-                handle_conflict "$src_item" "$target_path" "$name: $item_title"
+            # Download mode: Only download items NOT already present
+            if [ -e "$target_path" ]; then
+                COUNT_SKIPPED=$((COUNT_SKIPPED + 1))
+                continue # Already exists, skip
             fi
+
+            # New item - download it
+            if [ "$type" == "PAYLOAD_DIRS" ] && [[ "$item_rel_path" =~ ^alerts/ ]]; then
+                target_path="$(dirname "$target_path")/DISABLED.$(basename "$target_path")"
+            fi
+
+            mkdir -p "$(dirname "$target_path")"
+            cp -rf "$src_item" "$target_path"
+            LOG_BUFFER+="[ NEW ] $name: $item_title\n"
+            COUNT_NEW=$((COUNT_NEW + 1))
 
         done < "$file_list"
         rm -f "$file_list"
@@ -289,7 +285,7 @@
         
         LED SETUP
         # Main Menu: Download All vs Update Installed
-        if [ "$(CONFIRMATION_DIALOG "No=Update installed only - YES=Download ALL(selective repos)")" == "1" ]; then
+        if [ "$(CONFIRMATION_DIALOG "No=Update installed only - YES=Download ALL")" == "1" ]; then
 
             UPDATE_MODE="DOWNLOAD_ALL"
         else
@@ -336,7 +332,7 @@
             LOG "Done (Installed Only): $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
         else
             LOG "\n$LOG_BUFFER"
-            LOG "Done: $COUNT_NEW New, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
+            LOG "Done (Download All): $COUNT_NEW Downloaded, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
         fi
     }
 
