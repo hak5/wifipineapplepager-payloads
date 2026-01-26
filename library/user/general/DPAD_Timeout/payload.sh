@@ -32,15 +32,18 @@ EOF
     cat > "$BIN_SCRIPT" << 'EOF'
 #!/bin/bash
 
-LED_COLOR=$(uci get system.@pager[0].led_color 2>/dev/null || echo "cyan")
 DIM_BRIGHTNESS=$(uci get system.@pager[0].dim_brightness 2>/dev/null || echo 6)
 LCD_BRIGHTNESS="/sys/class/backlight/backlight_pwm/brightness"
+
+get_led_color() {
+    uci get system.@pager[0].led_color 2>/dev/null || echo "cyan"
+}
 
 control_led() {
     local led_state="unknown"
     local last_brightness=-1
     
-    DPADLED "$LED_COLOR" 2>/dev/null
+    DPADLED "$(get_led_color)" 2>/dev/null
     led_state="on"
     
     while true; do
@@ -50,7 +53,7 @@ control_led() {
             if [ "$current_brightness" != "$last_brightness" ]; then
                 if [ $current_brightness -gt $DIM_BRIGHTNESS ]; then
                     if [ "$led_state" != "on" ]; then
-                        DPADLED "$LED_COLOR" 2>/dev/null
+                        DPADLED "$(get_led_color)" 2>/dev/null
                         led_state="on"
                     fi
                 else
