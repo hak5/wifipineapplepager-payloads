@@ -1,7 +1,14 @@
 #!/bin/sh
-# TITLE WIGLESTATS
+# TITLE: Wigle Stats
 # AUTHOR Nomaran
 # DESCRIPTION Looks at the most recent Wigle.csv file and counts the amount of auth types and estimated distance traveled
+
+# Check is Python is installed
+
+if ! command -v python3 >/dev/null 2>&1; then
+  LOG "ERROR: python3 is not installed. Install with: opkg install python3"
+  exit 1
+fi
 
 # Get the latest CSV file, skipped the first two rows.
 wigle=$(ls -t /root/loot/wigle/*.csv 2>/dev/null | head -n 1)
