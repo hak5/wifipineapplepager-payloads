@@ -1,14 +1,11 @@
     #!/bin/bash
-    # Title: Update AIO
-    # Description: Unified updater for Payloads, Themes, and Ringtones.
+    # Title:  Resource_Manager
+    # Description: Unified payload with two modes: Download All or Update Installed Only
     # Author: Z3r0L1nk (based on cococode's work)
-    # Version: 1.0.0
+    # Version: 2.0.0
 
     # === CONFIGURATION ===
     CACHE_ROOT="/mmc/root/pager_update_cache"
-
-    # Define resources: Name|Repo|Branch|CacheDirName|TargetDir|Type
-    # Type: PAYLOAD_DIRS, THEME_DIRS, FLAT_FILES
     RESOURCES=(
         "Payloads|wifipineapplepager-payloads|master|Update_Payloads|/mmc/root/payloads|PAYLOAD_DIRS"
         "Themes|wifipineapplepager-themes|master|Update_Themes|/mmc/root/themes|THEME_DIRS"
@@ -24,6 +21,7 @@
     COUNT_UPDATED=0
     COUNT_SKIPPED=0
     LOG_BUFFER=""
+    UPDATE_MODE=""          # "DOWNLOAD_ALL" or "UPDATE_INSTALLED"
 
     # === UTILITIES ===
 
@@ -115,10 +113,6 @@
                 root_prefix="$cache_dir/themes/"
                 ;;
             "FLAT_FILES")
-                # Ringtones are usually flat in a folder or root. 
-                # Adjust based on known repo structure: wifipineapplepager-ringtones has ringtones/ dir?
-                # Based on previous analysis: yes, inside zip it was 'ringtones' folder.
-                # Let's check cache dir content dynamically or assume 'ringtones' subdir if exists, else root.
                 local search_root="$cache_dir"
                 [ -d "$cache_dir/ringtones" ] && search_root="$cache_dir/ringtones"
                 
@@ -157,7 +151,6 @@
 
             # Logic: New vs Update
             if [ ! -e "$target_path" ]; then
-                # SPECIAL CASE: New Payload in alerts/ dir -> disable by default?
                 if [ "$type" == "PAYLOAD_DIRS" ] && [[ "$item_rel_path" =~ ^alerts/ ]]; then
                     target_path="$(dirname "$target_path")/DISABLED.$(basename "$target_path")"
                 fi
@@ -223,17 +216,96 @@
         fi
     }
 
+    process_installed_only() {
+        local name="$1"
+        local cache_dir="$2"
+        local target_root="$3"
+        local type="$4"
+
+        LED SPECIAL
+        
+        case "$type" in
+            "PAYLOAD_DIRS")
+                if [ ! -d "$cache_dir/library" ]; then LOG "Invalid payload repo structure"; return; fi
+                cache_prefix="$cache_dir/library/"
+                ;;
+            "THEME_DIRS")
+                if [ ! -d "$cache_dir/themes" ]; then LOG "Invalid theme repo structure"; return; fi
+                cache_prefix="$cache_dir/themes/"
+                ;;
+            "FLAT_FILES")
+                cache_prefix="$cache_dir/"
+                [ -d "$cache_dir/ringtones" ] && cache_prefix="$cache_dir/ringtones/"
+                ;;
+        esac
+
+        # Scan LOCAL installed items and check for updates in cache
+        if [ "$type" == "FLAT_FILES" ]; then
+            # Ringtones: scan local .rtttl files
+            find "$target_root" -name "*.rtttl" 2>/dev/null | while read -r local_file; do
+                local rel_path="${local_file#$target_root/}"
+                local cache_file="$cache_prefix$rel_path"
+                
+                if [ -f "$cache_file" ]; then
+                    if ! diff -q "$cache_file" "$local_file" > /dev/null 2>&1; then
+                        local item_title=$(get_ringtone_title "$local_file")
+                        handle_conflict "$cache_file" "$local_file" "$name: $item_title"
+                    fi
+                fi
+            done
+        else
+            # Payloads/Themes: scan local directories
+            local marker_file="payload.sh"
+            [ "$type" == "THEME_DIRS" ] && marker_file="theme.json"
+            
+            find "$target_root" -name "$marker_file" 2>/dev/null | while read -r local_marker; do
+                local local_dir=$(dirname "$local_marker")
+                local dir_name=$(basename "$local_dir")
+                
+                # Handle DISABLED. prefix
+                local clean_name="${dir_name#DISABLED.}"
+                local rel_path="${local_dir#$target_root/}"
+                local clean_rel_path="${rel_path/DISABLED./}"
+                
+                local cache_item="$cache_prefix$clean_rel_path"
+                
+                if [ -d "$cache_item" ]; then
+                    if ! diff -r -q "$cache_item" "$local_dir" > /dev/null 2>&1; then
+                        local item_title=""
+                        if [ "$type" == "PAYLOAD_DIRS" ]; then
+                            item_title=$(get_payload_title "$local_dir")
+                        else
+                            item_title=$(get_theme_title "$local_dir")
+                        fi
+                        handle_conflict "$cache_item" "$local_dir" "$name: $item_title"
+                    fi
+                fi
+            done
+        fi
+    }
+
     start_ui() {
         local selected_indices=()
         
         LED SETUP
-        if [ "$(CONFIRMATION_DIALOG "Update EVERYTHING (Payloads, Themes, Ringtones)?")" == "1" ]; then
+        # Main Menu: Download All vs Update Installed
+        if [ "$(CONFIRMATION_DIALOG "No=Update installed only - YES=Download ALL(selective repos)")" == "1" ]; then
+
+            UPDATE_MODE="DOWNLOAD_ALL"
+        else
+            UPDATE_MODE="UPDATE_INSTALLED"
+        fi
+
+        # Resource selection (mode-aware prompts)
+        local action_word="Update"
+        [ "$UPDATE_MODE" == "DOWNLOAD_ALL" ] && action_word="Download"
+        
+        if [ "$(CONFIRMATION_DIALOG "$action_word ALL (Payloads, Themes, Ringtones)?")" == "1" ]; then
             selected_indices=(0 1 2)
         else
-            # Ask individually
             for i in "${!RESOURCES[@]}"; do
                 IFS='|' read -r r_name _ _ _ _ _ <<< "${RESOURCES[$i]}"
-                if [ "$(CONFIRMATION_DIALOG "Update $r_name?")" == "1" ]; then
+                if [ "$(CONFIRMATION_DIALOG "$action_word $r_name?")" == "1" ]; then
                     selected_indices+=("$i")
                 fi
             done
@@ -251,12 +323,21 @@
             local full_cache="$CACHE_ROOT/$r_cache"
             
             if update_repo "$r_repo" "$r_branch" "$full_cache"; then
-                process_resource "$r_name" "$full_cache" "$r_target" "$r_type"
+                if [ "$UPDATE_MODE" == "DOWNLOAD_ALL" ]; then
+                    process_resource "$r_name" "$full_cache" "$r_target" "$r_type"
+                else
+                    process_installed_only "$r_name" "$full_cache" "$r_target" "$r_type"
+                fi
             fi
         done
 
-        LOG "\n$LOG_BUFFER"
-        LOG "Done: $COUNT_NEW New, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
+        if [ "$UPDATE_MODE" == "UPDATE_INSTALLED" ]; then
+            LOG "\n$LOG_BUFFER"
+            LOG "Done (Installed Only): $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
+        else
+            LOG "\n$LOG_BUFFER"
+            LOG "Done: $COUNT_NEW New, $COUNT_UPDATED Updated, $COUNT_SKIPPED Skipped"
+        fi
     }
 
     # === RUN ===
