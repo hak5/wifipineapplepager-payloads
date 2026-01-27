@@ -2,7 +2,7 @@
 # Title: LTE Configure
 # Description: Configure the Hak5 eLiTE Mobile Broadband Adapter
 # Author: Hak5Darren
-# Version: 1
+# Version: 1.1
 
 dependency_check() {
   LOG green "Checking dependencies"
