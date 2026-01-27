@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: Pull PR AIO
+# Title: PullPR_Manager
 # Author: Austin (git@austin.dev), Combined by z3r0l1nk
 # Description: Downloads and overwrites Payloads, Themes, or Ringtones from a specific GitHub Pull Request
 # Version: 1.1
