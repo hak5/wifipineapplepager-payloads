@@ -26,7 +26,7 @@ start_service() {
     
     if command -v ttyd >/dev/null 2>&1; then
         procd_open_instance nautilus_ttyd
-        procd_set_param command /usr/bin/ttyd -i br-lan -p 7681 /bin/login
+        procd_set_param command /usr/bin/ttyd -p 7681 /bin/login
         procd_set_param respawn
         procd_set_param stdout 1
         procd_set_param stderr 1

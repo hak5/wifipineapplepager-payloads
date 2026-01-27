@@ -3,7 +3,7 @@
 **Curly** transforms your WiFi Pineapple Pager into a portable web reconnaissance and vulnerability scanning tool using curl. Perfect for pentesting and bug bounty hunting on the go!
 
 - **Author:** curtthecoder
-- **Version:** 3.0
+- **Version:** 3.6
 
 ---
 
@@ -12,6 +12,12 @@
 Curly performs comprehensive web security testing using only curl:
 
 - **IP Geolocation Lookup** - Resolves target IP and queries ipinfo.io for location, ISP, timezone data
+- **SSL/TLS Security Analysis** 🔒 - Certificate expiration, TLS version detection, weak cipher identification, self-signed cert detection
+- **Severity Scoring System** 📊 - All findings categorized as CRITICAL/HIGH/MEDIUM/LOW/INFO with beautiful summary report
+- **Scan Time Tracking** ⏱️ *(NEW in v3.6)* - Estimated times before scans + actual elapsed time in final summary
+- **Manual Verification Guides** 📖 *(NEW in v3.6)* - Step-by-step instructions on how to verify findings (XSS, SSRF, bypasses)
+- **Content Verification System** 🎯 *(NEW in v3.6)* - Validates actual file content to eliminate false positives on sites with catch-all routing
+- **Parameter Discovery** 🔍 - Tests 30+ common parameters for behavior changes, reflection, and pollution vulnerabilities
 - **WAF/CDN Detection** - Identifies Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - **Technology Fingerprinting** - Detects web servers, CMS (WordPress, Drupal, Joomla), frameworks (React, Vue, Angular)
 - **WordPress Security Tests** - Auto-runs when WordPress detected: user enumeration, xmlrpc, debug logs
@@ -34,11 +40,11 @@ Curly performs comprehensive web security testing using only curl:
 
 ### 6 Scan Modes
 
-1. **Quick Scan** - Fast reconnaissance (IP geo + WAF + tech + info + endpoints + HTML source)
-2. **Full Scan (All Modules)** - Comprehensive security testing (all 15 modules!)
+1. **Quick Scan** - Fast reconnaissance (IP geo + SSL/TLS + WAF + tech + info + endpoints + HTML source)
+2. **Full Scan (All Modules)** - Comprehensive security testing (all 17 modules including SSL/TLS + parameter discovery!)
 3. **API Recon** - Focused API endpoint discovery + subdomain enumeration
-4. **Security Audit** - Deep security testing (IP geo + tech + HTML + methods + headers + cookies + CORS + redirects + cloud metadata)
-5. **Tech Fingerprint** - Identify IP location, WAF, CDN, web server, and technology stack
+4. **Security Audit** - Deep security testing (IP geo + SSL/TLS + tech + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
+5. **Tech Fingerprint** - Identify IP location, SSL/TLS config, WAF, CDN, web server, and technology stack
 6. **Subdomain Enum** - Test 50+ common subdomains for the target
 
 ### Visual & Audio Feedback
@@ -55,16 +61,25 @@ Curly performs comprehensive web security testing using only curl:
 
 - **Vibration:** On scan completion
 
+### Discord Integration
+
+- **Automatic Notifications:** Configure a Discord webhook to receive scan results directly in your Discord channel
+- **Rich Results:** Get formatted messages with target info, scan mode, timestamp, and only imporant results show up on discord, or interesting findings
+- **Optional:** Works seamlessly without webhook - just leave it blank for local-only results
+
 ---
 
 ## Usage
 
 1. Load the **Curly** payload on your WiFi Pineapple Pager
-2. Enter target URL when prompted (e.g., `example.com` - no need for https://)
-3. Select scan mode (1-6) using number picker
-4. Press **A** to start the scan
-5. Watch results in real-time on the Pager display
-6. Results auto-saved to `/root/loot/curly/`
+2. **(Optional)** Configure Discord webhook in `payload.sh`:
+   - Get webhook URL from Discord: Server Settings → Integrations → Webhooks → New Webhook
+   - Edit line 11: `DISCORD_WEBHOOK="https://discord.com/api/webhooks/YOUR_WEBHOOK_HERE"`
+3. Enter target URL when prompted (e.g., `example.com` - no need for https://)
+4. Select scan mode (1-6) using number picker
+5. Press **A** to start the scan
+6. Watch results in real-time on the Pager display
+7. Results auto-saved to `/root/loot/curly/` (and sent to Discord if configured)
 
 ---
 
@@ -73,18 +88,21 @@ Curly performs comprehensive web security testing using only curl:
 ### Security Issues
 
 - ✅ **IP Geolocation** - IP address, hostname, city, region, country, ISP/organization, coordinates, timezone
+- 🔒 **SSL/TLS Security** *(NEW in v3.5)* - Expired/expiring certificates, self-signed certs, weak ciphers (DES, RC4, MD5), outdated TLS versions (1.0/1.1), certificate chain issues
+- 📊 **Severity Scoring** *(NEW in v3.5)* - CRITICAL/HIGH/MEDIUM/LOW/INFO classification for all findings with summary report
+- 🔍 **Parameter Discovery** *(NEW in v3.5)* - Tests debug, auth, data, config parameters (~30 total); detects reflection, behavior changes, parameter pollution
 - ✅ **WAF/CDN Protection** - Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - ✅ **Technology Stack** - Web servers, CMS platforms, frontend frameworks, libraries with versions
-- ✅ **WordPress Vulnerabilities** - User enumeration API, xmlrpc.php, debug logs, wp-admin access
+- ✅ **WordPress Vulnerabilities** - User enumeration API, xmlrpc.php, debug logs, wp-admin access (with content verification to prevent false positives)
 - ✅ **Subdomains** - Tests 50+ common subdomains (api, admin, dev, staging, mail, etc.)
 - ✅ **HTML Source Secrets** - Email addresses, API keys, internal URLs, TODO comments, stack traces
 - ✅ **Missing security headers** - X-Frame-Options, CSP, HSTS, X-Content-Type-Options
 - ✅ **Information disclosure** - Server version, X-Powered-By, tech stack leakage
-- ✅ **Exposed sensitive files** - `.git`, `.env`, `.aws/credentials`, `.svn`, `.hg`
+- ✅ **Exposed sensitive files** - `.git`, `.env`, `.aws/credentials`, `.svn`, `.hg` (with content verification to eliminate false positives)
 - ✅ **Enhanced endpoints** - Spring Boot Actuator, Laravel Telescope, Django debug, Tomcat manager (50+ paths)
-- ✅ **Cloud SSRF** - AWS/GCP/Azure metadata endpoint testing via SSRF
+- ✅ **Cloud SSRF (Smart Detection)** - AWS/GCP/Azure metadata endpoint testing with intelligent false positive reduction
 - ✅ **Backup files** - .bak, .old, .sql, .zip, .tar.gz with 80+ combinations tested
-- ✅ **API documentation** - `/swagger.json`, `/openapi.json`, GraphQL endpoints
+- ✅ **API documentation** - `/swagger.json`, `/openapi.json`, GraphQL endpoints (validates JSON format to prevent false positives)
 - ✅ **Dangerous HTTP methods** - PUT, DELETE, TRACE, PATCH (smart detection, filters rate limiting)
 - ✅ **Cookie security** - Missing HttpOnly, Secure, SameSite flags
 - ✅ **CORS misconfigurations** - Wildcard and reflected origins
@@ -96,9 +114,9 @@ Curly performs comprehensive web security testing using only curl:
 
 **Common Files:**
 ```
-/robots.txt, /sitemap.xml, /.git/config, /.git/HEAD, /.git/index
-/.svn/entries, /.hg/, /.env, /.aws/credentials, /phpinfo.php
-/.well-known/security.txt
+/robots.txt, /sitemap.xml, /sitemap_index.xml, /.git/config, /.git/HEAD
+/.git/index, /.svn/entries, /.hg/, /.env, /.aws/credentials
+/phpinfo.php, /.well-known/security.txt
 ```
 
 **Admin & Auth:**
@@ -153,10 +171,13 @@ All results are saved to timestamped files in `/root/loot/curly/`:
 
 Each loot file contains:
 - Full scan report with timestamps
-- Discovered vulnerabilities
+- Discovered vulnerabilities with severity markers ([!!!] CRITICAL, [!!] HIGH, [!] MEDIUM, [-] LOW, [*] INFO)
+- Beautiful severity summary box at the end
 - HTTP status codes
 - Found endpoints
 - Security header analysis
+- SSL/TLS certificate analysis
+- Parameter discovery results
 
 ---
 
@@ -211,6 +232,12 @@ This tool is perfect for initial reconnaissance:
    [*] Target IP: 104.26.*.*
    [*] Organization: AS13335 Cloudflare, Inc.
 
+   [+] SSL/TLS SECURITY ANALYSIS
+   [*] Certificate expires: Jul 15 23:59:59 2026 GMT
+   [*] SSL Certificate valid for 201 days
+   [*] TLS Version: TLSv1.3
+   [*] Certificate chain valid
+
    [*] WAF: Cloudflare detected
    [*] Web Server: nginx/1.18.0
    [*] CMS: WordPress detected
@@ -219,8 +246,38 @@ This tool is perfect for initial reconnaissance:
    [!] Missing: CSP
    [!] FOUND [200]: /api/v1
    [!] FOUND [200]: /swagger.json
+   [!] FOUND [200]: /sitemap_index.xml
+
+   ╔════════════════════════════════════╗
+   ║    SEVERITY SUMMARY               ║
+   ╠════════════════════════════════════╣
+   ║  🔴 CRITICAL: 0
+   ║  🟠 HIGH:     0
+   ║  🟡 MEDIUM:   2
+   ║  🟢 LOW:      0
+   ║  ℹ️  INFO:     8
+   ╠════════════════════════════════════╣
+   ║  TOTAL FINDINGS: 10
+   ║  ⏱️  ELAPSED TIME: 1m 23s
+   ╚════════════════════════════════════╝
+
 4. Loot saved to: /root/loot/curly/api.example.com_20260107_143022.txt
-5. Next steps: Behind Cloudflare, WordPress + React stack, review swagger.json
+5. Discord notification sent! 📱 (if webhook configured)
+6. Next steps: Behind Cloudflare, WordPress + React stack, review swagger.json
+   - Fix 2 MEDIUM issues (missing security headers)
+   - Review API documentation at /swagger.json
+```
+
+### Discord Notification Example
+
+When configured, you'll receive a Discord message like:
+```
+🎯 Curly Scan Complete
+Target: `api.example.com`
+Scan Mode: 1
+Timestamp: Mon Jan 12 15:30:22 EST 2026
+
+📎 Attachment: api.example.com_20260112_153022.txt
 ```
 
 ---
@@ -233,6 +290,133 @@ This tool is perfect for initial reconnaissance:
 - Results are indicators - manual verification recommended
 - Combine with other Pineapple payloads for complete assessment
 
+---
+
+## What's New in v3.6
+
+### Major Update - Comprehensive Security Scanner (v3.6):
+
+**⏱️ Scan Time Tracking**
+- **Estimated Time Display** - Shows expected scan duration before each mode starts
+  - Quick Scan: ~30-45 seconds
+  - Full Scan: ~2-25 minutes
+  - API Recon: ~45-60 seconds
+  - Security Audit: ~90-120 seconds
+  - Tech Fingerprint: ~20-30 seconds
+  - Subdomain Enum: ~30-45 seconds
+- **Actual Elapsed Time** - Displays real scan duration in severity summary box
+  - Formatted as "Xm Ys" for scans over 1 minute, or just "Ys" for shorter scans
+  - Helps benchmark performance and plan scanning sessions
+  - Useful for tracking efficiency on different targets
+
+**📖 Manual Verification Guides**
+- **Parameter Discovery Guide** - Step-by-step instructions when reflected parameters are found
+  - Browser testing workflow for XSS verification
+  - curl command examples for quick testing
+  - Edge case testing suggestions (page=999999 to trigger errors)
+  - Eliminates guesswork on how to verify findings and shit like that
+- **X-Original-URL Bypass Guide** - Shows exact commands to verify ACL bypasses
+  - Pre-filled curl examples with target URL
+  - Multiple test paths (/admin, /console)
+  - Clear success criteria explanation
+- **SSRF Verification Guide** - Comprehensive SSRF testing instructions
+  - Burp Collaborator / webhook.site integration steps
+  - Internal network access testing examples
+  - AWS/GCP/Azure metadata exploitation commands
+  - Only displays when SSRF findings are detected
+
+**🔒 SSL/TLS Security Analysis**
+- **Certificate Expiration Monitoring** - Alerts on expired certs (CRITICAL) or certs expiring within 30 days (HIGH)
+- **TLS Version Detection** - Identifies outdated/insecure TLS versions (TLS 1.0/1.1 = HIGH, SSLv2/v3 = CRITICAL)
+- **Weak Cipher Detection** - Flags dangerous ciphers (NULL, EXPORT, DES, RC4, MD5, anon) as CRITICAL
+- **Self-Signed Certificate Detection** - Identifies self-signed certs (HIGH severity)
+- **Certificate Chain Validation** - Checks for chain issues (MEDIUM severity)
+- **Portable Date Parsing** - Works on both Linux and OpenWrt systems
+- **Smart Skip for HTTP** - Gracefully skips SSL checks for HTTP-only sites
+
+**📊 Severity Scoring System**
+- **Five-Tier Classification:**
+  - 🔴 **CRITICAL** `[!!!]` - Immediate threats: exposed configs, SSRF, expired SSL, API keys in source, backup files, debug logs
+  - 🟠 **HIGH** `[!!]` - Serious issues: open redirects, CORS wildcards, X-Powered-By disclosure, parameter reflection, TLS 1.0/1.1
+  - 🟡 **MEDIUM** `[!]` - Security improvements needed: missing headers, cookie flags, WordPress enumeration, certificate chain issues
+  - 🟢 **LOW** `[-]` - Minor issues: missing SameSite, xmlrpc.php accessible, developer comments
+  - ℹ️ **INFO** `[*]` - Informational: server types, technologies detected, email addresses, valid SSL certs
+- **Summary Report** - Color-coded box at scan end showing counts by severity
+- **Risk Prioritization** - Instantly see which findings need immediate attention
+- **Comprehensive Coverage** - ALL 17 modules now use severity scoring
+
+**🔍 Parameter Discovery**
+- **Balanced Testing** - Tests ~30 common parameters (debug, test, dev, admin, user, id, key, config, etc.)
+- **Multiple Detection Methods:**
+  - Status code changes (e.g., 200 → 500) = MEDIUM severity
+  - Response size differences (>100 bytes) = LOW severity
+  - Parameter reflection in response = LOW severity (needs manual verification)
+- **Parameter Pollution Testing** - Detects HTTP Parameter Pollution (HPP) vulnerabilities
+- **Smart Baseline Comparison** - Compares against normal page response to reduce false positives
+- **Ignores Rate Limiting** - Skips HTTP 429 responses to eliminate noise
+- **Summary Report** - Lists all interesting parameters discovered at end of scan
+
+**🎯 Intelligent SSRF Detection**
+- **Baseline Comparison** - Compares test responses against normal homepage
+- **Content Analysis** - Scans for actual AWS/GCP/Azure metadata keywords
+- **Response Size Checking** - Flags significant size differences (>1000 bytes)
+- **Three-Tier Confidence Levels:**
+  - `[!!!]` = High confidence (actual metadata content found) - **REPORT THIS!**
+  - `[?]` = Requires manual verification (suspicious but needs confirmation)
+  - `[*]` = Likely false positive (normal page response)
+- Dramatically reduced false positives for cloud metadata testing
+
+**🔍 Enhanced Detection Accuracy**
+- **Cloudflare Detection** - More reliable WAF/CDN identification
+  - DNS Nameserver Checking as fallback when HTTP headers don't reveal Cloudflare
+  - Detects Cloudflare even when proxy/CDN headers are stripped or hidden
+  - Queries for `*.ns.cloudflare.com` nameservers to confirm Cloudflare usage
+  - Eliminates false negatives where Cloudflare was present but not detected
+- **WordPress Detection** - Fixed false positives with smarter CMS detection
+  - Technical Indicator Matching: Only detects when actual WordPress files/paths are present
+  - Looks for generator meta tags, `/wp-content/themes/`, `/wp-content/plugins/`, `/wp-includes/`
+  - No longer triggers on pages that merely mention "WordPress" in content
+  - Still validates with endpoint checks (wp-json, wp-login.php) for confirmation
+
+**📱 Discord Webhook Integration**
+- **Automatic Notifications** - Send scan results to your Discord channel
+  - Configure once, get instant notifications on every scan
+  - Includes formatted message with target, scan mode, and timestamp
+  - Results sent as downloadable text file attachment
+  - Completely optional - works great without it too!
+
+**🗺️ Enhanced Coverage**
+- **Sitemap Discovery** - Added `/sitemap_index.xml` to endpoint testing
+  - Many sites use sitemap index files that point to multiple sitemaps
+  - Better coverage for large sites with multiple sitemap files
+
+**🎯 Content Verification System**
+- **WordPress Detection** - Dramatically improved accuracy with content verification
+  - Checks actual WordPress content (wp-json API namespace, login form elements)
+  - No longer triggers on sites that return HTTP 200 for everything (e.g., Facebook, large CDNs)
+  - Verifies `/wp-json/` contains valid WordPress REST API JSON
+  - Confirms `/wp-login.php` has real WordPress login form elements
+  - Eliminates false positives from sites that merely mention "WordPress" in content
+- **Critical File Detection** - Validates actual file content, not just HTTP status codes
+  - **/.env files** - Verifies KEY=value format, not HTML redirects
+  - **/phpinfo.php** - Confirms presence of "PHP Version" or phpinfo() output
+  - **/.git, /.aws files** - Ensures content isn't HTML (actual git/aws files)
+  - **/swagger.json, /openapi.json** - Validates JSON contains "swagger" or "openapi" keys
+  - Prevents CRITICAL false alarms on sites with catch-all routing (SPAs, frameworks)
+- **Intelligent HTTP 200 Handling**
+  - Many modern sites (Facebook, Google, SPAs) return 200 for all paths
+  - Scanner now verifies response content matches expected file type
+  - Only reports findings when content is verified as legitimate
+  - Saves time and eliminates noise in scan results
+
+**🔧 Bug Fixes & UX Improvements**
+- **Reduced False Positives** - Parameter Discovery ignores HTTP 429 rate limiting responses
+- **Lower Severity for Reflected Params** - Changed from HIGH to LOW (needs manual verification)
+- **Removed Excessive Beeping** - No more beeping on each reflected parameter (too noisy)
+- **Cleaner Output** - More actionable results with accurate severity ratings
+- **Educational Tool** - Verification guides teach you how to exploit findings
+- **Performance Optimization** - Only fetches content when status is 200 (reduces unnecessary requests)
+- **Other Bug Fixes..**
 ---
 
 ## What's New in v3.0
@@ -274,13 +458,25 @@ Potential additions:
 - Proxy support for Burp Suite integration
 - Subdomain takeover detection
 - DNS zone transfer testing
-- SSL/TLS certificate analysis
+- Response time analysis for timing attacks
+- JSON/XML parsing and validation
+- Custom wordlist support for parameter fuzzing
 
 ---
 
 ## Disclaimer
 
 This tool is for **authorized security testing only**. Unauthorized access to computer systems is illegal. Always ensure you have explicit permission before testing any target. I am not responsible for misuse of this tool.
+
+---
+
+## Support the Project
+
+If you find **Curly** useful and want to support continued development, consider buying me a coffee! ☕
+
+<a href="https://buymeacoffee.com/curtthecoder" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+Your support helps keep this project active and enables new features!
 
 ---
 

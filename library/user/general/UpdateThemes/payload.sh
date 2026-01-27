@@ -2,7 +2,7 @@
 # Title: Update Themes
 # Description: Downloads and syncs all themes from github.
 # Author: cococode
-# Version: 2.0
+# Version: 2.0.1
 
 # === CONFIGURATION ===
 GH_ORG="hak5"
@@ -35,7 +35,7 @@ setup() {
     if [ "$(opkg status git-http)" == "" ]; then
         LOG "One-time setup: installing dependencies (git, git-http)...this will take several minutes!"
         opkg update
-        opkg install git git-http
+        opkg install git git-http diffutils
     fi
 }
 

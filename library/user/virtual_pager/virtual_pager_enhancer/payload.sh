@@ -1,22 +1,25 @@
 #!/bin/bash
 # Title: Virtual Pager Enhancer
 # Author: Rektile404
-# Description: Tool used to add functionality to the virtual pager to extract specific loot
-# Version: 2.0
+# Description: Tool used to add functionality to the virtual pager
+# Version: 2.3.2
 
-CONFIG_PATH="/tmp/virtual_pager_enhancer"
+CONFIG_PATH="./config"
 CONFIG_FILE="config.json"
 PAYLOAD="./payload.js"
 API_FILE="./api.sh"
+IMAGE_OVERWRITE_DIR="./img_overwrite"
 
 VIRTUAL_PAGER_DIR="/pineapple/ui"
 BACKUP_VIRTUAL_PAGER_DIR="/rom/pineapple/ui"
+IMG_DIR="images"
 INDEX_FILE="index.html"
+
 
 VIRTUAL_PAGER_ENHANCER_TAG="<!-- Virtual Pager Enhancer BEGIN -->"
 VIRTUAL_PAGER_ENHANCER_END="<!-- Virtual Pager Enhancer END -->"
 
-CURRENT_VERSION="2.0"
+CURRENT_VERSION="2.3.2"
 SERVER_PORT=4040
 SERVICE_FILE="/etc/init.d/virtual_pager_enhancer_server"
 
@@ -39,7 +42,8 @@ update() {
         /etc/init.d/$(basename "$SERVICE_FILE") stop
         /etc/init.d/$(basename "$SERVICE_FILE") disable
     fi
-
+    
+    cp -rf "$BACKUP_VIRTUAL_PAGER_DIR/$IMG_DIR/." "$VIRTUAL_PAGER_DIR/$IMG_DIR/" 2>/dev/null
     cp -f "$BACKUP_VIRTUAL_PAGER_DIR/$INDEX_FILE" "$VIRTUAL_PAGER_DIR/$INDEX_FILE" 2>/dev/null
     echo "{\"version\":\"$CURRENT_VERSION\"}" > "$CONFIG_PATH/$CONFIG_FILE"
 }
@@ -71,6 +75,10 @@ inject_payload() {
 
     LOG "Injecting payload..."
 
+    cp -rf "$IMAGE_OVERWRITE_DIR/." "$VIRTUAL_PAGER_DIR/$IMG_DIR/" 2>/dev/null
+
+    sed -i "s|^PAYLOAD_WORKING_DIR=.*|PAYLOAD_WORKING_DIR=\"$SCRIPT_ABS_PATH\"|" "$API_FILE"
+
     local tmp
     tmp=$(mktemp)
 
@@ -87,28 +95,20 @@ inject_payload() {
 
     mv "$tmp" "$VIRTUAL_PAGER_DIR/$INDEX_FILE"
 
-    # Copy API to cgi-bin inside www
-    cp -f "$API_FILE" "$CGI_ABS_PATH/"
-    chmod +x "$CGI_ABS_PATH/$(basename "$API_FILE")"
-
-    # Create service
     cat > "$SERVICE_FILE" << EOF
 #!/bin/sh /etc/rc.common
 START=99
 STOP=10
 
-CONFIG_FILE="$CONFIG_PATH/$CONFIG_FILE"
-
 start() {
-    uhttpd -f -p $SERVER_PORT -h "$WWW_ABS_PATH" -c "$CGI_ABS_PATH" -T 60 &
-    PID=\$!
-    jq ".pid=\$PID" "\$CONFIG_FILE" > "\$CONFIG_FILE.tmp" && mv "\$CONFIG_FILE.tmp" "\$CONFIG_FILE"
+    cp -f "$SCRIPT_ABS_PATH/api.sh" "$CGI_ABS_PATH/api.sh"
+    chmod 755 "$CGI_ABS_PATH/api.sh"
+    uhttpd -f -p $SERVER_PORT -h "$WWW_ABS_PATH" -c "$CGI_ABS_PATH" -x /cgi-bin -T 60 &
 }
 
 stop() {
-    PID=\$(jq -r '.pid // empty' "\$CONFIG_FILE")
-    [ -n "\$PID" ] && kill "\$PID" 2>/dev/null
-    jq 'del(.pid)' "\$CONFIG_FILE" > "\$CONFIG_FILE.tmp" && mv "\$CONFIG_FILE.tmp" "\$CONFIG_FILE"
+    PID=\$(ps | grep "uhttpd" | grep "\-p $SERVER_PORT" | grep -v grep | awk '{print \$1}')
+    [ -n "\$PID" ] && kill -9 \$PID
 }
 EOF
 
@@ -121,6 +121,8 @@ EOF
 
 remove_payload() {
     LOG "Removing payload..."
+
+    cp -rf "$BACKUP_VIRTUAL_PAGER_DIR/$IMG_DIR/." "$VIRTUAL_PAGER_DIR/$IMG_DIR/" 2>/dev/null
 
     local tmp
     tmp=$(mktemp)
@@ -172,6 +174,14 @@ LOG "=========================="
 
 install_dependencies
 check_or_create_config
+
+LOG "=========================="
+
+LOG "This script acts as a toggle to enable or disable Virtual Pager Enhancer."
+LOG "The changes that are made are persistant, even after reboot."
+LOG "Once you have enabled or disabled, feel free to stop the payload and HARD refresh your browser."
+
+
 
 while true; do
     handle_menu

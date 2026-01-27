@@ -8,7 +8,7 @@
 
 <p align="center">
 <img src="https://img.shields.io/badge/Platform-WiFi%20Pineapple%20Pager-00d4aa?style=flat-square" />
-<img src="https://img.shields.io/badge/Version-1.5.1-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.5.6-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Author-JustSomeTrout-purple?style=flat-square" />
 </p>
 <p align="center">
@@ -18,7 +18,7 @@
 ```
     Title: Nautilus
     Author: JustSomeTrout (Trout / troot.)
-    Developed for Firmware version 1.0.4
+    Developed for Firmware version 1.0.6
     Category: Remote Access / Utility
     Web-based payload launcher with GitHub integration.
     Control your Pager from any device on the network.
@@ -50,7 +50,7 @@ No more fumbling with D-pad navigation or manual file transfers. Just point, cli
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
 </p>
 
-## New in 1.5.0
+## New in 1.5.x
 
 | Feature | Description |
 |---------|-------------|
@@ -59,6 +59,11 @@ No more fumbling with D-pad navigation or manual file transfers. Just point, cli
 | **Service Management** | Re-run payload to stop the service when running in background mode |
 | **Virtual Button Panel** | Web-based D-pad and A/B buttons for payloads using `WAIT_FOR_INPUT` or `WAIT_FOR_BUTTON_PRESS` |
 | **Smart Button Filtering** | Only allowed buttons are clickable - others are dimmed and disabled |
+| **Shell on Any Interface** | ttyd shell now accessible from any network interface, not just br-lan |
+| **Syntax Highlighting Fix** | Fixed View Source display for comments containing quotes |
+| **Settings Panel** | Configure Nautilus preferences via the web UI settings button |
+| **Auto Run Mode** | Skip the background/foreground prompt and auto-start with your preferred mode |
+| **Favourites** | Star your most-used payloads from Local or Merged tabs for quick access |
 
 <p align="center">
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
@@ -100,6 +105,18 @@ Nautilus now has three payload sources accessible via tabs:
 - **Automatic Cleanup**: Downloaded payloads are removed after execution
 - **Cached for Speed**: GitHub payload list is cached locally for fast browsing
 - **Install to Local**: Save GitHub payloads permanently to your Pager with one click
+
+### ⭐ Favourites
+
+Star your most-used payloads for quick access:
+
+- **Favourites Tab**: Dedicated tab above Local/Merged/PRs for your starred payloads
+- **Star from Anywhere**: Click the star icon when viewing any Local or Merged payload
+- **Source Tracking**: Each favourite shows whether it came from Local or Merged
+- **Dual Favouriting**: The same payload can be favourited from both Local and Merged separately
+- **Quick Unfavourite**: Click the star in the favourites list to remove instantly
+- **Persistent Storage**: Favourites are saved to config and persist across sessions
+- **Stale Detection**: If a favourited payload is removed, you'll see a "Not Found" message with option to remove it
 
 ### 📶 WiFi Client Mode
 

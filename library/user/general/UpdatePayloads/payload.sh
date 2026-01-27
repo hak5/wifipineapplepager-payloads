@@ -2,7 +2,7 @@
 # Title: Update Payloads
 # Description: Downloads and syncs all payloads from github.
 # Author: cococode
-# Version: 1.4
+# Version: 1.4.1
 
 # === CONFIGURATION ===
 GH_ORG="hak5"
@@ -37,7 +37,7 @@ setup() {
     if ! which unzip > /dev/null; then
         LOG "Installing unzip..."
         opkg update
-        opkg install unzip
+        opkg install unzip diffutils
     fi
 }
 
