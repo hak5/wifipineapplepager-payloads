@@ -1,6 +1,6 @@
 # GARMR - KARMA + Evil Portal Combined
 
-**Version 4.7.0** | *Named after the blood-stained hound that guards the gates of HALE*
+**Version 4.7.2** | *Named after the blood-stained hound that guards the gates of HALE*
 
 ```
                               .......::.:....
@@ -514,6 +514,11 @@ Format:
 ---
 
 ## Version History
+
+- **4.7.2** (2026-01-29) - Clear whitelist option
+  - Added "Clear authorized clients?" prompt when stopping GARMR
+  - Allows testers to capture the same device again without factory reset
+  - Clears Evil Portal whitelist files and nft rules
 
 - **4.7.0** (2026-01-28) - Branded portals + local storage
   - Added 6 branded WiFi portals (Starbucks, McDonald's, Airport, Hotel, Xfinity, AT&T)
