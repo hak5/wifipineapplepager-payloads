@@ -2,7 +2,7 @@
 # Title: SKOLL - Karma/Evil Twin Orchestrator
 # Description: Automated SSID pool management and karma attack configuration
 # Author: HaleHound
-# Version: 1.1.0
+# Version: 1.2.0
 # Category: user/attack
 #
 # Named after the wolf who chases the sun - SKOLL lures victims
@@ -97,7 +97,9 @@ set_broadcast_ssid() {
 
     LOG "Setting SSID to: $ssid"
 
-    # Update UCI config
+    # Update UCI config - ENABLE interface, set OPEN (no password), set SSID
+    uci set wireless.wlan0open.disabled='0'
+    uci set wireless.wlan0open.encryption='none'
     uci set wireless.wlan0open.ssid="$ssid"
     uci commit wireless
 
