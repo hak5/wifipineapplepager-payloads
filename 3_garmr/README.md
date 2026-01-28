@@ -41,6 +41,8 @@
 
 ## Overview
 
+# 🌶️🔥 CAUTION SPICY 🔥🌶️
+
 GARMR combines **SKOLL's KARMA luring** with **LOKI's credential harvesting** into a single, streamlined payload. It broadcasts enticing SSIDs, responds to probe requests, and serves convincing phishing portals to capture credentials - all with real-time push notifications to your phone.
 
 **Key Features:**
