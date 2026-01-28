@@ -2,7 +2,7 @@
 # Name: Install Evil Portal
 # Description: Complete Evil Portal installation for WiFi Pineapple Pager (OpenWrt 24.10.1)
 # Author: PentestPlaybook
-# Version: 1.9
+# Version: 2.0
 # Category: Evil Portal
 
 # ====================================================================
@@ -43,9 +43,21 @@ if [ "$DIALOG_RESULT" = "1" ]; then
     uci del_list network.brlan.ports='wlan0wpa'
     uci commit network
     
-    # Add evil network to LAN firewall zone for internet access
+    # Add evil network to firewall with separate zone
     LOG "Adding evil network to firewall..."
-    uci add_list firewall.@zone[0].network='evil'
+    # Create separate zone for evil network
+    uci add firewall zone
+    uci set firewall.@zone[-1].name='evil'
+    uci set firewall.@zone[-1].network='evil'
+    uci set firewall.@zone[-1].input='ACCEPT'
+    uci set firewall.@zone[-1].output='ACCEPT'
+    uci set firewall.@zone[-1].forward='REJECT'
+    
+    # Allow evil zone to forward to wan for internet access
+    uci add firewall forwarding
+    uci set firewall.@forwarding[-1].src='evil'
+    uci set firewall.@forwarding[-1].dest='wan'
+    
     uci commit firewall
     
     LOG "SUCCESS: Isolated subnet configured"
@@ -552,6 +564,14 @@ LOG "SUCCESS: Permissions configured"
 # STEP 6: Create Init Script and Whitelist Daemon
 # ====================================================================
 LOG "Step 6: Creating Evil Portal init script..."
+
+# Determine source zone for firewall rules based on isolated subnet choice
+if [ "$BRIDGE_IF" = "br-evil" ]; then
+    FIREWALL_SRC="evil"
+else
+    FIREWALL_SRC="lan"
+fi
+
 cat > /etc/init.d/evilportal << INITEOF
 #!/bin/sh /etc/rc.common
 
@@ -666,10 +686,9 @@ restart() {
 
 enable() {
     # Add PERSISTENT firewall NAT rules via UCI
-    # Using 'lan' as the source zone (which includes 'evil' network)
     uci add firewall redirect
     uci set firewall.@redirect[-1].name='Evil Portal HTTPS'
-    uci set firewall.@redirect[-1].src='lan'
+    uci set firewall.@redirect[-1].src='${FIREWALL_SRC}'
     uci set firewall.@redirect[-1].proto='tcp'
     uci set firewall.@redirect[-1].src_dport='443'
     uci set firewall.@redirect[-1].dest_ip='${PORTAL_IP}'
@@ -678,7 +697,7 @@ enable() {
 
     uci add firewall redirect
     uci set firewall.@redirect[-1].name='Evil Portal HTTP'
-    uci set firewall.@redirect[-1].src='lan'
+    uci set firewall.@redirect[-1].src='${FIREWALL_SRC}'
     uci set firewall.@redirect[-1].proto='tcp'
     uci set firewall.@redirect[-1].src_dport='80'
     uci set firewall.@redirect[-1].dest_ip='${PORTAL_IP}'
@@ -687,7 +706,7 @@ enable() {
 
     uci add firewall redirect
     uci set firewall.@redirect[-1].name='Evil Portal DNS TCP'
-    uci set firewall.@redirect[-1].src='lan'
+    uci set firewall.@redirect[-1].src='${FIREWALL_SRC}'
     uci set firewall.@redirect[-1].proto='tcp'
     uci set firewall.@redirect[-1].src_dport='53'
     uci set firewall.@redirect[-1].dest_ip='${PORTAL_IP}'
@@ -696,7 +715,7 @@ enable() {
 
     uci add firewall redirect
     uci set firewall.@redirect[-1].name='Evil Portal DNS UDP'
-    uci set firewall.@redirect[-1].src='lan'
+    uci set firewall.@redirect[-1].src='${FIREWALL_SRC}'
     uci set firewall.@redirect[-1].proto='udp'
     uci set firewall.@redirect[-1].src_dport='53'
     uci set firewall.@redirect[-1].dest_ip='${PORTAL_IP}'
@@ -771,9 +790,16 @@ LOG "SUCCESS: Init script and daemon created"
 # ====================================================================
 LOG "Step 7: Configuring firewall NAT rules..."
 
+# Determine source zone based on isolated subnet choice
+if [ "$BRIDGE_IF" = "br-evil" ]; then
+    FIREWALL_SRC="evil"
+else
+    FIREWALL_SRC="lan"
+fi
+
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='Evil Portal HTTPS'
-uci set firewall.@redirect[-1].src='lan'
+uci set firewall.@redirect[-1].src="${FIREWALL_SRC}"
 uci set firewall.@redirect[-1].proto='tcp'
 uci set firewall.@redirect[-1].src_dport='443'
 uci set firewall.@redirect[-1].dest_ip="${PORTAL_IP}"
@@ -782,7 +808,7 @@ uci set firewall.@redirect[-1].target='DNAT'
 
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='Evil Portal HTTP'
-uci set firewall.@redirect[-1].src='lan'
+uci set firewall.@redirect[-1].src="${FIREWALL_SRC}"
 uci set firewall.@redirect[-1].proto='tcp'
 uci set firewall.@redirect[-1].src_dport='80'
 uci set firewall.@redirect[-1].dest_ip="${PORTAL_IP}"
@@ -791,7 +817,7 @@ uci set firewall.@redirect[-1].target='DNAT'
 
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='Evil Portal DNS TCP'
-uci set firewall.@redirect[-1].src='lan'
+uci set firewall.@redirect[-1].src="${FIREWALL_SRC}"
 uci set firewall.@redirect[-1].proto='tcp'
 uci set firewall.@redirect[-1].src_dport='53'
 uci set firewall.@redirect[-1].dest_ip="${PORTAL_IP}"
@@ -800,7 +826,7 @@ uci set firewall.@redirect[-1].target='DNAT'
 
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='Evil Portal DNS UDP'
-uci set firewall.@redirect[-1].src='lan'
+uci set firewall.@redirect[-1].src="${FIREWALL_SRC}"
 uci set firewall.@redirect[-1].proto='udp'
 uci set firewall.@redirect[-1].src_dport='53'
 uci set firewall.@redirect[-1].dest_ip="${PORTAL_IP}"
