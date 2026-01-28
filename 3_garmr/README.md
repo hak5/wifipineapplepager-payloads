@@ -24,18 +24,18 @@
                           ....... ....:......
                           ....     .  ....
 
-  ▄████     ▄▄▄       ██▀███   ███▄ ▄███▓ ██▀███
- ██▒ ▀█▒   ▒████▄    ▓██ ▒ ██▒▓██▒▀█▀ ██▒▓██ ▒ ██▒
-▒██░▄▄▄░   ▒██  ▀█▄  ▓██ ░▄█ ▒▓██    ▓██░▓██ ░▄█ ▒
-░▓█  ██▓   ░██▄▄▄▄██ ▒██▀▀█▄  ▒██    ▒██ ▒██▀▀█▄
-░▒▓███▀▒    ▓█   ▓██▒░██▓ ▒██▒▒██▒   ░██▒░██▓ ▒██▒
- ░▒   ▒     ▒▒   ▓▒█░░ ▒▓ ░▒▓░░ ▒░   ░  ░░ ▒▓ ░▒▓░
-  ░   ░      ▒   ▒▒ ░  ░▒ ░ ▒░░  ░      ░  ░▒ ░ ▒░
-░ ░   ░      ░   ▒     ░░   ░ ░      ░     ░░   ░
-      ░          ░  ░   ░            ░      ░
+              ▄████     ▄▄▄       ██▀███   ███▄ ▄███▓ ██▀███
+            ██▒ ▀█▒   ▒████▄    ▓██ ▒ ██▒ ▓██▒▀█▀ ██▒▓██ ▒ ██▒
+            ▒██░▄▄▄░   ▒██  ▀█▄  ▓██ ░▄█ ▒▓██    ▓██░▓██ ░▄█ ▒
+            ░▓█  ██▓   ░██▄▄▄▄██ ▒██▀▀█▄  ▒██    ▒██ ▒██▀▀█▄
+            ░▒▓███▀▒    ▓█   ▓██▒░██▓ ▒██▒▒██▒   ░██▒░██▓ ▒██▒
+            ░▒   ▒     ▒▒   ▓▒█░░ ▒▓ ░▒▓░░ ▒░   ░  ░░ ▒▓ ░▒▓░
+              ░   ░      ▒   ▒▒ ░  ░▒ ░ ▒░░  ░      ░  ░▒ ░ ▒░
+            ░ ░   ░      ░   ▒     ░░   ░ ░      ░     ░░   ░
+                  ░          ░  ░   ░            ░      ░
 
-                  GUARDS THE GATES
-```
+                              GUARDS THE GATES
+            ```
 
 ---
 
@@ -220,14 +220,14 @@ GARMR combines **SKOLL's KARMA luring** with **LOKI's credential harvesting** in
     │   │  [EMAIL CAPTURED]                                        │  │
     │   │  ┌────────────────────────────────┐                      │  │
     │   │  │ GARMR: Email Captured          │  Priority: Default   │  │
-    │   │  │ Target: victim@company.com     │  Tags: envelope      │  │
+    │   │  │ Target: target@company.com     │  Tags: envelope      │  │
     │   │  │ IP: 172.16.52.100              │                      │  │
     │   │  └────────────────────────────────┘                      │  │
     │   │                                                          │  │
     │   │  [PASSWORD CAPTURED]                                     │  │
     │   │  ┌────────────────────────────────┐                      │  │
     │   │  │ GARMR: CREDS CAPTURED!         │  Priority: URGENT    │  │
-    │   │  │ Email: victim@company.com      │  Tags: key, alert    │  │
+    │   │  │ Email: target@company.com      │  Tags: key, alert    │  │
     │   │  │ Password: Summer2026!          │                      │  │
     │   │  │ === TAP TO LOGIN ===           │  Click: login URL    │  │
     │   │  └────────────────────────────────┘                      │  │
@@ -236,7 +236,7 @@ GARMR combines **SKOLL's KARMA luring** with **LOKI's credential harvesting** in
     │   │  ┌────────────────────────────────┐                      │  │
     │   │  │ GARMR: MFA CODE!               │  Priority: URGENT    │  │
     │   │  │ Code: 847291                   │  Tags: stopwatch     │  │
-    │   │  │ Email: victim@company.com      │                      │  │
+    │   │  │ Email: target@company.com      │                      │  │
     │   │  │ === 30 SECONDS! ===            │  Time-critical!      │  │
     │   │  └────────────────────────────────┘                      │  │
     │   │                                                          │  │
@@ -441,9 +441,9 @@ No additional packages required.
 └── credentials.txt    # All captured credentials with timestamps
 
 Format:
-[2026-01-28 14:32:15] EMAIL: victim@company.com (IP: 172.16.52.100)
-[2026-01-28 14:32:28] PASSWORD: Summer2026! (Email: victim@company.com)
-[2026-01-28 14:32:45] MFA_CODE: 847291 (Email: victim@company.com)
+[2026-01-28 14:32:15] EMAIL: target@company.com (IP: 172.16.52.100)
+[2026-01-28 14:32:28] PASSWORD: Summer2026! (Email: target@company.com)
+[2026-01-28 14:32:45] MFA_CODE: 847291 (Email: target@company.com)
 [2026-01-28 14:32:45] === COMPLETE CAPTURE ===
 ```
 
