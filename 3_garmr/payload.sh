@@ -5,7 +5,7 @@
 # Version: 4.7.0
 # Category: user/attack
 #
-# Named after the blood-stained hound that guards the gates of Hel
+# Named after the blood-stained hound that guards the gates of HALE
 #
 # This payload COMBINES working code from:
 # - SKOLL v1.2.0 (karma/SSID functions)
@@ -1145,7 +1145,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "  SKOLL + LOKI  v4.4.1"
+LOG "       GARMR v4.7.0"
 LOG ""
 
 led_setup
