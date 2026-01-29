@@ -1,0 +1,10 @@
+# Level 3 - Diamond with Silver
+# Power-ups hidden in center
+0 0 0 0 0 0 y y 0 0 0 0 0 0
+0 0 0 0 0 y y y y 0 0 0 0 0
+0 0 0 0 y y SL SL y y 0 0 0 0
+0 0 0 y y S S S S y y 0 0 0
+0 0 y y S S SR SR S S y y 0 0
+0 0 0 y y S S S S y y 0 0 0
+0 0 0 0 y y SL SL y y 0 0 0 0
+0 0 0 0 0 y y y y 0 0 0 0 0
