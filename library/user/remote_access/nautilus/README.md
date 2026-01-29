@@ -8,7 +8,7 @@
 
 <p align="center">
 <img src="https://img.shields.io/badge/Platform-WiFi%20Pineapple%20Pager-00d4aa?style=flat-square" />
-<img src="https://img.shields.io/badge/Version-1.5.6-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.6.1-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Author-JustSomeTrout-purple?style=flat-square" />
 </p>
 <p align="center">
@@ -45,6 +45,20 @@
 > *Why install payloads when you can just run them?*
 
 No more fumbling with D-pad navigation or manual file transfers. Just point, click, and watch the magic happen in real-time.
+
+<p align="center">
+<img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
+</p>
+
+## New in 1.6.x
+
+| Feature | Description |
+|---------|-------------|
+| **Resource Type Selector** | Switch between Payloads, Alerts, and Recon from a new top-level navigation bar |
+| **Multi-Resource Support** | Browse and run payloads from `/root/payloads/user/`, `/root/payloads/alerts/`, and `/root/payloads/recon/` |
+| **Resizable Panels** | Drag-to-resize handles between sidebar, detail panel, console, and shell |
+| **Persistent Layout** | Panel sizes saved to localStorage and restored on reload |
+| **Dynamic GitHub Paths** | Merged tab fetches from corresponding GitHub paths for each resource type |
 
 <p align="center">
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
