@@ -17,7 +17,7 @@ When suspicious behavior is detected, the script:
 - Triggers a pager-style alert with a custom ringtone
 - Sends a system log notification for visibility
 
-This payload is designed for blue‑team awareness, RF monitoring, and situational alerting during assessments or defensive deployments.
+This payload is designed for blue‑team awareness, RF monitoring, and situational alerting during assessments or defensive deployments..
 
 ---
 
