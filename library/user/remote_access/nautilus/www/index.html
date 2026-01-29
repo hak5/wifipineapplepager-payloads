@@ -20,14 +20,20 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 .container{display:flex;height:calc(100vh - 98px)}
-.sidebar{width:280px;min-width:280px;background:var(--surface);overflow-y:auto;border-right:1px solid var(--border);scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.sidebar{width:280px;min-width:200px;background:var(--surface);overflow-y:auto;border-right:none;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.resize-handle{width:5px;background:var(--border);cursor:col-resize;flex-shrink:0;transition:background 0.2s}
+.resize-handle:hover,.resize-handle.dragging{background:var(--accent)}
+.resize-handle-v{height:5px;width:100%;background:var(--border);cursor:row-resize;flex-shrink:0;transition:background 0.2s}
+.resize-handle-v:hover,.resize-handle-v.dragging{background:var(--accent)}
+body.resizing{cursor:col-resize;user-select:none}
+body.resizing-v{cursor:row-resize;user-select:none}
 .sidebar::-webkit-scrollbar{width:6px}
 .sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 .main{flex:1;display:flex;flex-direction:row;overflow:hidden;background:var(--bg)}
-.main-left{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--border);min-width:300px;max-width:450px}
-.main-right{flex:2;display:flex;flex-direction:row;overflow:hidden}
-.console-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.console-panel:first-child{border-right:1px solid var(--border)}
+.main-left{width:350px;min-width:250px;display:flex;flex-direction:column;border-right:none;flex-shrink:0}
+.main-right{flex:1;display:flex;flex-direction:row;overflow:hidden}
+.console-panel{width:50%;min-width:200px;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+.console-panel:first-child{border-right:none}
 .shell-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .shell-panel .console-header{background:var(--surface)}
 .shell-panel #shellTerminal{flex:1;background:#000;overflow:hidden}
@@ -461,6 +467,7 @@ Scanning for networks...
 </div>
 </div>
 </div>
+<div class="resize-handle" id="resizeSidebar"></div>
 <div class="main">
 <div class="main-left">
 <div class="detail" id="detail">
@@ -471,6 +478,7 @@ Scanning for networks...
 </div>
 </div>
 </div>
+<div class="resize-handle" id="resizeDetail"></div>
 <div class="main-right">
 <div class="console-panel">
 <div class="console-wrap">
@@ -493,6 +501,7 @@ Scanning for networks...
 <div class="waiting-hint" id="buttonHint">Waiting for <span class="expected" id="expectedButton">any</span> button...</div>
 </div>
 </div>
+<div class="resize-handle" id="resizeConsole"></div>
 <div class="shell-panel">
 <div class="console-header"><span>Pager Shell<span class="shell-status disconnected" id="shellStatus">disconnected</span></span><span><button onclick="reconnectShell()">Reconnect</button></span></div>
 <div id="shellTerminal"></div>
@@ -2628,6 +2637,59 @@ function showSettingsStatus(type,msg){
   if(type==='saved')setTimeout(()=>{el.textContent='';el.className='settings-status';},2000);
 }
 
+// Resizable panels
+function initResize(){
+  const sidebar=document.querySelector('.sidebar');
+  const mainLeft=document.querySelector('.main-left');
+  const consolePanel=document.querySelector('.console-panel');
+  
+  function setupResize(handle,target,minSize,maxSize,direction='width'){
+    if(!handle||!target)return;
+    let startPos,startSize;
+    
+    function onMouseDown(e){
+      e.preventDefault();
+      startPos=direction==='width'?e.clientX:e.clientY;
+      startSize=direction==='width'?target.offsetWidth:target.offsetHeight;
+      handle.classList.add('dragging');
+      document.body.classList.add(direction==='width'?'resizing':'resizing-v');
+      document.addEventListener('mousemove',onMouseMove);
+      document.addEventListener('mouseup',onMouseUp);
+    }
+    
+    function onMouseMove(e){
+      const delta=(direction==='width'?e.clientX:e.clientY)-startPos;
+      let newSize=startSize+delta;
+      if(minSize)newSize=Math.max(minSize,newSize);
+      if(maxSize)newSize=Math.min(maxSize,newSize);
+      target.style[direction]=newSize+'px';
+      if(shellFitAddon)shellFitAddon.fit();
+    }
+    
+    function onMouseUp(){
+      handle.classList.remove('dragging');
+      document.body.classList.remove('resizing','resizing-v');
+      document.removeEventListener('mousemove',onMouseMove);
+      document.removeEventListener('mouseup',onMouseUp);
+      localStorage.setItem('nautilus_'+target.className.split(' ')[0]+'_size',target.style[direction]);
+    }
+    
+    handle.addEventListener('mousedown',onMouseDown);
+    const saved=localStorage.getItem('nautilus_'+target.className.split(' ')[0]+'_size');
+    if(saved)target.style[direction]=saved;
+  }
+  
+  setupResize($('resizeSidebar'),sidebar,200,500,'width');
+  setupResize($('resizeDetail'),mainLeft,250,600,'width');
+  setupResize($('resizeConsole'),consolePanel,200,null,'width');
+  
+  // Initialize console panel with pixel width if using percentage
+  if(consolePanel && !consolePanel.style.width.includes('px')){
+    consolePanel.style.width=consolePanel.offsetWidth+'px';
+  }
+}
+
+initResize();
 initAuth();
 initShell();
 </script>
