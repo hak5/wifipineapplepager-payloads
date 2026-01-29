@@ -142,6 +142,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .login-error.show{display:block}
 .tabs-container{background:var(--surface2)}
 .tabs-row{display:flex;border-bottom:1px solid var(--border)}
+.tabs-row.resource-row{background:var(--surface);border-bottom:2px solid var(--border)}
+.tabs-row.resource-row .tab{font-size:0.7em;padding:8px 6px}
 .tabs-row.favourites-row{border-bottom:none}
 .tab{flex:1;padding:10px 8px;text-align:center;font-size:0.75em;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;text-transform:uppercase;letter-spacing:0.5px}
 .tab:hover{color:var(--text);background:rgba(255,255,255,0.03)}
@@ -416,6 +418,11 @@ Scanning for networks...
 <div class="container">
 <div class="sidebar">
 <div class="tabs-container">
+<div class="tabs-row resource-row">
+<div class="tab resource-tab active" data-resource="payloads" onclick="switchResource('payloads')">Payloads</div>
+<div class="tab resource-tab" data-resource="alerts" onclick="switchResource('alerts')">Alerts</div>
+<div class="tab resource-tab" data-resource="recon" onclick="switchResource('recon')">Recon</div>
+</div>
 <div class="tabs-row favourites-row">
 <div class="tab favourites" data-tab="favourites" onclick="switchTab('favourites')"><svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>Favourites</div>
 </div>
@@ -513,14 +520,18 @@ Scanning for networks...
 </div>
 </div>
 <script>
+let allData={payloads:{},alerts:{},recon:{}};
 let payloads={},filtered={},selected=null,running=false,evtSource=null,lineCount=0;
 let activeSpinners={};
 let currentTab='local';
+let currentResource='payloads';
 let runningSection=null;
 let viewingSource=false;
 let githubPayloads={},filteredGithub={},githubPRs=[],filteredPRs=[];
 let favourites=[],filteredFavourites=[];
 const $=id=>document.getElementById(id);
+const RESOURCE_REPOS={payloads:'wifipineapplepager-payloads',alerts:'wifipineapplepager-payloads',recon:'wifipineapplepager-payloads'};
+const RESOURCE_PATHS={payloads:'library/user',alerts:'library/alerts',recon:'library/recon'};
 
 let shellTerm=null,shellWs=null,shellFitAddon=null;
 const TTYD_CMD_INPUT='0',TTYD_CMD_RESIZE='1',TTYD_CMD_OUTPUT=48,TTYD_CMD_TITLE=49,TTYD_CMD_PREFS=50;
@@ -938,9 +949,24 @@ async function toggleClientMode(){
   }
 }
 
+function switchResource(res){
+  currentResource=res;
+  document.querySelectorAll('.resource-tab').forEach(t=>t.classList.toggle('active',t.dataset.resource===res));
+  payloads=allData[res]||{};
+  filtered=payloads;
+  render();
+  const resLabel=res.charAt(0).toUpperCase()+res.slice(1);
+  $('searchBox').placeholder='Search '+resLabel.toLowerCase()+'...';
+  $('searchBoxMerged').placeholder='Search GitHub '+resLabel.toLowerCase()+'...';
+  const total=Object.values(payloads).flat().length;
+  $('status').textContent='Ready • '+total+' '+resLabel.toLowerCase();
+  loadGithubPayloads();
+  loadGithubPRs();
+}
+
 function switchTab(tab){
   currentTab=tab;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  document.querySelectorAll('.tab:not(.resource-tab)').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id==='tab-'+tab));
   selected=null;
   renderDetail();
@@ -1130,10 +1156,13 @@ function updateCacheInfo(id,timestamp){
 async function loadGithubPayloads(forceRefresh=false){
   $('githubCategories').innerHTML='<div class="github-loading"><img src="nautilus_spinning.png" alt="">Loading from GitHub...</div>';
   $('refreshMerged').classList.add('loading');
+  
+  const resourcePath=RESOURCE_PATHS[currentResource]||'library/user';
+  const cacheKey=CACHE_KEY_MERGED+'_'+currentResource;
     
   if(!forceRefresh){
     try{
-      const cached=localStorage.getItem(CACHE_KEY_MERGED);
+      const cached=localStorage.getItem(cacheKey);
       if(cached){
         const data=JSON.parse(cached);
         githubPayloads=data.payloads;
@@ -1151,8 +1180,9 @@ async function loadGithubPayloads(forceRefresh=false){
     if(!treeResp.ok)throw new Error('GitHub API error: '+treeResp.status);
     const treeData=await treeResp.json();
 
+    const pathRegex=new RegExp('^'+resourcePath.replace(/\//g,'\\/')+'\\/[^/]+\\/[^/]+\\/payload\\.sh$');
     const payloadPaths=treeData.tree
-      .filter(f=>f.type==='blob'&&f.path.match(/^library\/user\/[^/]+\/[^/]+\/payload\.sh$/))
+      .filter(f=>f.type==='blob'&&f.path.match(pathRegex))
       .map(f=>f.path);
 
     githubPayloads={};
@@ -1190,7 +1220,7 @@ async function loadGithubPayloads(forceRefresh=false){
     }
 
     const cacheData={payloads:githubPayloads,timestamp:Date.now()};
-    localStorage.setItem(CACHE_KEY_MERGED,JSON.stringify(cacheData));
+    localStorage.setItem(cacheKey,JSON.stringify(cacheData));
     updateCacheInfo('mergedCacheInfo',cacheData.timestamp);
 
     filteredGithub=githubPayloads;
@@ -1276,8 +1306,9 @@ function refreshGithubPRs(){
 }
 
 function renderGithub(){
+  const resLabel=currentResource.charAt(0).toUpperCase()+currentResource.slice(1);
   if(Object.keys(filteredGithub).length===0){
-    $('githubCategories').innerHTML='<div class="empty"><h3>No Payloads</h3><p>No GitHub payloads found</p></div>';
+    $('githubCategories').innerHTML='<div class="empty"><h3>No '+resLabel+'</h3><p>No GitHub '+resLabel.toLowerCase()+' found</p></div>';
     return;
   }
   let html='';
@@ -1996,10 +2027,20 @@ async function load(){
     const r=await fetch('/cgi-bin/api.sh?action=list');
     if(!r.ok)throw new Error('HTTP '+r.status);
     const text=await r.text();
-    payloads=JSON.parse(text);
+    allData=JSON.parse(text);
+    // Handle both old format (flat) and new format (nested by resource type)
+    if(allData.payloads||allData.alerts||allData.recon){
+      payloads=allData[currentResource]||{};
+    }else{
+      // Old format compatibility - treat as payloads
+      allData={payloads:allData,alerts:{},recon:{}};
+      payloads=allData.payloads;
+    }
     filtered=payloads;
     render();
-    $('status').textContent='Ready • '+Object.values(payloads).flat().length+' payloads';
+    const total=Object.values(payloads).flat().length;
+    const resLabel=currentResource.charAt(0).toUpperCase()+currentResource.slice(1);
+    $('status').textContent='Ready • '+total+' '+resLabel.toLowerCase();
     loadWifiStatus();
     loadFavourites();
   }catch(e){
