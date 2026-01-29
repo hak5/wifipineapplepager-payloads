@@ -5,7 +5,7 @@
 # Defensive monitoring + alerting
 #
 
-LOG_DIR="/sd/logs/madpossum-rogue-auth-watch"
+LOG_DIR="/sd/logs/madpossum_rogue_auth_watch"
 ALERT_LOG="$LOG_DIR/alerts.log"
 FIRST_RUN_FLAG="$LOG_DIR/.initialized"
 RINGTONE="/usr/share/sounds/pager/Digimon.rtttl"
