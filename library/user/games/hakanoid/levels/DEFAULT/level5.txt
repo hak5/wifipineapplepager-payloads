@@ -1,0 +1,10 @@
+# Level 5 - Invisible Maze
+# Indestructible walls + hidden surprise blocks!
+I b b b bL GL GL bL b b b b b I
+I b b b b G G G b b b b b b I
+I b b b G S SR S G b b b b I
+I b b G S x x x S G b b b b I
+I b G S b b b b b S G b b b I
+I G S b b b b b b b S G b b I
+I S b b b b b b b b b S b b I
+I b b b b b b+ b b b b b b b+

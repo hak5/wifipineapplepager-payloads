@@ -1,0 +1,10 @@
+# Level 4 - Gold Fortress
+# Silver diagonal, gold center, power-ups hidden
+S r r r r r GL GL r r r r r S
+r S r r r r G G r r r r S r
+r r S r r r r r r r r S r r
+r r r S S S S S S S S r r r
+r r r S G G G G G G S r r r
+r r S r r r r r r r r S r r
+rL S r r r r r r r r r r S rL
+r+ r r r r r r r r r r r r r+
