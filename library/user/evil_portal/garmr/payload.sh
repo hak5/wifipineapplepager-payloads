@@ -1189,7 +1189,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "       GARMR v4.7.2"
+LOG "       GARMR v4.7.3"
 LOG ""
 
 led_setup
