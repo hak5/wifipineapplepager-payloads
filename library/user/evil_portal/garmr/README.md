@@ -1,6 +1,6 @@
 # GARMR - KARMA + Evil Portal Combined
 
-**Version 4.7.4** | *Named after the blood-stained hound that guards the gates of HALE*
+**Version 4.7.5** | *Named after the blood-stained hound that guards the gates of HALE*
 
 ```
               _                                                   _
@@ -164,6 +164,81 @@ GARMR combines **SKOLL's KARMA luring** with **LOKI's credential harvesting** in
     │                                                                 │
     └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## ⚠️ CRITICAL: SSID and Portal Must Match!
+
+```
+    ┌─────────────────────────────────────────────────────────────────┐
+    │             WHY SSID + PORTAL MATCHING MATTERS                  │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                 │
+    │   The SSID (WiFi name) and PORTAL (login page) must make       │
+    │   sense together or victims will be suspicious!                 │
+    │                                                                 │
+    │   ✅ GOOD (Makes Sense):                                        │
+    │   ┌─────────────────────────────────────────────────────────┐  │
+    │   │  SSID: "Starbucks WiFi"  →  Portal: Starbucks login     │  │
+    │   │  SSID: "Google Guest"    →  Portal: Google login        │  │
+    │   │  SSID: "Free WiFi"       →  Portal: Generic WiFi login  │  │
+    │   └─────────────────────────────────────────────────────────┘  │
+    │                                                                 │
+    │   ❌ BAD (Suspicious!):                                         │
+    │   ┌─────────────────────────────────────────────────────────┐  │
+    │   │  SSID: "MyHomeNetwork"   →  Portal: Google login  ???   │  │
+    │   │  SSID: "BoltHale"        →  Portal: Microsoft login ??? │  │
+    │   │  SSID: "linksys"         →  Portal: Starbucks login ??? │  │
+    │   └─────────────────────────────────────────────────────────┘  │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+```
+
+### Option 0: "Keep Current SSID" - When to Use It
+
+**Option 0 does NOT skip the portal** - it only skips changing your WiFi name.
+
+```
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    OPTION 0 EXPLAINED                           │
+    ├─────────────────────────────────────────────────────────────────┤
+    │                                                                 │
+    │   USE OPTION 0 WHEN:                                            │
+    │   ════════════════════                                          │
+    │   • You already configured your SSID in the Pager web UI        │
+    │   • Your SSID matches a branded portal (see matching below)     │
+    │   • You don't want GARMR to change/reload wireless              │
+    │   • You need to keep your WAN connection stable                 │
+    │                                                                 │
+    │   DO NOT USE OPTION 0 WHEN:                                     │
+    │   ══════════════════════════                                    │
+    │   • Your current SSID doesn't match any portal                  │
+    │   • Your SSID is something random like "MyNetwork"              │
+    │   • You haven't set up your SSID yet                            │
+    │                                                                 │
+    │   HOW AUTO-MATCHING WORKS (Option 3 - WiFi Portal):             │
+    │   ══════════════════════════════════════════════════            │
+    │                                                                 │
+    │   Your SSID contains:        Portal shown:                      │
+    │   ────────────────────       ─────────────                      │
+    │   "Starbucks"            →   Starbucks branded                  │
+    │   "McDonald"             →   McDonald's branded                 │
+    │   "Airport"              →   Airport branded                    │
+    │   "Hotel/Marriott/etc"   →   Hotel branded                      │
+    │   "xfinity/Xfinity"      →   Xfinity branded                    │
+    │   "att/ATT/attwifi"      →   AT&T branded                       │
+    │   "Google/Gmail"         →   Google branded                     │
+    │   "Microsoft/Office"     →   Microsoft branded                  │
+    │   (anything else)        →   Generic "Free WiFi" portal         │
+    │                                                                 │
+    └─────────────────────────────────────────────────────────────────┘
+```
+
+**Example Workflow with Option 0:**
+1. In Pager web UI → Set Open AP SSID to "Starbucks WiFi"
+2. Run GARMR → Select Option 3 (WiFi Portal)
+3. Select Option 0 (Keep Current SSID)
+4. Result: SSID stays "Starbucks WiFi" + Starbucks portal auto-selected ✅
 
 ---
 
@@ -509,10 +584,14 @@ Format:
 
 ## Version History
 
+- **4.7.5** (2026-01-30) - Auto Portal Install + Documentation
+  - Bundled portals now auto-install to /root/portals/ on first run
+  - Added comprehensive SSID/Portal matching documentation
+  - Explains when to use "Keep Current SSID" option
+
 - **4.7.4** (2026-01-30) - Keep Current SSID option
   - Added "Keep Current SSID" option (option 0) to all SSID menus
   - Prevents WAN drop for users who pre-configure SSID in web UI
-  - Default selection is now "Keep Current" (option 0)
 
 - **4.7.3** (2026-01-30) - Critical bug fixes
   - Fixed WAN connection dropping (selective GARMR rule deletion instead of full flush)
