@@ -45,7 +45,7 @@ This payload is designed for blue‑team awareness, RF monitoring, and situation
 
 | Path | Purpose |
 |-----|--------|
-| /sd/logs/madpossum-rogue-auth-watch/ | Main log directory |
+| /sd/logs/madpossum_rogue_auth_watch/ | Main log directory |
 | alerts.log | Event and alert log |
 | .initialized | First‑run dependency check flag |
 | Digimon.rtttl | Pager ringtone (customizable) |
@@ -76,3 +76,4 @@ LOG_DIR="/sd/logs/madpossum_rogue_auth_watch"
 ALERT_LOG="$LOG_DIR/alerts.log"
 FIRST_RUN_FLAG="$LOG_DIR/.initialized"
 RINGTONE="/usr/share/sounds/pager/Digimon.rtttl"
+
