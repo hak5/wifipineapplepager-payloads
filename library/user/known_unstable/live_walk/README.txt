@@ -23,6 +23,7 @@ You can look at the logs live as they update every so often on your mobile devic
 
 As you walk it logs all the information found in the screenshot.
 
+UPDATE: Janary 29th depancies auto install is working properly now. 
 
 Disclaimer: This is for educational purposes only!!
 
