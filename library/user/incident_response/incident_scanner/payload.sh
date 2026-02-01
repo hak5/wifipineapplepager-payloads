@@ -2,7 +2,7 @@
 #
 # Title: Incident Response Forensic Collector
 # Author: curtthecoder - github.com/curthayman
-# Version: 1.0
+# Version: 2.0
 # Category: Incident Response / Penetration Testing
 # Description:   Comprehensive incident response payload that collects network
 #                forensics, system state, connected clients, and traffic samples
@@ -30,12 +30,9 @@ LOG "  INCIDENT RESPONSE COLLECTOR"
 LOG "      by curtthecoder"
 LOG "================================"
 LOG ""
-LOG "[!] NOTE: This scan may take up to 25 minutes to complete."
-LOG "    Please do not interrupt the process."
-LOG ""
 
 # Version check
-CURRENT_VERSION="1.0"
+CURRENT_VERSION="2.0"
 VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/incident_response/incident_scanner/VERSION"
 ENABLE_UPDATE_CHECK=true  # Set to false to disable
 
@@ -51,11 +48,11 @@ if [ "$ENABLE_UPDATE_CHECK" = true ]; then
     if [ "$HTTP_CODE" = "200" ] && [ -n "$LATEST_VERSION" ]; then
         if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
             LOG ""
-            LOG "════════════════════════════════════════════════════════"
+            LOG "========================================================"
             LOG "  🆕 UPDATE AVAILABLE!"
             LOG "  Current: v${CURRENT_VERSION} → Latest: v${LATEST_VERSION}"
             LOG "  Update at: github.com/hak5/wifipineapplepager-payloads"
-            LOG "════════════════════════════════════════════════════════"
+            LOG "========================================================"
             LOG ""
             sleep 3
         else
@@ -77,6 +74,98 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 # Leave empty for timestamp-only folder names
 SCAN_LABEL=""
 
+# ============================================================================
+# SCAN TYPE SELECTION (Interactive Prompt)
+# ============================================================================
+# The user will be prompted to select scan type at runtime:
+#
+#   1. QUICK  (~1-5 min)   - Fast reconnaissance for rapid assessments
+#                            System info, network config, WiFi scan, basic security
+#                            Best for: Initial recon, time-sensitive situations
+#
+#   2. NORMAL (~10-15 min) - Balanced scan with good coverage
+#                            Adds: Client fingerprinting, rogue detection, short
+#                            traffic capture, credential scan, geolocation
+#                            Best for: Standard penetration tests, most scenarios
+#
+#   3. DEEP   (~25+ min)   - Comprehensive forensic collection (full scan)
+#                            Adds: Service discovery, wireless recon with monitor
+#                            mode, Bluetooth scan, full WiFi security analysis,
+#                            recon.db analysis, extended traffic capture
+#                            Best for: Full incident response, detailed forensics
+
+# Display scan type menu
+PROMPT "=== INCIDENT RESPONSE SCANNER ===\n\nSelect scan type:\n\n1. QUICK  (~1-5 min)  - Fast recon\n2. NORMAL (~10-15 min) - Balanced scan\n3. DEEP   (~25+ min)  - Full forensics\n"
+
+# Get user selection (default to DEEP scan)
+SCAN_SELECTION=$(NUMBER_PICKER "Select scan type (1-3)" "3")
+
+# Set SCAN_TYPE based on selection
+case $SCAN_SELECTION in
+    1) SCAN_TYPE="QUICK" ;;
+    2) SCAN_TYPE="NORMAL" ;;
+    3|*) SCAN_TYPE="DEEP" ;;
+esac
+
+LOG "[*] Selected: ${SCAN_TYPE} scan"
+
+# ============================================================================
+# SCAN TYPE CONFIGURATION (Auto-set based on SCAN_TYPE selection)
+# ============================================================================
+# These settings are automatically configured based on SCAN_TYPE above.
+# You can override individual settings after this block if needed.
+
+case "$SCAN_TYPE" in
+    "QUICK"|"quick")
+        SCAN_TYPE="QUICK"
+        PCAP_TIME=0              # No traffic capture
+        ENABLE_WIRELESS_RECON=false
+        CHANNEL_HOP=false
+        ENABLE_CREDENTIAL_SCAN=false
+        ENABLE_SERVICE_DISCOVERY=false
+        ENABLE_HISTORICAL_COMPARISON=false
+        ENABLE_BLUETOOTH_SCAN=false
+        ENABLE_RECON_DB_ANALYSIS=false
+        ENABLE_WIFI_SECURITY_ANALYSIS=false
+        ENABLE_CLIENT_FINGERPRINTING=false  # Basic only
+        ENABLE_ROGUE_DETECTION=false
+        ENABLE_GEOLOCATION=false
+        SCAN_DURATION_MSG="1-5 minutes"
+        ;;
+    "NORMAL"|"normal")
+        SCAN_TYPE="NORMAL"
+        PCAP_TIME=30             # Short traffic capture
+        ENABLE_WIRELESS_RECON=false
+        CHANNEL_HOP=false
+        ENABLE_CREDENTIAL_SCAN=true
+        ENABLE_SERVICE_DISCOVERY=false
+        ENABLE_HISTORICAL_COMPARISON=true
+        ENABLE_BLUETOOTH_SCAN=false
+        ENABLE_RECON_DB_ANALYSIS=false
+        ENABLE_WIFI_SECURITY_ANALYSIS=false
+        ENABLE_CLIENT_FINGERPRINTING=true
+        ENABLE_ROGUE_DETECTION=true
+        ENABLE_GEOLOCATION=true
+        SCAN_DURATION_MSG="10-15 minutes"
+        ;;
+    "DEEP"|"deep"|*)
+        SCAN_TYPE="DEEP"
+        PCAP_TIME=120            # Full traffic capture
+        ENABLE_WIRELESS_RECON=true
+        CHANNEL_HOP=true
+        ENABLE_CREDENTIAL_SCAN=true
+        ENABLE_SERVICE_DISCOVERY=true
+        ENABLE_HISTORICAL_COMPARISON=true
+        ENABLE_BLUETOOTH_SCAN=true
+        ENABLE_RECON_DB_ANALYSIS=true
+        ENABLE_WIFI_SECURITY_ANALYSIS=true
+        ENABLE_CLIENT_FINGERPRINTING=true
+        ENABLE_ROGUE_DETECTION=true
+        ENABLE_GEOLOCATION=true
+        SCAN_DURATION_MSG="25+ minutes"
+        ;;
+esac
+
 # Sanitize and build folder name
 if [ -n "$SCAN_LABEL" ]; then
     # Replace spaces with underscores and remove special characters
@@ -85,27 +174,24 @@ if [ -n "$SCAN_LABEL" ]; then
 else
     REPORT_DIR="${LOOT_DIR}/IR_${TIMESTAMP}"
 fi
-PCAP_TIME=120  # Seconds to capture traffic (increased for better analysis)
+
+# ============================================================================
+# CAPTURE SETTINGS (these can be overridden regardless of scan type)
+# ============================================================================
 PCAP_SNAPLEN=65535  # Full packet capture
 PCAP_COUNT=10000  # Maximum packets per interface
 
-# Wireless Reconnaissance Configuration
-ENABLE_WIRELESS_RECON=true  # Capture nearby WiFi traffic (requires monitor mode)
-CHANNEL_HOP=true  # Hop through WiFi channels during capture
+# Wireless Reconnaissance Configuration (used when ENABLE_WIRELESS_RECON=true)
 CHANNEL_HOP_INTERVAL=0.5  # Seconds per channel
 RECON_PHY="auto"  # Physical device to use: "auto" to detect, or specify "phy0", "phy1", etc.
 RECON_MON_NAME="recon0"  # Name for the monitor interface I'll create
 CHANNELS_24GHZ="1 2 3 4 5 6 7 8 9 10 11"  # 2.4GHz channels
 CHANNELS_5GHZ="36 40 44 48 52 56 60 64 100 104 108 112 116 120 124 128 132 136 140 144 149 153 157 161 165"  # 5GHz channels
 
-# Advanced Features Configuration
-ENABLE_CREDENTIAL_SCAN=true
-ENABLE_SERVICE_DISCOVERY=true
-ENABLE_HISTORICAL_COMPARISON=true
-ENABLE_BLUETOOTH_SCAN=true  # Scan for Bluetooth/BLE devices
-ENABLE_RECON_DB_ANALYSIS=true  # Analyze Pineapple's recon.db for historical intel
-ENABLE_WIFI_SECURITY_ANALYSIS=true  # Deep WiFi security analysis (WPA handshakes, encryption, rogue APs)
+# Recon Database Path
 RECON_DB_PATH="/root/recon/recon.db"  # Path to recon.db (also checks /mmc/root/recon/recon.db)
+
+# Archive & Remote Sync Configuration
 ENABLE_REMOTE_SYNC=false  # Set to true and configure below for auto-upload
 ENCRYPT_ARCHIVE=false  # Set to true to encrypt final archive
 
@@ -191,7 +277,26 @@ declare -A MAC_OUI=(
 )
 
 LOG "[+] Initializing..."
+LOG ""
+LOG "================================"
+case "$SCAN_TYPE" in
+    "QUICK")
+        LOG "SCAN TYPE: QUICK (~1-5 min)"
+        ;;
+    "NORMAL")
+	      LOG "SCAN TYPE: NORMAL (~10-15 min)"
+        ;;
+    "DEEP")
+        LOG "SCAN TYPE: DEEP (~25+ min)"
+        ;;
+esac
+LOG "================================"
+LOG ""
+LOG "[!] NOTE: Estimated scan duration is ${SCAN_DURATION_MSG}."
+LOG "    Please do not interrupt the process."
+LOG ""
 LOG "[+] Timestamp: ${TIMESTAMP}"
+LOG "[+] Scan Type: ${SCAN_TYPE}"
 if [ -n "$SCAN_LABEL" ]; then
     LOG "[+] Scan Label: ${SANITIZED_LABEL}"
 fi
@@ -724,7 +829,8 @@ fi
 # ENHANCED CLIENT FINGERPRINTING
 # ============================================================================
 
-LOG "[*] Performing enhanced client fingerprinting..."
+if [ "$ENABLE_CLIENT_FINGERPRINTING" = true ]; then
+    LOG "[*] Performing enhanced client fingerprinting..."
 
 {
     echo "=== ENHANCED CLIENT FINGERPRINTING ==="
@@ -814,7 +920,10 @@ LOG "[*] Performing enhanced client fingerprinting..."
 
 } > "${REPORT_DIR}/analysis/client_fingerprinting.txt"
 
-LOG "    [OK] Client fingerprinting complete"
+    LOG "    [OK] Client fingerprinting complete"
+else
+    LOG "[*] Client fingerprinting skipped (QUICK scan mode)"
+fi
 
 # ============================================================================
 # DHCP LEASES
@@ -874,6 +983,7 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
     fi
 
     # mDNS/Bonjour Discovery (UDP port 5353)
+    # Added timeouts to prevent hanging on embedded systems
     {
         echo "=== mDNS/BONJOUR SERVICE DISCOVERY ==="
         echo "Timestamp: $(date)"
@@ -882,12 +992,12 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
         if [ -n "$SCAN_NETWORK" ]; then
             echo "--- Scanning $SCAN_NETWORK for mDNS responders (UDP 5353) ---"
             echo ""
-            nmap -sU -p 5353 --open "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|5353/udp"
+            timeout 30 nmap -sU -p 5353 --open --host-timeout 5s "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|5353/udp" || echo "Scan completed or timed out"
             echo ""
             echo "--- mDNS Query for services ---"
-            # Query for common service types using DNS
+            # Query for common service types using DNS (with timeout per query)
             for service in _http._tcp.local _https._tcp.local _ssh._tcp.local _printer._tcp.local; do
-                result=$(nslookup -type=PTR "$service" 224.0.0.251 2>/dev/null | grep -v "^;")
+                result=$(timeout 3 nslookup -type=PTR "$service" 224.0.0.251 2>/dev/null | grep -v "^;")
                 if [ -n "$result" ]; then
                     echo "Service: $service"
                     echo "$result"
@@ -901,6 +1011,7 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
     LOG "    [OK] mDNS discovery complete"
 
     # NetBIOS Enumeration (UDP port 137, TCP port 139)
+    # Added timeouts to prevent hanging on embedded systems
     {
         echo "=== NETBIOS ENUMERATION ==="
         echo "Timestamp: $(date)"
@@ -910,10 +1021,10 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
             echo "--- Scanning $SCAN_NETWORK for NetBIOS hosts ---"
             echo ""
             echo "UDP 137 (NetBIOS Name Service):"
-            nmap -sU -p 137 --open "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|137/udp"
+            timeout 30 nmap -sU -p 137 --open --host-timeout 5s "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|137/udp" || echo "Scan completed or timed out"
             echo ""
             echo "TCP 139 (NetBIOS Session):"
-            nmap -p 139 --open "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|139/tcp"
+            timeout 30 nmap -p 139 --open --host-timeout 5s "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|139/tcp" || echo "Scan completed or timed out"
         else
             echo "[!] Could not determine local network"
         fi
@@ -921,6 +1032,7 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
     LOG "    [OK] NetBIOS enumeration complete"
 
     # SNMP Discovery (UDP port 161)
+    # Added timeouts to prevent hanging on embedded systems
     {
         echo "=== SNMP DISCOVERY ==="
         echo "Timestamp: $(date)"
@@ -929,7 +1041,7 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
         if [ -n "$SCAN_NETWORK" ]; then
             echo "--- Scanning $SCAN_NETWORK for SNMP hosts (UDP 161) ---"
             echo ""
-            nmap -sU -p 161 --open "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|161/udp"
+            timeout 30 nmap -sU -p 161 --open --host-timeout 5s "$SCAN_NETWORK" 2>/dev/null | grep -E "^Nmap|^Host|161/udp" || echo "Scan completed or timed out"
         else
             echo "[!] Could not determine local network"
         fi
@@ -937,6 +1049,7 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
     LOG "    [OK] SNMP discovery complete"
 
     # UPnP Discovery (UDP port 1900)
+    # Wrapped in hard timeout to prevent hanging on embedded systems
     {
         echo "=== UPNP DEVICE DISCOVERY ==="
         echo "Timestamp: $(date)"
@@ -944,28 +1057,48 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
 
         echo "--- SSDP M-SEARCH Discovery ---"
         echo ""
-        # Send M-SEARCH multicast and capture responses (with timeout wrapper)
-        SSDP_RESPONSE=$(timeout 10 sh -c 'echo -e "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\nST: ssdp:all\r\n\r\n" | nc -u -w 3 239.255.255.250 1900 2>/dev/null' | head -200)
+
+        # Create temp file for SSDP response
+        SSDP_TEMP=$(mktemp 2>/dev/null || echo "/tmp/ssdp_$$")
+
+        # Run SSDP discovery with hard timeout (netcat can hang on embedded systems)
+        (
+            echo -e "M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n" | nc -u -w 2 239.255.255.250 1900 2>/dev/null | head -100
+        ) > "$SSDP_TEMP" &
+        NC_PID=$!
+
+        # Hard kill after 8 seconds if still running
+        sleep 8 && kill -9 $NC_PID 2>/dev/null &
+        KILL_PID=$!
+
+        # Wait for netcat to finish (or be killed)
+        wait $NC_PID 2>/dev/null
+        kill -9 $KILL_PID 2>/dev/null
+
+        SSDP_RESPONSE=$(cat "$SSDP_TEMP" 2>/dev/null)
+        rm -f "$SSDP_TEMP" 2>/dev/null
 
         if [ -n "$SSDP_RESPONSE" ]; then
             echo "$SSDP_RESPONSE"
             echo ""
             echo "--- UPnP Device Details ---"
-            # Extract LOCATION URLs and fetch device descriptions (limit to first 5)
-            echo "$SSDP_RESPONSE" | grep -i "LOCATION:" | awk '{print $2}' | tr -d '\r' | head -5 | while read url; do
+            # Extract LOCATION URLs and fetch device descriptions (limit to first 3 to reduce hang risk)
+            echo "$SSDP_RESPONSE" | grep -i "LOCATION:" | awk '{print $2}' | tr -d '\r' | head -3 | while read url; do
                 if [ -n "$url" ]; then
                     echo "Device: $url"
-                    timeout 5 curl -s --connect-timeout 2 --max-time 4 "$url" 2>/dev/null | grep -E "<friendlyName>|<modelName>|<manufacturer>" | sed 's/<[^>]*>//g' | sed 's/^/  /'
+                    # Use timeout with SIGKILL fallback
+                    timeout -s KILL 3 curl -s --connect-timeout 1 --max-time 2 "$url" 2>/dev/null | grep -E "<friendlyName>|<modelName>|<manufacturer>" | sed 's/<[^>]*>//g' | sed 's/^/  /' || true
                     echo ""
                 fi
             done
         else
-            echo "No UPnP devices responded"
+            echo "No UPnP devices responded (or discovery timed out)"
         fi
     } > "${REPORT_DIR}/services/upnp_discovery.txt"
     LOG "    [OK] UPnP discovery complete"
 
     # SMB/CIFS Enumeration (TCP port 445)
+    # Added timeouts to prevent hanging on embedded systems
     {
         echo "=== SMB/CIFS ENUMERATION ==="
         echo "Timestamp: $(date)"
@@ -974,16 +1107,17 @@ if [ "$ENABLE_SERVICE_DISCOVERY" = true ]; then
         if [ -n "$SCAN_NETWORK" ]; then
             echo "--- Scanning $SCAN_NETWORK for SMB hosts (TCP 445) ---"
             echo ""
-            SMB_HOSTS=$(nmap -p 445 --open "$SCAN_NETWORK" 2>/dev/null)
-            echo "$SMB_HOSTS" | grep -E "^Nmap|^Host|445/tcp"
+            # Add timeout to nmap scan (30 seconds max)
+            SMB_HOSTS=$(timeout 30 nmap -p 445 --open --host-timeout 5s "$SCAN_NETWORK" 2>/dev/null || echo "Scan timed out")
+            echo "$SMB_HOSTS" | grep -E "^Nmap|^Host|445/tcp|timed out"
             echo ""
 
-            # Extract IPs and probe for more info
+            # Extract IPs and probe for more info (limit to first 5 hosts)
             echo "--- SMB Host Details ---"
-            echo "$SMB_HOSTS" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | while read ip; do
+            echo "$SMB_HOSTS" | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -5 | while read ip; do
                 echo "Host: $ip"
-                # Try to get SMB banner/info via netcat
-                echo "" | nc -w 2 "$ip" 445 2>/dev/null | hexdump -C | head -5
+                # Try to get SMB banner/info via netcat with hard timeout
+                timeout -s KILL 3 sh -c "echo '' | nc -w 1 '$ip' 445 2>/dev/null | hexdump -C | head -5" || true
                 echo ""
             done
         else
@@ -1002,12 +1136,13 @@ fi
 # TRAFFIC CAPTURE & WIRELESS RECONNAISSANCE
 # ============================================================================
 
-LOG ""
-LOG "[*] Starting traffic capture and wireless reconnaissance..."
-LOG "    Capture duration: ${PCAP_TIME} seconds"
-LOG ""
+if [ "$PCAP_TIME" -gt 0 ]; then
+    LOG ""
+    LOG "[*] Starting traffic capture and wireless reconnaissance..."
+    LOG "    Capture duration: ${PCAP_TIME} seconds"
+    LOG ""
 
-LED SPECIAL
+    LED SPECIAL
 
 # Track created monitor interfaces for cleanup
 MONITOR_IFACES=""
@@ -1272,20 +1407,25 @@ for pcap in "${REPORT_DIR}"/pcaps/*.pcap; do
 done
 
 # Summary
-valid_pcaps=$(ls -1 "${REPORT_DIR}"/pcaps/*.pcap 2>/dev/null | wc -l)
-if [ "$valid_pcaps" -eq 0 ]; then
+    valid_pcaps=$(ls -1 "${REPORT_DIR}"/pcaps/*.pcap 2>/dev/null | wc -l)
+    if [ "$valid_pcaps" -eq 0 ]; then
+        LOG ""
+        LOG "    [!] WARNING: No packets captured!"
+        LOG "    [!] Check that:"
+        LOG "            - WiFi interface supports monitor mode"
+        LOG "            - There are nearby WiFi networks"
+        LOG "            - Antenna is connected properly"
+    else
+        LOG ""
+        LOG "    [OK] $valid_pcaps capture file(s) with data"
+    fi
+
     LOG ""
-    LOG "    [!] WARNING: No packets captured!"
-    LOG "    [!] Check that:"
-    LOG "        - WiFi interface supports monitor mode"
-    LOG "        - There are nearby WiFi networks"
-    LOG "        - Antenna is connected properly"
 else
     LOG ""
-    LOG "    [OK] $valid_pcaps capture file(s) with data"
+    LOG "[*] Traffic capture skipped (QUICK scan mode)"
+    LOG ""
 fi
-
-LOG ""
 
 # ============================================================================
 # BLUETOOTH/BLE DEVICE SCANNING
@@ -2712,13 +2852,71 @@ if [ "$ENABLE_CREDENTIAL_SCAN" = true ]; then
                 fi
                 echo ""
 
-                # SMB/NTLM Traffic
+                # SMB/NTLM Traffic - Enhanced Analysis
                 echo "** SMB/NTLM AUTHENTICATION **"
-                smb_data=$(tcpdump -A -n -r "$pcap" 'tcp port 445 or tcp port 139' 2>/dev/null | strings | grep -iE "NTLMSSP|Workstation|Domain" | head -10)
-                if [ -n "$smb_data" ]; then
-                    echo "  [!] SMB/NTLM authentication detected!"
-                    echo "  $smb_data"
-                    echo "  [*] NTLM hashes may be extractable with specialized tools"
+                smb_traffic=$(tcpdump -A -n -r "$pcap" 'tcp port 445 or tcp port 139' 2>/dev/null)
+
+                if [ -n "$smb_traffic" ]; then
+                    smb_strings=$(echo "$smb_traffic" | strings)
+
+                    # Check for NTLMSSP (NTLM Security Support Provider)
+                    ntlmssp=$(echo "$smb_strings" | grep -i "NTLMSSP" | head -5)
+                    if [ -n "$ntlmssp" ]; then
+                        echo "  [!] NTLM authentication detected!"
+                        echo ""
+                    fi
+
+                    # Extract usernames from SMB session setup
+                    smb_users=$(echo "$smb_strings" | grep -oE '[A-Za-z0-9_\.-]+\\[A-Za-z0-9_\.-]+' | sort -u | head -10)
+                    if [ -n "$smb_users" ]; then
+                        echo "  [!] SMB Usernames (DOMAIN\\USER format):"
+                        echo "$smb_users" | sed 's/^/      /'
+                        echo ""
+                    fi
+
+                    # Extract domain/workstation names
+                    domains=$(echo "$smb_strings" | grep -iE "Domain:|Workstation:|WORKGROUP|\.local" | sort -u | head -10)
+                    if [ -n "$domains" ]; then
+                        echo "  [!] Domains/Workstations detected:"
+                        echo "$domains" | sed 's/^/      /'
+                        echo ""
+                    fi
+
+                    # Look for share access patterns (\\server\share)
+                    shares=$(echo "$smb_strings" | grep -oE '\\\\[A-Za-z0-9_\.-]+\\[A-Za-z0-9_\$\.-]+' | sort -u | head -10)
+                    if [ -n "$shares" ]; then
+                        echo "  [!] SMB Shares accessed:"
+                        echo "$shares" | sed 's/^/      /'
+                        echo ""
+                    fi
+
+                    # Look for file paths in SMB traffic
+                    filepaths=$(echo "$smb_strings" | grep -oE '[A-Za-z]:\\[A-Za-z0-9_\\ \.-]+' | sort -u | head -10)
+                    if [ -n "$filepaths" ]; then
+                        echo "  [!] File paths detected:"
+                        echo "$filepaths" | sed 's/^/      /'
+                        echo ""
+                    fi
+
+                    # Check for SMBv1 (less secure, may have plaintext)
+                    smbv1=$(echo "$smb_traffic" | strings | grep -i "SMB\|PC NETWORK PROGRAM" | head -3)
+                    if [ -n "$smbv1" ]; then
+                        echo "  [!] SMBv1 traffic detected (legacy protocol, potential security risk)"
+                        echo ""
+                    fi
+
+                    # Extract potential plaintext passwords (SMBv1 without encryption)
+                    # Look for common password field patterns
+                    plaintext=$(echo "$smb_strings" | grep -iE "password|passwd|pwd=" | head -5)
+                    if [ -n "$plaintext" ]; then
+                        echo "  [!!!] POTENTIAL PLAINTEXT CREDENTIALS:"
+                        echo "$plaintext" | sed 's/^/      /'
+                        echo ""
+                    fi
+
+                    echo "  [*] For NTLM hash extraction, analyze pcap with:"
+                    echo "      - Wireshark: File > Export Objects > SMB"
+                    echo "      - hashcat/john for offline cracking"
                 else
                     echo "  None detected"
                 fi
@@ -2855,8 +3053,9 @@ LOG "    [OK] Firewall rules saved"
 # ROGUE DEVICE DETECTION
 # ============================================================================
 
-LOG ""
-LOG "[*] Performing rogue device detection..."
+if [ "$ENABLE_ROGUE_DETECTION" = true ]; then
+    LOG ""
+    LOG "[*] Performing rogue device detection..."
 
 {
     echo "=== ROGUE DEVICE DETECTION ==="
@@ -3207,9 +3406,13 @@ if [ -f "${REPORT_DIR}/analysis/rogue_device_detection.txt" ]; then
 fi
 
 if [ "$ROGUE_FINDINGS" -gt 0 ]; then
-    LOG "    [!] ${ROGUE_FINDINGS} potential security issues detected - REVIEW REQUIRED"
+        LOG "    [!] ${ROGUE_FINDINGS} potential security issues detected - REVIEW REQUIRED"
+    else
+        LOG "    [OK] No rogue devices or security threats detected"
+    fi
 else
-    LOG "    [OK] No rogue devices or security threats detected"
+    LOG ""
+    LOG "[*] Rogue device detection skipped (QUICK scan mode)"
 fi
 
 # ============================================================================
@@ -3457,7 +3660,8 @@ fi
 # GEOLOCATION & PHYSICAL SECURITY
 # ============================================================================
 
-LOG "[*] Collecting geolocation data..."
+if [ "$ENABLE_GEOLOCATION" = true ]; then
+    LOG "[*] Collecting geolocation data..."
 
 {
     echo "=== GEOLOCATION & PHYSICAL SECURITY ==="
@@ -3560,7 +3764,10 @@ LOG "[*] Collecting geolocation data..."
 
 } > "${REPORT_DIR}/analysis/geolocation.txt"
 
-LOG "    [OK] Geolocation data collected"
+    LOG "    [OK] Geolocation data collected"
+else
+    LOG "[*] Geolocation collection skipped (QUICK scan mode)"
+fi
 
 # ============================================================================
 # TIMELINE & HISTORICAL ANALYSIS
@@ -3721,6 +3928,7 @@ LOG "[*] Generating summary report..."
     echo ""
     echo "Collection Timestamp: $(date)"
     echo "Report ID: IR_${TIMESTAMP}"
+    echo "Scan Type: ${SCAN_TYPE} (${SCAN_DURATION_MSG})"
     echo "Report Directory: ${REPORT_DIR}"
     echo ""
     echo "═══════════════════════════════════════════════════════════════════════"
@@ -4181,15 +4389,16 @@ fi
 LED FINISH
 
 LOG ""
-LOG "╔══════════════════════════════════════════════════════════════╗"
-LOG "║          INCIDENT RESPONSE COLLECTION COMPLETE!              ║"
-LOG "╚══════════════════════════════════════════════════════════════╝"
+LOG " ======================================"
+LOG " INCIDENT RESPONSE COLLECTION COMPLETE!"
+LOG " ======================================"
 LOG ""
 if [ -n "$SCAN_LABEL" ]; then
     LOG "[+] Report ID: IR_${TIMESTAMP}_${SANITIZED_LABEL}"
 else
     LOG "[+] Report ID: IR_${TIMESTAMP}"
 fi
+LOG "[+] Scan Type: ${SCAN_TYPE}"
 LOG "[+] Timestamp: $(date)"
 LOG ""
 LOG "Directories:"
@@ -4253,9 +4462,9 @@ FINAL_MIN=$((FINAL_ELAPSED / 60))
 FINAL_SEC=$((FINAL_ELAPSED % 60))
 LOG "Scan Duration: ${FINAL_MIN}m ${FINAL_SEC}s (${FINAL_ELAPSED} seconds)"
 LOG ""
-LOG "╔══════════════════════════════════════════════════════════════╗"
-LOG "║                    HAPPY PENTESTING!                         ║"
-LOG "╚══════════════════════════════════════════════════════════════╝"
+LOG " ================="
+LOG " HAPPY PENTESTING!"
+LOG " ================="
 LOG ""
 
 # Send comprehensive notification alert
