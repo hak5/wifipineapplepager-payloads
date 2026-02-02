@@ -1,22 +1,31 @@
 # NullSec QuickScan
 
-Fast 30-second WiFi environment scan with security analysis for WiFi Pineapple Pager.
+Fast 30-second WiFi environment scan with detailed security analysis.
 
-**Author:** [bad-antics](https://github.com/bad-antics)  
-**GitHub:** [nullsec-pineapple-suite](https://github.com/bad-antics/nullsec-pineapple-suite)  
+## Description
 
-## Features
+Quick reconnaissance scan of all nearby WiFi networks. Displays network count, security type breakdown (WPA3/WPA2/WEP/Open), and prepares environment analysis.
 
-- 30-second fast scan
-- Security breakdown (WPA3/WPA2/WEP/Open)
-- Clean Pager UI integration
+## Requirements
 
-## Part of NullSec Suite
+**aircrack-ng suite** must be installed on your Pineapple Pager:
 
-58 professional WiFi payloads: https://github.com/bad-antics/nullsec-pineapple-suite
+```bash
+opkg update
+opkg install aircrack-ng
+```
 
-## Disclaimer
+## Output
 
-For authorized security testing only.
+- Total network count
+- Security breakdown (WPA3, WPA2, WEP, Open)
+- Quick assessment of WiFi environment
 
-**© 2026 bad-antics**
+## Author
+
+**bad-antics** - [GitHub](https://github.com/bad-antics)
+
+Part of the [NullSec Pineapple Suite](https://github.com/bad-antics/nullsec-pineapple-suite)
+
+---
+*For authorized security testing and educational purposes only.*

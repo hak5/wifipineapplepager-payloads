@@ -1,22 +1,37 @@
 # NullSec HandshakeHunter
 
-Automated WPA/WPA2 handshake capture for WiFi Pineapple Pager.
+Automated WPA/WPA2 handshake capture with deauthentication.
 
-**Author:** [bad-antics](https://github.com/bad-antics)  
-**GitHub:** [nullsec-pineapple-suite](https://github.com/bad-antics/nullsec-pineapple-suite)  
+## Description
+
+Scans for WPA/WPA2 networks, automatically targets the strongest signal, and captures handshakes using deauthentication bursts. Saves captures for offline cracking.
+
+## Requirements
+
+**aircrack-ng suite** must be installed on your Pineapple Pager:
+
+```bash
+opkg update
+opkg install aircrack-ng
+```
 
 ## Features
 
-- Auto target scanning
-- Automated deauth
-- Handshake capture to /mmc/nullsec/handshakes/
+- Auto-scan for WPA/WPA2 networks
+- Automated target selection
+- Deauth bursts to capture handshake
+- Saves to `/mmc/nullsec/handshakes/`
 
-## Part of NullSec Suite
+## Output
 
-58 professional WiFi payloads: https://github.com/bad-antics/nullsec-pineapple-suite
+- Captured `.cap` files ready for cracking with hashcat/aircrack-ng
+- Named with SSID and timestamp for easy identification
 
-## Disclaimer
+## Author
 
-For authorized security testing only.
+**bad-antics** - [GitHub](https://github.com/bad-antics)
 
-**© 2026 bad-antics**
+Part of the [NullSec Pineapple Suite](https://github.com/bad-antics/nullsec-pineapple-suite)
+
+---
+*For authorized security testing and educational purposes only.*

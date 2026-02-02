@@ -3,8 +3,23 @@
 # Author: bad-antics
 # Description: Fast 30-second WiFi environment scan with detailed security analysis
 # Category: Recon
-# Version: 1.0
+# Version: 1.1
+# Requires: aircrack-ng suite (airodump-ng, airmon-ng)
 # GitHub: https://github.com/bad-antics/nullsec-pineapple-suite
+
+# Check dependencies
+if ! command -v airodump-ng >/dev/null 2>&1; then
+    ERROR_DIALOG "Missing aircrack-ng!
+
+This payload requires:
+- airodump-ng
+- airmon-ng
+
+Install via:
+opkg update
+opkg install aircrack-ng"
+    exit 1
+fi
 
 PROMPT "NULLSEC QUICKSCAN
 
@@ -21,14 +36,14 @@ Press OK to start scan."
 
 [ ! -d "/sys/class/net/wlan0" ] && { ERROR_DIALOG "wlan0 not found!"; exit 1; }
 
-SPINNER_START "Scanning 30 seconds..."
-
+SPINNER_START "Enabling monitor..."
 airmon-ng start wlan0 >/dev/null 2>&1
 MON_IF=$(iw dev | grep -oE "wlan[0-9]mon" | head -1)
 [ -z "$MON_IF" ] && MON_IF="wlan0"
+SPINNER_STOP
 
+SPINNER_START "Scanning 30 seconds..."
 timeout 30 airodump-ng "$MON_IF" --write-interval 5 -w /tmp/quickscan --output-format csv 2>/dev/null
-
 SPINNER_STOP
 
 CSV_FILE=$(ls /tmp/quickscan*.csv 2>/dev/null | head -1)
