@@ -1,5 +1,7 @@
 # WiFi Pineapple Payload
 
+<img width="479" height="222" alt="Screenshot 2026-02-01 200448" src="https://github.com/user-attachments/assets/fdb70138-c4cc-4855-9d38-c41acaec6975" />
+
 This repository contains a WiFi Pineapple payload.
 
 
