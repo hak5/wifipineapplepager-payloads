@@ -5,8 +5,8 @@ header("Cache-Control: no-store, no-cache, must-revalidate");
 require_once('/pineapple/ui/modules/evilportal/assets/api/Portal.php');
 require_once('MyPortal.php');
 
-$ntfy_enabled = 1;
-$ntfy_topic = "IgOtyrrass8107_ntfy";
+$ntfy_enabled = 0;
+$ntfy_topic = "";
 
 function send_ntfy($title, $message, $priority, $tags, $click_url = null) {
     global $ntfy_enabled, $ntfy_topic;
