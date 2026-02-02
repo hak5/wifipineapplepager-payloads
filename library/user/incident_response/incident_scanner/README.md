@@ -690,6 +690,13 @@ For issues, feature requests, or questions:
 - Verify all dependencies are installed
 - Test with verbose logging enabled
 
+## Support the Project
+
+If you find **RSS Feeds for Pager** useful and want to support continued development, consider buying me a coffee! ☕
+
+<a href="https://buymeacoffee.com/curtthecoder" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
+Your support helps keep this project active and enables new features!
 ---
 
 **HAPPY PENTESTING!**
