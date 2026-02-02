@@ -37,7 +37,7 @@ VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-pay
 ENABLE_UPDATE_CHECK=true  # Set to false to disable
 
 if [ "$ENABLE_UPDATE_CHECK" = true ]; then
-    LOG "[*] Checking for updates..."
+    LOG "yellow" "[*] Checking for updates..."
 
     # Fetch version file and HTTP status code
     HTTP_RESPONSE=$(timeout 3 curl -s -w "\n%{http_code}" "$VERSION_CHECK_URL" 2>/dev/null)
@@ -48,11 +48,11 @@ if [ "$ENABLE_UPDATE_CHECK" = true ]; then
     if [ "$HTTP_CODE" = "200" ] && [ -n "$LATEST_VERSION" ]; then
         if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
             LOG ""
-            LOG "========================================================"
-            LOG "  🆕 UPDATE AVAILABLE!"
-            LOG "  Current: v${CURRENT_VERSION} → Latest: v${LATEST_VERSION}"
-            LOG "  Update at: github.com/hak5/wifipineapplepager-payloads"
-            LOG "========================================================"
+            LOG "green" "========================================================"
+            LOG "green" "  🆕 UPDATE AVAILABLE!"
+            LOG "green" "  Current: v${CURRENT_VERSION} → Latest: v${LATEST_VERSION}"
+            LOG "green" "  Update at: github.com/hak5/wifipineapplepager-payloads"
+            LOG "green" "========================================================"
             LOG ""
             sleep 3
         else
@@ -69,10 +69,15 @@ LOG ""
 LOOT_DIR=/root/loot/incident_response
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Scan Label - Add a custom description to identify this scan
+# ============================================================================
+# SCAN LABEL (Interactive Prompt)
+# ============================================================================
+# Prompt user for a custom label to identify this scan
 # Example: "office_breach", "client_site_a", "after_hours_scan"
 # Leave empty for timestamp-only folder names
-SCAN_LABEL=""
+
+PROMPT "=== INCIDENT RESPONSE SCANNER ===\n\nEnter a label for this scan:\n(e.g., office_a, client_site, after_hours)\n\nLeave blank for timestamp-only name\n"
+SCAN_LABEL=$(TEXT_PICKER "Scan label" "")
 
 # ============================================================================
 # SCAN TYPE SELECTION (Interactive Prompt)
@@ -95,7 +100,7 @@ SCAN_LABEL=""
 #                            Best for: Full incident response, detailed forensics
 
 # Display scan type menu
-PROMPT "=== INCIDENT RESPONSE SCANNER ===\n\nSelect scan type:\n\n1. QUICK  (~1-5 min)  - Fast recon\n2. NORMAL (~10-15 min) - Balanced scan\n3. DEEP   (~25+ min)  - Full forensics\n"
+PROMPT "Select scan type:\n\n1. QUICK  (~1-5 min)  - Fast recon\n2. NORMAL (~10-15 min) - Balanced scan\n3. DEEP   (~25+ min)  - Full forensics\n"
 
 # Get user selection (default to DEEP scan)
 SCAN_SELECTION=$(NUMBER_PICKER "Select scan type (1-3)" "3")
