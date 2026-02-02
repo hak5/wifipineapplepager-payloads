@@ -739,15 +739,23 @@ LOG " Run goodportal Configure again to restart after reboot or change portals. 
 LOG " Run goodportal Clear Whitelist to reset client whitelist." 
 LOG purple "Installed packages will persist, so running goodportal Configure again will be much faster after initial setup!"
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8a8c91b (Ignore)
 LOG "Forcing captive portal re-detection..."
 
 sleep 2
 
+<<<<<<< HEAD
 # Reset TCP state without breaking DNS
 /etc/init.d/firewall restart
 
 # Restart GoodPortal DNS hijack ONLY (do NOT touch system dnsmasq)
+=======
+/etc/init.d/firewall restart
+
+>>>>>>> 8a8c91b (Ignore)
 if [ -f /tmp/goodportal-dns.pid ]; then
     kill "$(cat /tmp/goodportal-dns.pid)" 2>/dev/null
 fi
@@ -763,6 +771,5 @@ dnsmasq --no-hosts --no-resolv \
 echo $! > /tmp/goodportal-dns.pid
 
 LOG green "SUCCESS: Captive portal re-detection triggered"
-
 
 exit 0
