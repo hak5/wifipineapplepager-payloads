@@ -41,10 +41,17 @@
 #       - Added installation option for pre-built Evil Portals collection (github.com/kleo/evilportals)
 #       - Redirect page after credential capture now waits for internet access instead of fixed delay (with fake progress bar)
 #       - Whitelist now uses IP addresses instead of MAC addresses
+<<<<<<< HEAD
 #    1.3 - Fixed captive portal auto-detection race condition on WiFi Pineapple Pager
 #	- Improved Android captive portal reliability (prevents ERR_SSL_PROTOCOL_ERROR)
 #	- Restart GoodPortal DNS hijack safely without affecting system dnsmasq
 #	- Replaced deprecated ALERT_RINGTONE with ALERT in whitelist monitor
+=======
+    1.3 - Fixed captive portal auto-detection race condition on WiFi Pineapple Pager
+	- Improved Android captive portal reliability (prevents ERR_SSL_PROTOCOL_ERROR)
+	- Restart GoodPortal DNS hijack safely without affecting system dnsmasq
+	- Replaced deprecated ALERT_RINGTONE with ALERT in whitelist monitor
+>>>>>>> 6c811af (Bump GoodPortal version and replace deprecated ALERT_RINGTONE)
 # Todo:
 #   - add portal directory name to credentials log for easier identification
 #   - improve time delay after whitelisting and before client can access internet (currently 60+ seconds as of v1.2)
@@ -739,10 +746,6 @@ LOG " Run goodportal Configure again to restart after reboot or change portals. 
 LOG " Run goodportal Clear Whitelist to reset client whitelist." 
 LOG purple "Installed packages will persist, so running goodportal Configure again will be much faster after initial setup!"
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 8a8c91b (Ignore)
 LOG "Forcing captive portal re-detection..."
 
 sleep 2
