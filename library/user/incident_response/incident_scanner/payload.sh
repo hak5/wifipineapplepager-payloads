@@ -2,7 +2,7 @@
 #
 # Title: Incident Response Forensic Collector
 # Author: curtthecoder - github.com/curthayman
-# Version: 2.0
+# Version: 2.2
 # Category: Incident Response / Penetration Testing
 # Description:   Comprehensive incident response payload that collects network
 #                forensics, system state, connected clients, and traffic samples
@@ -32,7 +32,7 @@ LOG "================================"
 LOG ""
 
 # Version check
-CURRENT_VERSION="2.0"
+CURRENT_VERSION="2.2"
 VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/incident_response/incident_scanner/VERSION"
 ENABLE_UPDATE_CHECK=true  # Set to false to disable
 
@@ -103,7 +103,7 @@ SCAN_LABEL=$(TEXT_PICKER "Scan label" "")
 PROMPT "Select scan type:\n\n1. QUICK  (~1-5 min)  - Fast recon\n2. NORMAL (~10-15 min) - Balanced scan\n3. DEEP   (~25+ min)  - Full forensics\n"
 
 # Get user selection (default to DEEP scan)
-SCAN_SELECTION=$(NUMBER_PICKER "Select scan type (1-3)" "3")
+SCAN_SELECTION=$(NUMBER_PICKER "Select scan type (1-3)" "1")
 
 # Set SCAN_TYPE based on selection
 case $SCAN_SELECTION in
@@ -3037,20 +3037,286 @@ LOG_COUNT=$(ls -1 "${REPORT_DIR}/logs/" 2>/dev/null | wc -l)
 LOG "    [OK] Collected ${LOG_COUNT} log files"
 
 # ============================================================================
-# FIREWALL & IPTABLES RULES
+# FIREWALL RULES (nftables/fw4 + iptables fallback)
 # ============================================================================
 
 LOG "[*] Capturing firewall configuration..."
 
 {
-    echo "=== IPTABLES RULES ==="
-    iptables -L -n -v
+    echo "=== FIREWALL CONFIGURATION ==="
+    echo "Timestamp: $(date)"
     echo ""
-    echo "=== NAT RULES ==="
-    iptables -t nat -L -n -v
-    echo ""
-    echo "=== MANGLE RULES ==="
-    iptables -t mangle -L -n -v
+
+    # Detect firewall backend
+    if check_tool nft || check_tool fw4; then
+        echo "Firewall Backend: nftables/fw4 (OpenWrt 22.03+)"
+        echo ""
+
+        # UCI firewall configuration
+        echo "=== UCI FIREWALL CONFIG (/etc/config/firewall) ==="
+        if [ -f /etc/config/firewall ]; then
+            cat /etc/config/firewall
+        else
+            echo "[!] UCI firewall config not found"
+        fi
+        echo ""
+
+        # Active nftables ruleset with counters
+        echo "=== NFTABLES ACTIVE RULESET (nft list ruleset) ==="
+        if check_tool nft; then
+            nft list ruleset 2>/dev/null || echo "[!] Failed to list nft ruleset"
+        else
+            echo "[!] nft command not available"
+        fi
+        echo ""
+
+        # fw4 print (nftables without counters - cleaner view)
+        echo "=== FW4 RULESET (fw4 print) ==="
+        if check_tool fw4; then
+            fw4 print 2>/dev/null || echo "[!] Failed to run fw4 print"
+        else
+            echo "[!] fw4 command not available"
+        fi
+        echo ""
+
+        # ================================================================
+        # FIREWALL ANALYSIS SUMMARY (Plain English Breakdown)
+        # ================================================================
+        echo "═══════════════════════════════════════════════════════════════"
+        echo "  FIREWALL ANALYSIS SUMMARY"
+        echo "  (Plain English Breakdown)"
+        echo "═══════════════════════════════════════════════════════════════"
+        echo ""
+
+        # Get the nft ruleset for analysis
+        NFT_RULES=$(nft list ruleset 2>/dev/null)
+        UCI_CONFIG=$(cat /etc/config/firewall 2>/dev/null)
+
+        # --- Basic Info ---
+        echo "📋 OVERVIEW"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  Firewall Type: nftables with fw4 (modern OpenWrt firewall)"
+        echo ""
+        echo "  What this means:"
+        echo "    - nftables is the modern Linux firewall (replaces iptables)"
+        echo "    - fw4 is OpenWrt's firewall framework that manages nftables"
+        echo "    - Rules control what network traffic is allowed or blocked"
+        echo ""
+
+        # --- Zone Analysis ---
+        echo "🌐 NETWORK ZONES"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  Zones are groups of network interfaces with shared rules."
+        echo ""
+
+        # Extract LAN info
+        lan_devices=$(echo "$NFT_RULES" | grep -A1 "define lan_devices" | tail -1 | grep -oE '"[^"]+"' | tr -d '"' | tr '\n' ', ' | sed 's/,$//')
+        if [ -z "$lan_devices" ]; then
+            lan_devices=$(echo "$NFT_RULES" | grep 'iifname "br-lan"' | head -1 | grep -oE '"[^"]+"' | tr -d '"')
+        fi
+        lan_subnets=$(echo "$NFT_RULES" | grep -A1 "define lan_subnets" | tail -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' | head -1)
+
+        echo "  🏠 LAN Zone (Your local/client network):"
+        echo "      Interfaces: ${lan_devices:-br-lan}"
+        [ -n "$lan_subnets" ] && echo "      IP Range: $lan_subnets"
+        echo "      Traffic Policy: Usually ACCEPT (trusted network)"
+        echo ""
+
+        # Extract WAN info
+        wan_devices=$(echo "$NFT_RULES" | grep -A1 "define wan_devices" | tail -1 | grep -oE '"[^"]+"' | tr -d '"' | tr '\n' ', ' | sed 's/,$//')
+        wan_subnets=$(echo "$NFT_RULES" | grep -A1 "define wan_subnets" | tail -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' | head -1)
+
+        echo "  🌍 WAN Zone (Internet/upstream network):"
+        echo "      Interfaces: ${wan_devices:-eth1, wlan0cli}"
+        [ -n "$wan_subnets" ] && echo "      IP Range: $wan_subnets"
+        echo "      Traffic Policy: More restrictive (untrusted network)"
+        echo ""
+
+        # --- Default Policies ---
+        echo "🛡️  DEFAULT POLICIES"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  These determine what happens to traffic that doesn't match"
+        echo "  any specific rule."
+        echo ""
+
+        input_policy=$(echo "$NFT_RULES" | grep "chain input {" -A2 | grep "policy" | grep -oE "(accept|drop|reject)")
+        forward_policy=$(echo "$NFT_RULES" | grep "chain forward {" -A2 | grep "policy" | grep -oE "(accept|drop|reject)")
+        output_policy=$(echo "$NFT_RULES" | grep "chain output {" -A2 | grep "policy" | grep -oE "(accept|drop|reject)")
+
+        echo "  INPUT (traffic TO the Pineapple):   ${input_policy:-accept}"
+        echo "  FORWARD (traffic THROUGH Pineapple): ${forward_policy:-drop}"
+        echo "  OUTPUT (traffic FROM the Pineapple): ${output_policy:-accept}"
+        echo ""
+        echo "  Interpretation:"
+        [ "$forward_policy" = "drop" ] && echo "    ✓ Forward policy is DROP - good security default"
+        [ "$input_policy" = "accept" ] && echo "    ⚠ Input policy is ACCEPT - relies on specific rules for protection"
+        echo ""
+
+        # --- NAT/Masquerade ---
+        echo "🔀 NAT (Network Address Translation)"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  NAT allows devices on LAN to access the internet through"
+        echo "  the Pineapple's WAN connection."
+        echo ""
+
+        if echo "$NFT_RULES" | grep -qi "masquerade"; then
+            echo "  ✓ MASQUERADE is ENABLED"
+            echo ""
+            echo "  What this means:"
+            echo "    - Clients connected to the Pineapple CAN access the internet"
+            echo "    - Their traffic appears to come from the Pineapple's IP"
+            echo "    - This is normal for a WiFi access point or router"
+            masq_ifaces=$(echo "$NFT_RULES" | grep -B5 "masquerade" | grep "oifname" | grep -oE '"[^"]+"' | tr -d '"' | tr '\n' ', ' | sed 's/,$//')
+            [ -n "$masq_ifaces" ] && echo "    - Masquerading on: $masq_ifaces"
+        else
+            echo "  ✗ MASQUERADE is DISABLED or not detected"
+            echo ""
+            echo "  What this means:"
+            echo "    - Clients may NOT be able to access the internet"
+            echo "    - Or NAT is configured differently (SNAT)"
+        fi
+        echo ""
+
+        # --- SYN Flood Protection ---
+        echo "🚫 DDOS PROTECTION"
+        echo "────────────────────────────────────────────────────────────────"
+
+        if echo "$NFT_RULES" | grep -q "syn_flood"; then
+            syn_rate=$(echo "$NFT_RULES" | grep -A2 "chain syn_flood" | grep "limit rate" | grep -oE "[0-9]+/second")
+            echo "  ✓ SYN Flood Protection: ENABLED"
+            [ -n "$syn_rate" ] && echo "    Rate limit: $syn_rate"
+            echo ""
+            echo "  What this means:"
+            echo "    - Protection against SYN flood DDoS attacks"
+            echo "    - Excessive connection attempts are dropped"
+        else
+            echo "  ✗ SYN Flood Protection: Not detected"
+        fi
+        echo ""
+
+        # --- Access Control Rules ---
+        echo "🚪 ACCESS CONTROL (Open Ports & Services)"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  These rules control what services are accessible."
+        echo ""
+
+        # Check for admin/SSH restrictions
+        if echo "$NFT_RULES" | grep -q "Allow-Admin-USBC\|Allow-SSH-USBC"; then
+            echo "  🔐 ADMIN PANEL (Port 1471):"
+            echo "      - Accessible via USB-C connection: ✓"
+            echo "      - Accessible via Management interface: ✓"
+            echo "      - Accessible from other WAN sources: ✗ BLOCKED"
+            echo ""
+            echo "  🔐 SSH (Port 22):"
+            echo "      - Accessible via USB-C connection: ✓"
+            echo "      - Accessible via Management interface: ✓"
+            echo "      - Accessible from other WAN sources: ✗ BLOCKED"
+            echo ""
+            echo "  ✓ Good Security: Admin access is restricted to trusted interfaces"
+        fi
+        echo ""
+
+        # Check allowed protocols
+        echo "  📡 ALLOWED PROTOCOLS FROM WAN:"
+        echo "$NFT_RULES" | grep "input_wan" -A50 | grep "accept comment" | grep -oE '!fw4: [^"]+' | sed 's/!fw4: /      ✓ /' | head -10
+        echo ""
+
+        # --- Traffic Counters ---
+        echo "📊 TRAFFIC STATISTICS"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  Packet counters show how much traffic has matched each rule."
+        echo ""
+
+        lan_packets=$(echo "$NFT_RULES" | grep "accept_from_lan" -A3 | grep "counter packets" | grep -oE "packets [0-9]+" | awk '{print $2}')
+        wan_packets=$(echo "$NFT_RULES" | grep "accept_from_wan" -A3 | grep "counter packets" | grep -oE "packets [0-9]+" | awk '{print $2}')
+
+        [ -n "$lan_packets" ] && echo "  LAN → Pineapple: $lan_packets packets"
+        [ -n "$wan_packets" ] && echo "  WAN → Pineapple: $wan_packets packets"
+        echo ""
+
+        # --- Security Assessment ---
+        echo "🎯 SECURITY ASSESSMENT"
+        echo "────────────────────────────────────────────────────────────────"
+        echo ""
+
+        sec_issues=0
+
+        # Check for security concerns
+        if [ "$forward_policy" = "accept" ]; then
+            echo "  ⚠ WARNING: Forward policy is ACCEPT (allows all forwarding)"
+            sec_issues=$((sec_issues + 1))
+        else
+            echo "  ✓ Forward policy is restrictive (DROP)"
+        fi
+
+        if echo "$NFT_RULES" | grep -qi "masquerade"; then
+            echo "  ✓ NAT/Masquerade is properly configured"
+        else
+            echo "  ⚠ WARNING: NAT may not be configured"
+            sec_issues=$((sec_issues + 1))
+        fi
+
+        if echo "$NFT_RULES" | grep -q "syn_flood"; then
+            echo "  ✓ DDoS protection (SYN flood) is enabled"
+        else
+            echo "  ⚠ WARNING: No SYN flood protection detected"
+            sec_issues=$((sec_issues + 1))
+        fi
+
+        if echo "$NFT_RULES" | grep -q "Reject-Admin\|Reject-SSH"; then
+            echo "  ✓ Admin/SSH access is restricted"
+        else
+            echo "  ⚠ WARNING: Admin/SSH may be exposed to WAN"
+            sec_issues=$((sec_issues + 1))
+        fi
+
+        if echo "$NFT_RULES" | grep -q "ct state invalid.*drop"; then
+            echo "  ✓ Invalid connection states are dropped (NAT leak prevention)"
+        fi
+
+        echo ""
+        if [ "$sec_issues" -eq 0 ]; then
+            echo "  ══════════════════════════════════════════"
+            echo "  RESULT: Firewall configuration looks GOOD"
+            echo "  ══════════════════════════════════════════"
+        else
+            echo "  ══════════════════════════════════════════"
+            echo "  RESULT: $sec_issues potential issue(s) found"
+            echo "  ══════════════════════════════════════════"
+        fi
+        echo ""
+
+        # --- Quick Reference ---
+        echo "📖 QUICK REFERENCE"
+        echo "────────────────────────────────────────────────────────────────"
+        echo "  Common terms explained:"
+        echo ""
+        echo "  • ACCEPT  = Allow the traffic through"
+        echo "  • DROP    = Silently discard the traffic (no response)"
+        echo "  • REJECT  = Block traffic and send error back to sender"
+        echo "  • MASQUERADE = Hide internal IPs behind Pineapple's IP"
+        echo "  • SNAT/DNAT = Source/Destination NAT (IP translation)"
+        echo "  • Chain   = A list of rules checked in order"
+        echo "  • Policy  = Default action if no rules match"
+        echo ""
+        echo "═══════════════════════════════════════════════════════════════"
+        echo ""
+
+    else
+        echo "Firewall Backend: iptables (legacy)"
+        echo ""
+
+        # Legacy iptables support
+        echo "=== IPTABLES RULES ==="
+        iptables -L -n -v 2>/dev/null || echo "[!] iptables not available"
+        echo ""
+        echo "=== NAT RULES ==="
+        iptables -t nat -L -n -v 2>/dev/null || echo "[!] iptables nat table not available"
+        echo ""
+        echo "=== MANGLE RULES ==="
+        iptables -t mangle -L -n -v 2>/dev/null || echo "[!] iptables mangle table not available"
+    fi
+
 } > "${REPORT_DIR}/network/firewall_rules.txt"
 LOG "    [OK] Firewall rules saved"
 
@@ -3333,13 +3599,23 @@ if [ "$ENABLE_ROGUE_DETECTION" = true ]; then
     fi
     echo ""
 
-    # Check NAT rules with better detection
+    # Check NAT rules with better detection (nftables/fw4 or iptables)
     echo "  NAT/Masquerade Rules:"
-    nat_output=$(iptables -t nat -L -n -v 2>/dev/null)
 
-    masq_count=$(echo "$nat_output" | grep -c "MASQUERADE"); masq_count=${masq_count:-0}
-    snat_count=$(echo "$nat_output" | grep -c "SNAT"); snat_count=${snat_count:-0}
-    dnat_count=$(echo "$nat_output" | grep -c "DNAT"); dnat_count=${dnat_count:-0}
+    # Try nftables first (OpenWrt 22.03+ / Pager)
+    if check_tool nft; then
+        nat_output=$(nft list ruleset 2>/dev/null)
+        masq_count=$(echo "$nat_output" | grep -ci "masquerade"); masq_count=${masq_count:-0}
+        snat_count=$(echo "$nat_output" | grep -ci "snat"); snat_count=${snat_count:-0}
+        dnat_count=$(echo "$nat_output" | grep -ci "dnat"); dnat_count=${dnat_count:-0}
+    else
+        # Fallback to iptables
+        nat_output=$(iptables -t nat -L -n -v 2>/dev/null)
+        masq_count=$(echo "$nat_output" | grep -c "MASQUERADE"); masq_count=${masq_count:-0}
+        snat_count=$(echo "$nat_output" | grep -c "SNAT"); snat_count=${snat_count:-0}
+        dnat_count=$(echo "$nat_output" | grep -c "DNAT"); dnat_count=${dnat_count:-0}
+    fi
+
     total_nat=$((masq_count + snat_count + dnat_count))
 
     echo "    - MASQUERADE rules: $masq_count"
