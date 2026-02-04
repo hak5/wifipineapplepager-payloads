@@ -2,7 +2,7 @@
 
 *Author:* **curtthecoder**
 
-*Version:* **2.0**
+*Version:* **2.2**
 ## _Description_
 
 A comprehensive incident response and penetration testing payload for the Pineapple Pager that performs extensive network reconnaissance, forensic collection, and security analysis. This payload includes advanced features specifically designed for professional penetration testing engagements.
@@ -348,7 +348,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 ```
 ════════════════════════════════════════════════════════
   🆕 UPDATE AVAILABLE!
-  Current: v2.0 → Latest: v2.1
+  Current: v2.2 → Latest: v2.3
   Update at: github.com/hak5/wifipineapplepager-payloads
 ════════════════════════════════════════════════════════
 ```
@@ -356,7 +356,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 **Example output when up-to-date:**
 ```
 [*] Checking for updates...
-    [OK] Running latest version (v2.0)
+    [OK] Running latest version (v2.2)
 ```
 
 ## _Output Structure_
@@ -661,7 +661,7 @@ The payload automatically calculates a risk score based on findings:
 ## _Credits_
 
 - **Author**: curtthecoder
-- **Version**: 2.0
+- **Version**: 2.2
 - **Tools**: tcpdump, iw, hcitool, various network utilities
 
 ## _Changelog_
