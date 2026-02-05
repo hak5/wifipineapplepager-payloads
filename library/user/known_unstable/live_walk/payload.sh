@@ -9,21 +9,27 @@ IFACE="wlan1mon"
 PREFIX="walk_$(date +%H%M)"
 FULL_PATH="$LOOTDIR/$PREFIX-01.csv"
 
-# Log systems
-cleanup() {
-    LOG "!!!"
-    LOG "Stopping Capture..."
-    kill "$PID" 2>/dev/null
-    killall airodump-ng > /dev/null 2>&1
-    LOG "Saved: $PREFIX"
-    exit 0
-}
+LOG "If LEDS are RED. Pager is installing Aircrack-ng."
+
+#checking for Aircrack-NG
+if ! command -v aircrack-ng &> /dev/null; then
+    LOG "Aircrack-ng not found. Initiating install..."
+    LED red solid
+    opkg update
+    opkg install aircrack-ng
+    LOG "Installation complete."
+    LED finish
+else
+    LOG "Aircrack-ng is already present. Proceeding to attack."
+    LED green solid
+    LED finish
+fi
 
 # Startup
 killall -9 airodump-ng > /dev/null 2>&1
 killall -9 pineapd > /dev/null 2>&1
-VIBRATE 50 100
-LED B 100
+VIBRATE "alert"
+LED cyan pulse
 LOG "Live Walk Started..."
 LOG "To exit: Back out and logs will be auto saved from the last capture"
 LOG "Loot Location: $LOOTDIR"
@@ -40,3 +46,13 @@ while kill -0 "$PID" 2>/dev/null; do
     LOG "Active | Loot size: $SIZE"
     sleep 30
 done
+
+# Log systems
+cleanup() {
+    LOG "!!!"
+    LOG "Stopping Capture..."
+    kill "$PID" 2>/dev/null
+    killall airodump-ng > /dev/null 2>&1
+    LOG "Saved: $PREFIX"
+    exit 0
+}
