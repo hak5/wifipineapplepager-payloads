@@ -1,7 +1,8 @@
 #!/bin/sh
-# TITLE: Wigle Stats
-# AUTHOR Nomaran
-# DESCRIPTION Looks at the most recent Wigle.csv file and counts the amount of auth types and estimated distance traveled
+# Title: Wigle Stats
+# Author: Nomaran
+# Description: Looks at the most recent Wigle.csv file and counts the amount of auth types and estimated distance traveled
+# Version: 1.0.0
 
 # Check is Python is installed
 user_confirmed() {
