@@ -2,20 +2,36 @@
 
 All notable changes to Nautilus will be documented in this file.
 
+## [1.8.5] - 2026-02-05
+
+### Fixed
+
+- **Ringtone Install from Merged/PRs**: Fixed "Install Locally" button for ringtones - now properly accepts `wifipineapplepager-ringtones` repo URLs and installs `.rtttl` files to `/root/ringtones/`
+- **PR Ringtone Validation**: Fixed PR file validation that was rejecting ringtone PRs with "No .rtttl files found" error
+- **PR Cache by Resource Type**: PR file cache now includes resource type in key, preventing stale cache when switching between Payloads/Themes/Ringtones tabs
+- **Theme PR Support**: Added proper file filtering and name extraction for theme PRs (`theme.json`)
+- **Install Connection Timeout**: Added heartbeat messages during Git operations and payload downloads to prevent browser EventSource timeout ("Install connection lost" error)
+- **Orphaned Git Processes**: Git processes and background tasks are now properly killed when install fails or is cancelled
+- **uhttpd Timeout Fix**: Increased uhttpd CGI timeout in `nautilus.init` from 60s to 300s for background service mode to support large payload installs
+
 ## [1.8.4] - 2026-02-05
 
 ### Added
 
 - **Loot Browser**: New resource type for browsing `/root/loot/` files
   - Live scanning - no refresh needed, files load instantly when switching to Loot tab
-  - Download individual files or all loot as ZIP archive
+  - Download individual files or all loot as ZIP archive **(Broken for now)**
   - View file contents directly in console
   - Delete loot files
   - Full subdirectory path shown as categories
+- **Live Resource Scanning**: Payloads, Themes, and Ringtones now scan locally in real-time (like Loot), eliminating the need for manual refreshes and preventing stale file lists after installation or deletion.
 
 ### Fixed
 
+**Thank you A.I. Gemini for the help with the theme installation and performance issues.**
 - **Theme Install from Merged**: Fixed "Locally Install" button for themes from Merged tab - now properly accepts `wifipineapplepager-themes` repo URLs and installs to `/root/themes/`
+- **Theme Installation Performance**: Switched theme installation to use **Git Sparse Checkout** (downloading only specific files) instead of full repo tarballs, fixing OOM freezes.
+- **Theme Deletion**: Fixed "Delete" action for local themes not working (now correctly identifies and removes the theme directory)
 
 ## [1.8.3] - 2026-01-30
 

@@ -4,7 +4,7 @@
 # Description: Web-based payload launcher with live console output and GitHub integration
 # Author: JustSomeTrout (Trout / troot.)
 # Co-Author: Z3r0L1nk
-# Version: 1.8.4
+# Version: 1.8.5
 # Firmware: Developed for Firmware version 1.0.6
 #
 # Runs uhttpd with CGI to browse and execute payloads from your browser.
@@ -37,7 +37,7 @@ LOG "cyan" '|║║║╠═╣║-║-║-║║--║-║╚═╗|'
 LOG "cyan" '|╝╚╝╩-╩╚═╝-╩-╩╩═╝╚═╝╚═╝|'
 LOG "cyan" '+======================+'
 LOG ""
-LOG "v1.8.4"
+LOG "v1.8.5"
 LOG ""
 LOG "yellow" '|   ~ Web Payload Launcher ~    |'
 LOG ""

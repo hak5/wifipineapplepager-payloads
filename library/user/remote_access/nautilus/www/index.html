@@ -2985,24 +2985,60 @@
         switchTab('local');
         loadLootLive();
       } else {
-        payloads = allData[res] || {};
-        filtered = payloads;
-        render();
+        // Load live local data if on local tab
+        if (currentTab === 'local') {
+          loadLocalResourceLive(res);
+        } else {
+          // Fallback to cache while switching to non-local tab
+          payloads = allData[res] || {};
+          filtered = payloads;
+          render();
+        }
+
         const resLabel = res.charAt(0).toUpperCase() + res.slice(1);
         $('searchBox').placeholder = 'Search ' + resLabel.toLowerCase() + '...';
         $('searchBoxMerged').placeholder = 'Search GitHub ' + resLabel.toLowerCase() + '...';
-        const total = Object.values(payloads).flat().length;
-        $('status').textContent = 'Ready • ' + total + ' ' + resLabel.toLowerCase();
+        
         // Clear cached data for new resource
         githubPayloads = {};
         filteredGithub = {};
         githubPRs = [];
         filteredPRs = [];
-        loadGithubPayloads();
-        loadGithubPRs();
+        
+        if (currentTab === 'merged') loadGithubPayloads();
+        if (currentTab === 'prs') loadGithubPRs();
+
         // Remove loot header if exists
         const lootHeader = document.getElementById('lootHeader');
         if (lootHeader) lootHeader.remove();
+      }
+    }
+
+    async function loadLocalResourceLive(type) {
+      $('status').textContent = 'Scanning ' + type + '...';
+      try {
+        const resp = await fetch('cgi-bin/api.sh?action=scan_local&path=' + encodeURIComponent(type));
+        const data = await resp.json();
+        
+        allData[type] = data;
+        
+        if (currentResource === type && currentTab === 'local') {
+          payloads = data;
+          filtered = payloads;
+          render();
+          
+          const total = Object.values(payloads).flat().length;
+          const resLabel = type.charAt(0).toUpperCase() + type.slice(1);
+          $('status').textContent = 'Ready • ' + total + ' ' + resLabel.toLowerCase();
+        }
+      } catch (e) {
+        console.error(e);
+        if (currentResource === type && currentTab === 'local') {
+          $('status').textContent = 'Error loading ' + type;
+          payloads = {};
+          filtered = {};
+          render();
+        }
       }
     }
 
@@ -3047,6 +3083,12 @@
       document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === 'tab-' + tab));
       selected = null;
       renderDetail();
+      
+      if (tab === 'local') {
+        if (currentResource === 'loot') loadLootLive();
+        else loadLocalResourceLive(currentResource);
+      }
+      
       if (tab === 'merged' && Object.keys(githubPayloads).length === 0) loadGithubPayloads();
       if (tab === 'prs' && githubPRs.length === 0) loadGithubPRs();
       if (tab === 'favourites') renderFavourites();
@@ -3575,20 +3617,30 @@
 
       // Determine file filter based on resource type
       const isRingtones = currentResource === 'ringtones';
-      const fileFilter = isRingtones ? f => f.filename.endsWith('.rtttl') : f => f.filename.endsWith('payload.sh');
-      const itemLabel = isRingtones ? 'Ringtones' : 'Payloads';
-      const noFilesMsg = isRingtones ? '[GitHub] No .rtttl files found in this PR' : '[GitHub] No payload.sh files found in this PR';
-      const structureMsg = isRingtones ? 'PRs must follow the structure: ringtones/<name>.rtttl' : 'PRs must follow the structure: library/user/category/name/payload.sh';
+      const isThemes = currentResource === 'themes';
+      const fileFilter = isRingtones ? f => f.filename.endsWith('.rtttl') : 
+                         isThemes ? f => f.filename.endsWith('theme.json') : 
+                         f => f.filename.endsWith('payload.sh');
+      const itemLabel = isRingtones ? 'Ringtones' : isThemes ? 'Themes' : 'Payloads';
+      const noFilesMsg = isRingtones ? '[GitHub] No .rtttl files found in this PR' : 
+                         isThemes ? '[GitHub] No theme.json files found in this PR' :
+                         '[GitHub] No payload.sh files found in this PR';
+      const structureMsg = isRingtones ? 'PRs must follow the structure: ringtones/<name>.rtttl' : 
+                           isThemes ? 'PRs must follow the structure: themes/<name>/theme.json' :
+                           'PRs must follow the structure: library/user/category/name/payload.sh';
 
-      if (cache[number]) {
-        prFiles = cache[number].files;
+      // Cache key includes resource type to avoid serving wrong cached data
+      const cacheKey = `${number}_${currentResource}`;
+      if (cache[cacheKey]) {
+        prFiles = cache[cacheKey].files;
       } else {
         try {
           const resp = await fetch(`${GITHUB_API}/repos/${repo}/pulls/${number}/files`);
           if (!resp.ok) throw new Error('API error');
           const files = await resp.json();
           prFiles = files.filter(fileFilter).map(f => ({ filename: f.filename, sha: f.sha }));
-          setPRFilesCache(number, prFiles);
+          cache[cacheKey] = { files: prFiles, timestamp: Date.now() };
+          localStorage.setItem(CACHE_KEY_PR_FILES, JSON.stringify(cache));
         } catch (e) {
           $('detail').querySelector('.github-loading')?.remove();
           $('detail').innerHTML += '<p style="color:var(--danger);margin-top:12px">Error loading PR files</p>';
@@ -3617,10 +3669,12 @@
       const forkRepo = pr.forkRepo || repo;
       let html = '<div style="margin-top:16px"><h3 style="font-size:0.9em;color:var(--text2);margin-bottom:8px">' + itemLabel + ' in this PR:</h3>';
       for (const f of prFiles) {
-        const name = isRingtones ? f.filename.replace(/^ringtones\//, '').replace('.rtttl', '') : (f.filename.split('/').slice(-2, -1)[0] || f.filename);
+        const name = isRingtones ? f.filename.replace(/^ringtones\//, '').replace('.rtttl', '') : 
+                     isThemes ? f.filename.split('/').slice(-2, -1)[0] || f.filename.replace('/theme.json', '') :
+                     (f.filename.split('/').slice(-2, -1)[0] || f.filename);
         html += '<div class="payload pr-payload" data-pr-sha="' + escHtml(pr.sha) + '" data-pr-file="' + escHtml(f.filename) + '" style="margin:4px 0" onclick="selectPRPayload(this,\'' + escHtml(pr.sha) + '\',\'' + escHtml(f.filename) + '\',\'' + escHtml(name) + '\',\'' + escHtml(forkRepo) + '\')"><div class="name">' + escHtml(name) + '</div><div class="desc">' + escHtml(f.filename) + '</div></div>';
       }
-      const runBtnLabel = isRingtones ? 'Play Ringtone' : 'Run Payload';
+      const runBtnLabel = isRingtones ? 'Play Ringtone' : isThemes ? 'Apply Theme' : 'Run Payload';
       html += '</div><div id="prPayloadActions" style="display:none;margin-top:12px"><div class="btn-row"><button class="btn" id="runBtn" onclick="runSelectedPRPayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span id="runBtnText">' + runBtnLabel + '</span></button><button class="btn secondary" id="sourceBtn" onclick="togglePRSource()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg><span id="prSourceBtnText">View Source</span></button></div><button class="btn secondary btn-half" id="installPRBtn" onclick="installSelectedPRPayload()"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Install Locally</button></div>';
       $('detail').innerHTML += html;
       updateRunBtn();
@@ -4215,31 +4269,31 @@
     }
 
     async function load() {
-      try {
-        const r = await fetch('/cgi-bin/api.sh?action=list');
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const text = await r.text();
-        allData = JSON.parse(text);
-        // Handle both old format (flat) and new format (nested by resource type)
-        if (allData.payloads || allData.alerts || allData.recon || allData.themes || allData.ringtones) {
-          payloads = allData[currentResource] || {};
+      // If we are on the local tab, load the current resource live
+      if (currentTab === 'local') {
+        if (currentResource === 'loot') {
+          await loadLootLive();
         } else {
-          // Old format compatibility - treat as payloads
-          allData = { payloads: allData, alerts: {}, recon: {}, themes: {}, ringtones: {} };
-          payloads = allData.payloads;
+          await loadLocalResourceLive(currentResource);
         }
-        filtered = payloads;
-        render();
-        const total = Object.values(payloads).flat().length;
-        const resLabel = currentResource.charAt(0).toUpperCase() + currentResource.slice(1);
-        $('status').textContent = 'Ready • ' + total + ' ' + resLabel.toLowerCase();
-        loadWifiStatus();
-        loadFavourites();
-      } catch (e) {
-        $('status').textContent = 'Error: ' + e.message;
-        $('status').classList.add('error');
-        console.error(e);
+      } else {
+        try {
+          const r = await fetch('/cgi-bin/api.sh?action=list');
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          const text = await r.text();
+          allData = JSON.parse(text);
+          // Handle both old format (flat) and new format (nested by resource type)
+          if (!allData.payloads && !allData.alerts && !allData.recon && !allData.themes && !allData.ringtones) {
+            // Old format compatibility - treat as payloads
+            allData = { payloads: allData, alerts: {}, recon: {}, themes: {}, ringtones: {} };
+          }
+        } catch (e) {
+          console.error(e);
+        }
       }
+      
+      loadWifiStatus();
+      loadFavourites();
     }
 
     function render() {
@@ -4321,6 +4375,10 @@
       const sizes = ['B', 'KB', 'MB', 'GB'];
       const i = Math.floor(Math.log(bytes) / Math.log(k));
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    async function refreshPayloads() {
+      await load();
     }
 
     async function downloadLoot() {
@@ -4503,11 +4561,7 @@
             $('console').appendChild(line);
             lineCount++;
             $('lineCount').textContent = lineCount + ' lines';
-            const listResp = await fetch('/cgi-bin/api.sh?action=list');
-            const listData = await listResp.json();
-            payloads = listData;
-            filtered = payloads;
-            render();
+            await refreshPayloads();
             $('detail').innerHTML = '<div class="empty">Select a payload</div>';
             selected = null;
           }
