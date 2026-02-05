@@ -29,7 +29,7 @@ Core reconnaissance - fast snapshot of the environment:
 - Network Configuration (interfaces, routing, ARP, connections)
 - WiFi Scan (nearby networks with basic security info)
 - DHCP Leases
-- Firewall Rules (iptables)
+- Firewall Rules (nftables)
 - Log Collection
 
 #### NORMAL Scan (~10-15 min)
@@ -76,7 +76,7 @@ Use the number picker to select your preferred scan depth. The default is DEEP (
 - **Wireless Analysis**: Scans WiFi environment and analyzes connected clients
 - **Traffic Capture**: Records network traffic across all interfaces with configurable duration
 - **DHCP Analysis**: Collects and analyzes DHCP lease information
-- **Firewall Auditing**: Captures iptables rules across all tables
+- **Firewall Auditing**: Captures nftables rules across all tables
 
 ### Advanced Features
 
@@ -372,7 +372,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 │   ├── connections.txt          # Active connections
 │   ├── dns_info.txt            # DNS configuration
 │   ├── dhcp_leases.txt         # DHCP lease information
-│   └── firewall_rules.txt      # iptables rules
+│   └── firewall_rules.txt      # nftables rules
 ├── wireless/
 │   ├── wireless_info.txt       # Interface information
 │   ├── wifi_scan.txt           # Nearby networks
@@ -426,7 +426,7 @@ Set `ENABLE_UPDATE_CHECK=false` in the configuration section of `payload.sh`
 - ifconfig / ip
 - arp
 - netstat / ss
-- iptables
+- nftables
 
 ### Enhanced Features (Optional)
 
