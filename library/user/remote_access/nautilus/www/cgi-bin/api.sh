@@ -1185,9 +1185,9 @@ install_github() {
             # Send heartbeat while git is running
             heartbeat_count=0
             while kill -0 $(cat "$GIT_PID_FILE") 2>/dev/null; do
-                sleep 2
+                sleep 10
                 heartbeat_count=$((heartbeat_count + 1))
-                printf 'data: {"text":"[cyan] [Install] Git cloning... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 2))
+                printf 'data: {"text":"[cyan] [Install] Git cloning... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 10))
             done
             
             git_exit=$(cat "$GIT_STATUS_FILE" 2>/dev/null || echo "1")
@@ -1584,9 +1584,9 @@ install_pr() {
                 # Send heartbeat while git is running
                 heartbeat_count=0
                 while kill -0 $(cat "$GIT_PID_FILE") 2>/dev/null; do
-                    sleep 2
+                    sleep 10
                     heartbeat_count=$((heartbeat_count + 1))
-                    printf 'data: {"text":"[cyan] [Install] Git fetching PR... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 2))
+                    printf 'data: {"text":"[cyan] [Install] Git fetching PR... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 10))
                 done
                 
                 git_exit=$(cat "$GIT_STATUS_FILE" 2>/dev/null || echo "1")
