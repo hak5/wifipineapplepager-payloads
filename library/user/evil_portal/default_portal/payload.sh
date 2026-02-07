@@ -1,8 +1,8 @@
 #!/bin/bash
 # Name: Default Portal
-# Description: Deactivates current portal and activates the Default captive portal
-# Author: PentestPlaybook
-# Version: 1.0
+# Description: Activates the Default captive portal using /root/portals/current
+# Author: PentestPlaybook / 0x4B
+# Version: 2.0
 # Category: Evil Portal
 
 # ====================================================================
@@ -15,7 +15,10 @@ else
 fi
 
 LOG "Detected Portal IP: ${PORTAL_IP}"
-PORTAL_DIR="/root/portals/Default"
+PORTALS_ROOT="/root/portals/"
+PORTAL_NAME="Default"
+PORTAL_DIR="${PORTALS_ROOT}/${PORTAL_NAME}"
+CURRENT_LINK="${PORTALS_ROOT}/current"
 
 # ====================================================================
 # STEP 0: Verify Evil Portal is Installed
@@ -49,24 +52,24 @@ fi
 LOG "SUCCESS: Default portal found"
 
 # ====================================================================
-# STEP 2: Activate Portal via Symlinks
+# STEP 2: Update current portal symlink
 # ====================================================================
-LOG "Step 2: Activating Default portal via symlinks..."
+LOG "Step 2: Switching active portal to '${PORTAL_NAME}'..."
 
-# Clear /www
-rm -rf /www/*
+ln -sfn "${PORTAL_DIR}" "${CURRENT_LINK}"
 
-# Create symlinks for PHP files
-ln -sf "${PORTAL_DIR}/index.php" /www/index.php
-ln -sf "${PORTAL_DIR}/MyPortal.php" /www/MyPortal.php
-ln -sf "${PORTAL_DIR}/helper.php" /www/helper.php
+if [ $? -ne 0 ]; then
+    LOG "ERROR: Failed to update current portal symlink"
+    exit 1
+fi
 
-# Create symlinks for captive portal detection
-ln -sf "${PORTAL_DIR}/generate_204.html" /www/generate_204
-ln -sf "${PORTAL_DIR}/hotspot-detect.html" /www/hotspot-detect.html
+# Restore captiveportal symlink if missing
 
-# Restore captiveportal symlink
-ln -sf /pineapple/ui/modules/evilportal/assets/api /www/captiveportal
+if [ ! -L /www/captiveportal ]; then
+    LOG "WARNING: captiveportal symlink missing"
+    LOG "Restoring captiveportal symlink"
+    ln -sfn /pineapple/ui/modules/evilportal/assets/api /www/captiveportal
+fi
 
 LOG "SUCCESS: Portal activated via symlinks"
 
@@ -99,8 +102,9 @@ fi
 LOG "=================================================="
 LOG "Default Portal Activated!"
 LOG "=================================================="
-LOG "Portal URL: http://${PORTAL_IP}/"
-LOG "Portal files: ${PORTAL_DIR}/"
-LOG "Active via symlinks in: /www/"
+LOG "Portal Name : ${PORTAL_NAME}"
+LOG "Portal Path : ${PORTAL_DIR}"
+LOG "Active Link : ${CURRENT_LINK}"
+LOG "Portal URL  : http://${PORTAL_IP}/"
 LOG "=================================================="
 exit 0
