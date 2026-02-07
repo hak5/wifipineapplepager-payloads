@@ -53,6 +53,7 @@ done
 
 # No valid ringtones found
 if [ "$found_ringtone" = false ]; then
+	STOP_SPINNER ${spinnerid}
 	LOG red "Error: no valid ringtone files found in $RINGTONE_DIR"
 	LOG red "Expected format like:"
 	LOG red "  Achievement:d=16,o=5,b=125:c6,e6,g6,c7,e7,g7"
