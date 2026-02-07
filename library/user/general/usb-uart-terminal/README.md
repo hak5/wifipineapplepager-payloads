@@ -2,7 +2,7 @@
 
 > Display serial output from a USB UART adapter on the WiFi Pineapple Pager screen.
 
-<img src="UARTPager.png" width="757" />
+<img src="UARTPager.png" width="378" />
 
 **Author:** Samxplogs — [GitHub](https://github.com/samxplogs) · [YouTube](https://www.youtube.com/@samxplogs)
 
