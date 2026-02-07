@@ -1,5 +1,7 @@
 # USB UART Terminal
 
+https://github.com/samxplogs/wifipineapplepager-payloads/blob/master/library/user/general/usb-uart-terminal/UARTPager.png?raw=true
+
 > Display serial output from a USB UART adapter on the WiFi Pineapple Pager screen.
 
 **Author:** Samxplogs — [GitHub](https://github.com/samxplogs) · [YouTube](https://www.youtube.com/@samxplogs)
