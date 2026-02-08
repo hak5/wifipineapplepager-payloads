@@ -313,6 +313,48 @@ LOG "[+] Created report directory"
 LOG ""
 
 # ============================================================================
+# INTERFACE CHECK - Warn if not connected to target WiFi
+# ============================================================================
+# Check if wlan1 or wlan0 are in managed mode (connected to target network)
+# If only wlan0cli is available, the pager is using its upstream/management
+# interface which means limited scan results (no internal network visibility)
+
+CONNECTED_TO_TARGET=false
+for check_iface in wlan1 wlan0; do
+    if iw dev "$check_iface" info 2>/dev/null | grep -q "type managed"; then
+        # Check if this interface actually has an IP (connected to a network)
+        if ip addr show "$check_iface" 2>/dev/null | grep -q "inet "; then
+            CONNECTED_TO_TARGET=true
+            SCAN_INTERFACE_NAME="$check_iface"
+            break
+        fi
+    fi
+done
+
+if [ "$CONNECTED_TO_TARGET" = false ]; then
+    LOG ""
+    LOG "yellow" "========================================================"
+    LOG "yellow" "  WARNING: NOT CONNECTED TO TARGET WIFI"
+    LOG "yellow" "========================================================"
+    LOG "yellow" "  You are scanning via the pager's management interface"
+    LOG "yellow" "  (wlan0cli) which provides LIMITED visibility."
+    LOG "yellow" ""
+    LOG "yellow" "  You will MISS:"
+    LOG "yellow" "    - Internal network client enumeration"
+    LOG "yellow" "    - Connected device fingerprinting"
+    LOG "yellow" "    - Internal traffic capture & credentials"
+    LOG "yellow" "    - Rogue device detection on the LAN"
+    LOG "yellow" "    - Service discovery (mDNS, NetBIOS, SMB)"
+    LOG "yellow" "    - Deep packet analysis of target traffic"
+    LOG "yellow" ""
+    LOG "yellow" "  For full results, connect to the target WiFi first:"
+    LOG "yellow" "    Networking > WiFi Client Mode > Connect"
+    LOG "yellow" "========================================================"
+    LOG ""
+    sleep 5
+fi
+
+# ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
 
@@ -353,11 +395,14 @@ LED ATTACK
 # SYSTEM INFORMATION COLLECTION
 # ============================================================================
 
-LOG "[*] Collecting system information..."
+LOG "[*] Collecting scanning device & target environment info..."
 
-# System details
+# Scanning device details (chain-of-custody / forensic context)
 {
-    echo "=== SYSTEM INFORMATION ==="
+    echo "=== SCANNING DEVICE INFORMATION ==="
+    echo "Purpose: Documents the device used to perform this scan"
+    echo "         (for forensic chain-of-custody and resource awareness)"
+    echo ""
     echo "Timestamp: $(date)"
     echo "Hostname: $(hostname)"
     echo "Uptime: $(uptime)"
@@ -373,8 +418,126 @@ LOG "[*] Collecting system information..."
     echo ""
     echo "=== RUNNING PROCESSES ==="
     ps aux
-} > "${REPORT_DIR}/system/system_info.txt"
-LOG "    [OK] System info saved"
+} > "${REPORT_DIR}/system/scanner_device.txt"
+LOG "    [OK] Scanner device info saved"
+
+# Target network environment details (the actual pen test intel)
+{
+    echo "=== TARGET NETWORK ENVIRONMENT ==="
+    echo "Purpose: Network environment the Pager is connected to / scanning"
+    echo "Timestamp: $(date)"
+    echo ""
+
+    # Connected WiFi network
+    echo "=== CONNECTED WIFI NETWORK ==="
+    CONNECTED_SSID=""
+    for iface in wlan1 wlan0; do
+        ssid_info=$(iw dev "$iface" link 2>/dev/null)
+        if echo "$ssid_info" | grep -q "Connected to"; then
+            CONNECTED_SSID=$(echo "$ssid_info" | grep "SSID:" | awk '{print $2}')
+            echo "  Interface: $iface"
+            echo "$ssid_info" | sed 's/^/  /'
+            echo ""
+            break
+        fi
+    done
+    if [ -z "$CONNECTED_SSID" ]; then
+        echo "  [!] Not connected to a target WiFi network"
+        echo "  [!] Scanning via management interface (wlan0cli) - limited visibility"
+        echo ""
+    fi
+
+    # Default gateway (target network's router)
+    echo "=== DEFAULT GATEWAY ==="
+    GW_IP=$(ip route | grep default | awk '{print $3}' | head -1)
+    GW_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
+    if [ -n "$GW_IP" ]; then
+        echo "  Gateway IP: $GW_IP"
+        echo "  Via Interface: $GW_IFACE"
+        # Try to get gateway MAC
+        GW_MAC=$(arp -a 2>/dev/null | grep "$GW_IP" | grep -oE '([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}' | head -1)
+        if [ -n "$GW_MAC" ]; then
+            echo "  Gateway MAC: $GW_MAC"
+            GW_VENDOR=$(lookup_mac_vendor "$GW_MAC")
+            echo "  Gateway Vendor: $GW_VENDOR"
+        fi
+        # Ping gateway to check latency
+        GW_PING=$(ping -c 3 -W 2 "$GW_IP" 2>/dev/null | tail -1)
+        if [ -n "$GW_PING" ]; then
+            echo "  Latency: $GW_PING"
+        fi
+    else
+        echo "  [!] No default gateway found"
+    fi
+    echo ""
+
+    # IP addressing & subnet
+    echo "=== IP ADDRESSING & SUBNET ==="
+    for iface in wlan1 wlan0 wlan0cli br-lan eth0; do
+        IFACE_IP=$(ip addr show "$iface" 2>/dev/null | grep "inet " | awk '{print $2}')
+        if [ -n "$IFACE_IP" ]; then
+            echo "  $iface: $IFACE_IP"
+        fi
+    done
+    echo ""
+
+    # DHCP information (what the target network assigned us)
+    echo "=== DHCP LEASE INFORMATION ==="
+    if [ -f /tmp/dhcp.leases ]; then
+        echo "  Active DHCP leases on this network:"
+        while read -r expire mac ip hostname clientid; do
+            vendor=$(lookup_mac_vendor "$mac")
+            echo "    IP: $ip | MAC: $mac | Vendor: $vendor | Hostname: ${hostname:--} | Expires: $(date -d @"$expire" 2>/dev/null || echo "$expire")"
+        done < /tmp/dhcp.leases
+    else
+        echo "  No DHCP lease file found at /tmp/dhcp.leases"
+    fi
+    # Check for udhcpc lease info
+    for lease_file in /var/run/udhcpc-*.info /tmp/udhcpc-*.info; do
+        if [ -f "$lease_file" 2>/dev/null ]; then
+            echo ""
+            echo "  DHCP client lease ($lease_file):"
+            grep -E "^(ip|subnet|router|dns|domain|serverid|lease)" "$lease_file" 2>/dev/null | sed 's/^/    /'
+        fi
+    done
+    echo ""
+
+    # DNS servers (reveals target network's DNS infrastructure)
+    echo "=== DNS SERVERS ==="
+    if [ -f /tmp/resolv.conf.d/resolv.conf.auto ]; then
+        grep "nameserver" /tmp/resolv.conf.d/resolv.conf.auto | sed 's/^/  /'
+    elif [ -f /tmp/resolv.conf ]; then
+        grep "nameserver" /tmp/resolv.conf | sed 's/^/  /'
+    elif [ -f /etc/resolv.conf ]; then
+        grep "nameserver" /etc/resolv.conf | sed 's/^/  /'
+    else
+        echo "  [!] No DNS configuration found"
+    fi
+    echo ""
+
+    # Network neighbors (devices on the target network)
+    echo "=== NETWORK NEIGHBORS (ARP) ==="
+    echo "  Devices discovered on this network segment:"
+    ip neigh show 2>/dev/null | while read -r line; do
+        neighbor_ip=$(echo "$line" | awk '{print $1}')
+        neighbor_mac=$(echo "$line" | grep -oE '([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}')
+        neighbor_state=$(echo "$line" | awk '{print $NF}')
+        if [ -n "$neighbor_mac" ]; then
+            vendor=$(lookup_mac_vendor "$neighbor_mac")
+            echo "    $neighbor_ip | $neighbor_mac | $vendor | State: $neighbor_state"
+        fi
+    done
+    echo ""
+
+    # Listening services on the network (from the Pager's perspective)
+    echo "=== ACTIVE OUTBOUND CONNECTIONS ==="
+    echo "  Connections from this device to the target network:"
+    netstat -tunp 2>/dev/null | grep -E "ESTABLISHED|SYN_SENT" | sed 's/^/    /' || \
+        ss -tunp 2>/dev/null | grep -E "ESTAB|SYN-SENT" | sed 's/^/    /'
+    echo ""
+
+} > "${REPORT_DIR}/system/target_environment.txt"
+LOG "    [OK] Target environment info saved"
 
 # Network configuration
 {
