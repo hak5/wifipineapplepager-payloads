@@ -4694,6 +4694,12 @@ LOG "[*] Generating summary report..."
 # ============================================================================
 
 LOG ""
+
+if [ "$SCAN_TYPE" = "QUICK" ]; then
+    LOG "[*] Skipping archive creation for QUICK scan"
+    ARCHIVE_NAME=""
+    ARCHIVE_SIZE=""
+else
 LOG "[*] Creating compressed archive..."
 
 cd "${LOOT_DIR}"
@@ -4748,6 +4754,8 @@ if [ $? -eq 0 ]; then
 else
     LOG "[!] Archive creation failed"
 fi
+
+fi  # End SCAN_TYPE != QUICK check
 
 # ============================================================================
 # REMOTE SYNC / EXFILTRATION
