@@ -320,7 +320,7 @@ LOG ""
 # interface which means limited scan results (no internal network visibility)
 
 CONNECTED_TO_TARGET=false
-for check_iface in wlan1 wlan0; do
+for check_iface in wlan1 wlan0 wlan0cli; do
     if iw dev "$check_iface" info 2>/dev/null | grep -q "type managed"; then
         # Check if this interface actually has an IP (connected to a network)
         if ip addr show "$check_iface" 2>/dev/null | grep -q "inet "; then
