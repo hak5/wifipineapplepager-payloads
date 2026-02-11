@@ -42,13 +42,15 @@ case "$DEVICE_ARCH" in
 esac
 
 TAILSCALE_BASE_URL="https://pkgs.tailscale.com/stable"
+TAILSCALE_VERSION=""
 
 # Installation paths
-INSTALL_DIR="/usr/sbin"
+INSTALL_DIR="/mmc/tailscale/bin"
+SYMLINK_DIR="/usr/sbin"
 INIT_SCRIPT="/etc/init.d/tailscaled"
 CONFIG_DIR="/etc/tailscale"
 STATE_DIR="/root/.tailscale"
-TMP_DIR="/tmp/tailscale_install"
+TMP_DIR="/root/tailscale_install"
 
 # Configuration file
 CONFIG_FILE="$CONFIG_DIR/config"
@@ -106,28 +108,35 @@ get_latest_version() {
 
 download_tailscale() {
     # Get the latest version
-    local version=$(get_latest_version)
+    TAILSCALE_VERSION=$(get_latest_version)
 
-    if [ -z "$version" ]; then
+    if [ -z "$TAILSCALE_VERSION" ]; then
         ERROR_DIALOG "Could not determine version"
         LOG red "ERROR: Failed to detect Tailscale version"
         exit 1
     fi
 
-    LOG "Will install Tailscale version: $version"
+    LOG "Will install Tailscale version: $TAILSCALE_VERSION"
+
+    # Use /mmc only to reduce RAM pressure
+    if [ ! -d "/root" ] || [ ! -w "/root" ]; then
+        ERROR_DIALOG "/root not available"
+        LOG red "ERROR: /root is not present or not writable; cannot proceed without /root"
+        exit 1
+    fi
 
     LOG "Creating temporary directory..."
     mkdir -p "$TMP_DIR"
     cd "$TMP_DIR" || exit 1
 
-    local filename="tailscale_${version}_${TAILSCALE_ARCH}.tgz"
+    local filename="tailscale_${TAILSCALE_VERSION}_${TAILSCALE_ARCH}.tgz"
     local url="${TAILSCALE_BASE_URL}/${filename}"
 
-    LOG "Downloading Tailscale ${version} for ${TAILSCALE_ARCH}..."
+    LOG "Downloading Tailscale ${TAILSCALE_VERSION} for ${TAILSCALE_ARCH}..."
     LOG "URL: $url"
     local spinner_id=$(START_SPINNER "Downloading")
 
-    if ! wget -q "$url" -O "$filename"; then
+    if ! nice -n -5 wget -q "$url" -O "$filename"; then
         STOP_SPINNER $spinner_id
         ERROR_DIALOG "Download failed. Check network connection."
         LOG red "ERROR: Failed to download from $url"
@@ -150,12 +159,20 @@ download_tailscale() {
     local filesize=$(ls -lh "$filename" | awk '{print $5}')
     LOG "Downloaded file size: $filesize"
 
-    LOG "Extracting archive..."
-    LOG "Running: tar -xzf $filename"
+    local extract_dir_name="tailscale_${TAILSCALE_VERSION}_${TAILSCALE_ARCH}"
+    LOG "Extracting binaries into $TMP_DIR..."
+    LOG "Running: tar -xzf $filename -C $TMP_DIR ${extract_dir_name}/tailscale ${extract_dir_name}/tailscaled"
 
-    if ! tar -xzf "$filename" 2>&1 | while read line; do LOG "$line"; done; then
+    # Avoid piping tar output through LOG on low-powered devices; it can block and freeze.
+    # Capture output to a temp log file and only dump it on error.
+    local tar_log="$TMP_DIR/tar_extract.log"
+    if ! nice -n -5 tar -xzf "$filename" -C "$TMP_DIR" \
+        "${extract_dir_name}/tailscale" \
+        "${extract_dir_name}/tailscaled" >"$tar_log" 2>&1; then
         ERROR_DIALOG "Extraction failed"
         LOG red "ERROR: Failed to extract $filename"
+        LOG "tar output:"
+        while read line; do LOG "$line"; done < "$tar_log"
         LOG "Checking file type:"
         file "$filename" 2>&1 | while read line; do LOG "$line"; done
         cleanup
@@ -168,37 +185,13 @@ download_tailscale() {
 install_binaries() {
     LOG "Installing Tailscale binaries..."
 
-    # Find the extracted directory (exclude .tgz files, only find directories)
-    LOG "Searching for extracted directory..."
-
-    # Try multiple patterns to find the extracted directory
-    local extract_dir=""
-
-    # First try: Look for any subdirectory (most reliable)
-    extract_dir=$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d | grep -v "\.tgz" | head -n 1)
-
-    # Second try: Look specifically for tailscale_* directories
-    if [ -z "$extract_dir" ]; then
-        extract_dir=$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d -name "tailscale_*" | head -n 1)
-    fi
-
-    # Third try: Look in any subdirectory for the binaries
-    if [ -z "$extract_dir" ]; then
-        LOG yellow "No obvious directory found, searching for binaries..."
-        local binary_path=$(find "$TMP_DIR" -name "tailscale" -type f ! -name "*.tgz" | head -n 1)
-        if [ -n "$binary_path" ]; then
-            extract_dir=$(dirname "$binary_path")
-            LOG "Found binaries in: $extract_dir"
-        fi
-    fi
-
-    if [ -z "$extract_dir" ]; then
+    # Binaries were extracted under $TMP_DIR/tailscale_<version>_<arch>
+    local extract_dir="$TMP_DIR/tailscale_${TAILSCALE_VERSION}_${TAILSCALE_ARCH}"
+    if [ ! -d "$extract_dir" ]; then
         ERROR_DIALOG "Extracted files not found"
-        LOG red "ERROR: Could not find extracted directory in $TMP_DIR"
+        LOG red "ERROR: Expected extracted directory missing: $extract_dir"
         LOG "Available directories:"
         find "$TMP_DIR" -type d 2>&1 | while read line; do LOG "$line"; done
-        LOG "Available files:"
-        find "$TMP_DIR" -type f 2>&1 | while read line; do LOG "$line"; done
         cleanup
         exit 1
     fi
@@ -220,114 +213,55 @@ install_binaries() {
         exit 1
     fi
 
-    LOG "Both binaries found, copying to $INSTALL_DIR..."
+    mkdir -p "$INSTALL_DIR"
+    # Verify install directory is writable by creating a temp file
+    local install_test="$INSTALL_DIR/.tailscale_write_test"
+    if ! touch "$install_test" 2>/dev/null; then
+        ERROR_DIALOG "Install directory not writable"
+        LOG red "ERROR: $INSTALL_DIR is not writable"
+        cleanup
+        exit 1
+    fi
+    rm -f "$install_test" 2>/dev/null
 
-    # Show file sizes (using ls since stat is not available on Pager)
-    local tailscale_size_human=$(ls -lh "$extract_dir/tailscale" | awk '{print $5}')
-    local tailscaled_size_human=$(ls -lh "$extract_dir/tailscaled" | awk '{print $5}')
-    local tailscale_size_bytes=$(ls -l "$extract_dir/tailscale" | awk '{print $5}')
-    local tailscaled_size_bytes=$(ls -l "$extract_dir/tailscaled" | awk '{print $5}')
-
-    # Calculate total size for combined progress
-    local total_size_bytes=$((tailscale_size_bytes + tailscaled_size_bytes))
-    local total_size_mb=$((total_size_bytes / 1048576))
-
-    LOG "tailscale binary size: $tailscale_size_human"
-    LOG "tailscaled binary size: $tailscaled_size_human"
-    LOG "Total size to copy: ${total_size_mb}MB"
-    LOG yellow "Note: Moving binaries from TMP to Persistent takes ~10 minutes due to storage contraints..."
-    LOG ""
-    LOG "Copying binaries with combined progress..."
-    LOG "Progress updates every 10 seconds..."
-
-    # Copy tailscale binary in background
-    cp "$extract_dir/tailscale" "$INSTALL_DIR/tailscale" &
-    local cp_pid=$!
-
-    # Monitor progress for both binaries combined
-    local wait_count=0
-    local copying_first=true
-
-    while true; do
-        sleep 10
-        wait_count=$((wait_count + 5))
-
-        # Calculate current total copied (both files)
-        local tailscale_current=0
-        local tailscaled_current=0
-
-        if [ -f "$INSTALL_DIR/tailscale" ]; then
-            tailscale_current=$(ls -l "$INSTALL_DIR/tailscale" 2>/dev/null | awk '{print $5}')
-            [ -z "$tailscale_current" ] && tailscale_current=0
-        fi
-
-        if [ -f "$INSTALL_DIR/tailscaled" ]; then
-            tailscaled_current=$(ls -l "$INSTALL_DIR/tailscaled" 2>/dev/null | awk '{print $5}')
-            [ -z "$tailscaled_current" ] && tailscaled_current=0
-        fi
-
-        local total_current=$((tailscale_current + tailscaled_current))
-        local total_current_mb=$((total_current / 1048576))
-
-        # Calculate overall percentage
-        if [ "$total_size_bytes" -gt 0 ]; then
-            local percent=$((total_current * 100 / total_size_bytes))
-            LOG "  Overall Progress: ${percent}% (${total_current_mb}MB / ${total_size_mb}MB) - ${wait_count}s elapsed"
-        else
-            LOG "  Copying... ${wait_count}s elapsed"
-        fi
-
-        # Check if first copy is done, start second copy
-        if [ "$copying_first" = true ] && ! kill -0 $cp_pid 2>/dev/null; then
-            # First copy finished, check if successful
-            wait $cp_pid
-            local cp_result=$?
-
-            if [ $cp_result -ne 0 ]; then
-                ERROR_DIALOG "Failed to copy tailscale binary"
-                LOG red "ERROR: Failed to copy $extract_dir/tailscale to $INSTALL_DIR/"
-                LOG "Checking permissions on $INSTALL_DIR:"
-                ls -ld "$INSTALL_DIR" 2>&1 | while read line; do LOG "$line"; done
-                cleanup
-                exit 1
-            fi
-
-            LOG "  tailscale binary copied, continuing with tailscaled..."
-
-            # Start second copy
-            cp "$extract_dir/tailscaled" "$INSTALL_DIR/tailscaled" &
-            cp_pid=$!
-            copying_first=false
-        fi
-
-        # Check if second copy is done
-        if [ "$copying_first" = false ] && ! kill -0 $cp_pid 2>/dev/null; then
-            # Second copy finished
-            wait $cp_pid
-            local cp_result=$?
-
-            if [ $cp_result -ne 0 ]; then
-                ERROR_DIALOG "Failed to copy tailscaled binary"
-                LOG red "ERROR: Failed to copy $extract_dir/tailscaled to $INSTALL_DIR/"
-                cleanup
-                exit 1
-            fi
-
-            # Both copies complete
-            break
-        fi
-    done
-
-    LOG ""
-    LOG green "✓ Both binaries copied successfully (${wait_count}s total)"
-    LOG ""
+    LOG "Both binaries found, copying into $INSTALL_DIR..."
+    LOG "Copying from: $extract_dir"
+    LOG "Source directory listing:"
+    ls -l "$extract_dir" 2>&1 | while read line; do LOG "$line"; done
+    if ! cp -f "$extract_dir/tailscale" "$INSTALL_DIR/tailscale"; then
+        ERROR_DIALOG "Failed to copy tailscale binary"
+        LOG red "ERROR: Failed to copy $extract_dir/tailscale to $INSTALL_DIR/"
+        cleanup
+        exit 1
+    fi
+    if ! cp -f "$extract_dir/tailscaled" "$INSTALL_DIR/tailscaled"; then
+        ERROR_DIALOG "Failed to copy tailscaled binary"
+        LOG red "ERROR: Failed to copy $extract_dir/tailscaled to $INSTALL_DIR/"
+        cleanup
+        exit 1
+    fi
+    LOG green "✓ Both binaries copied successfully"
 
     # Set permissions
     LOG "Setting executable permissions..."
     chmod +x "$INSTALL_DIR/tailscale"
     chmod +x "$INSTALL_DIR/tailscaled"
 
+    # Create/update symlinks in /usr/sbin
+    if [ ! -w "$SYMLINK_DIR" ]; then
+        ERROR_DIALOG "Symlink directory not writable"
+        LOG red "ERROR: $SYMLINK_DIR is not writable"
+        cleanup
+        exit 1
+    fi
+    ln -sf "$INSTALL_DIR/tailscale" "$SYMLINK_DIR/tailscale"
+    ln -sf "$INSTALL_DIR/tailscaled" "$SYMLINK_DIR/tailscaled"
+
     LOG green "Binaries installed successfully"
+
+    # Cleanup extracted directory within TMP_DIR
+    rm -f "$extract_dir/tailscale" "$extract_dir/tailscaled" 2>/dev/null
+    rmdir "$extract_dir" 2>/dev/null
 }
 
 create_directories() {

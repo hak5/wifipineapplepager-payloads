@@ -3,7 +3,8 @@
 # Title: Nautilus
 # Description: Web-based payload launcher with live console output and GitHub integration
 # Author: JustSomeTrout (Trout / troot.)
-# Version: 1.5.6
+# Co-Author: Z3r0L1nk
+# Version: 1.8.5
 # Firmware: Developed for Firmware version 1.0.6
 #
 # Runs uhttpd with CGI to browse and execute payloads from your browser.
@@ -36,7 +37,7 @@ LOG "cyan" '|║║║╠═╣║-║-║-║║--║-║╚═╗|'
 LOG "cyan" '|╝╚╝╩-╩╚═╝-╩-╩╩═╝╚═╝╚═╝|'
 LOG "cyan" '+======================+'
 LOG ""
-LOG "v1.5.6"
+LOG "v1.8.5"
 LOG ""
 LOG "yellow" '|   ~ Web Payload Launcher ~    |'
 LOG ""
@@ -108,6 +109,22 @@ if user_confirmed "$resp"; then
         fi
     fi
 
+    if ! command -v python3 >/dev/null 2>&1; then
+        resp=$(CONFIRMATION_DIALOG "Install python3? (~1MB, needed for Virtual Pager)")
+        if user_confirmed "$resp"; then
+            LOG "cyan" "Installing python3..."
+            opkg update >/dev/null 2>&1
+            opkg install python3-light >/dev/null 2>&1
+            if command -v python3 >/dev/null 2>&1; then
+                LOG "green" "python3 installed"
+            else
+                LOG "yellow" "Virtual Pager disabled"
+            fi
+        else
+            LOG "yellow" "Virtual Pager disabled"
+        fi
+    fi
+
     [ ! -f "$WEB_DIR/index.html" ] && { LOG "red" "Files not found!"; exit 1; }
 
     cp "$SCRIPT_DIR/nautilus.init" "$INIT_SCRIPT"
@@ -116,6 +133,16 @@ if user_confirmed "$resp"; then
     "$INIT_SCRIPT" start
 
     sleep 1
+    
+    # Start Proxy
+    if command -v python3 >/dev/null 2>&1; then
+        python3 "$SCRIPT_DIR/proxy.py" >/dev/null 2>&1 &
+        echo $! > "/tmp/nautilus_proxy.pid"
+        LOG "cyan" "Proxy started on port 8890"
+    else
+        LOG "red" "Python3 missing - Proxy failed"
+    fi
+    
     PAGER_IP=$(get_pager_ip)
     LOG "green" "Service started!"
     LOG "green" "http://$PAGER_IP:$PORT"
@@ -176,6 +203,8 @@ cleanup() {
     [ -f "/tmp/nautilus_payload.pid" ] && kill $(cat "/tmp/nautilus_payload.pid") 2>/dev/null
     rm -f "/tmp/nautilus_payload.pid"
     [ "$TTYD_STARTED" = "1" ] && killall ttyd 2>/dev/null
+    [ -f "/tmp/nautilus_proxy.pid" ] && kill $(cat "/tmp/nautilus_proxy.pid") 2>/dev/null
+    rm -f "/tmp/nautilus_proxy.pid"
     rm -f /tmp/nautilus_wrapper_*.sh
     rm -f /tmp/nautilus_fifo_*
     rm -f /tmp/nautilus_response
@@ -192,9 +221,17 @@ chmod +x "$SCRIPT_DIR/build_cache.sh" 2>/dev/null
 "$SCRIPT_DIR/build_cache.sh" >/dev/null 2>&1
 [ -f "$PID_FILE" ] && kill $(cat "$PID_FILE") 2>/dev/null
 rm -f "$PID_FILE"
-uhttpd -f -p "$PORT" -h "$WEB_DIR" -c /cgi-bin -T 60 &
+uhttpd -f -p "$PORT" -h "$WEB_DIR" -c /cgi-bin -t 300 -T 300 &
+echo $! > "$PID_FILE"
 echo $! > "$PID_FILE"
 sleep 1
+
+# Start Proxy (Foreground Mode)
+if command -v python3 >/dev/null 2>&1; then
+    python3 "$SCRIPT_DIR/proxy.py" >/dev/null 2>&1 &
+    echo $! > "/tmp/nautilus_proxy.pid"
+    LOG "cyan" "Proxy started on port 8890"
+fi
 
 PAGER_IP=$(get_pager_ip)
 if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then

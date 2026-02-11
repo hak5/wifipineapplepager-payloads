@@ -107,10 +107,14 @@ trap cleanup SIGINT SIGTERM
 
 ANQP_AVAILABLE=false
 
-# Check if wpa_supplicant with HS2.0 support is installed
+# Check if wpa_supplicant with HS2.0 support AND wpa-cli are installed
 check_wpa_supplicant() {
-    # Check for wpad-openssl (full hostapd+wpa_supplicant with HS2.0)
-    if opkg list-installed 2>/dev/null | grep -q "^wpad-openssl "; then
+    # First check for wpa-cli (required for ANQP queries)
+    if ! opkg list-installed 2>/dev/null | grep -q "^wpa-cli "; then
+        return 1
+    fi
+    # Check for wpad (full hostapd+wpa_supplicant with HS2.0)
+    if opkg list-installed 2>/dev/null | grep -q "^wpad "; then
         return 0
     fi
     # Check if wpa-supplicant-openssl is installed (has HS2.0 support)
@@ -136,7 +140,7 @@ check_internet() {
     return 1
 }
 
-# Install wpad-openssl (includes wpa_supplicant with HS2.0 support)
+# Install wpad (includes wpa_supplicant with HS2.0 support)
 install_wpa_supplicant() {
     LOG ""
     LOG "Installing HS2.0 support..."
@@ -165,43 +169,71 @@ install_wpa_supplicant() {
     fi
 
     LOG "Internet OK. Updating packages..."
-    SPINNER ON
 
     # Update package list (ignore errors - some feeds may 404 but base feeds work)
-    opkg update >/dev/null 2>&1 || true
+    opkg update 2>&1 | grep -v "Failed to download" | head -5
 
-    LOG "Installing wpad-openssl..."
+    LOG ""
 
-    # Try wpad-openssl first (full package with hostapd+wpa_supplicant)
-    if opkg install wpad-openssl >/dev/null 2>&1; then
-        SPINNER OFF
+    # Check for conflicting wpad packages (wpad-basic-mbedtls, wpad-mini, etc.)
+    # The full "wpad" package replaces all wpad-* variants
+    local conflicts=$(opkg list-installed 2>/dev/null | grep -E "^wpad-" | cut -d' ' -f1)
+    if [ -n "$conflicts" ]; then
+        LOG "Package conflict detected:"
+        LOG "  $conflicts"
         LOG ""
-        LOG "SUCCESS! wpad-openssl installed."
+        LOG "wpad will REPLACE this."
+        LOG "It has same features + HS2.0."
+        LOG "All WiFi functions will still work."
+        LOG ""
+        LOG "[A] Replace  [B] Cancel"
+        local btn=$(WAIT_FOR_INPUT)
+        case "$btn" in
+            A|a)
+                LOG ""
+                LOG "Removing $conflicts..."
+                for pkg in $conflicts; do
+                    opkg remove "$pkg" 2>/dev/null
+                done
+                ;;
+            *)
+                LOG "Cancelled."
+                sleep 1
+                return 1
+                ;;
+        esac
+    fi
+
+    LOG "Installing wpad..."
+
+    # Capture install output for error reporting
+    local install_output
+    local install_err
+
+    # Install wpad (full package with hostapd+wpa_supplicant+HS2.0)
+    install_output=$(opkg install wpad 2>&1)
+    if [ $? -eq 0 ]; then
+        # Also install wpa-cli (separate package needed for ANQP queries)
+        LOG "Installing wpa-cli..."
+        opkg install wpa-cli >/dev/null 2>&1
+        LOG ""
+        LOG "SUCCESS! Packages installed."
         LOG "ANQP queries now available."
         LOG ""
         sleep 2
         return 0
     fi
+    install_err="$install_output"
 
-    # Fall back to wpa-supplicant-openssl
-    LOG "Trying wpa-supplicant-openssl..."
-    if opkg install wpa-supplicant-openssl >/dev/null 2>&1; then
-        SPINNER OFF
-        LOG ""
-        LOG "SUCCESS! wpa-supplicant-openssl installed."
-        LOG "ANQP queries now available."
-        LOG ""
-        sleep 2
-        return 0
-    fi
-
-    SPINNER OFF
     LOG ""
     LOG "ERROR: Installation failed!"
     LOG ""
+    # Show last error (truncated for display)
+    LOG "$(echo "$install_err" | grep -i "error\|cannot\|conflict" | head -2)"
+    LOG ""
     LOG "Try manually:"
-    LOG "  opkg update"
-    LOG "  opkg install wpad-openssl"
+    LOG "  opkg remove wpad-basic-mbedtls"
+    LOG "  opkg install wpad wpa-cli"
     LOG ""
     LOG "[A] Retry  [B] Continue without"
     local btn=$(WAIT_FOR_INPUT)
@@ -800,6 +832,8 @@ setup_wpa_supplicant() {
 ctrl_interface=/tmp/passpoint_wpa
 interworking=1
 hs20=1
+bss_expiration_age=300
+bss_expiration_scan_count=10
 EOF
 
     # Kill any existing wpa_supplicant using our ctrl_interface and clean it
@@ -843,11 +877,13 @@ cleanup_wpa_supplicant() {
 
 # Query ANQP data from a specific BSSID
 # $4 is optional result_bssid for MBSSID networks (store results under non-tx BSSID)
+# $5 is optional channel for targeted rescanning
 query_anqp() {
     local iface=$1
     local bssid=$2
     local ssid=$3
     local result_bssid=${4:-$bssid}  # Use query BSSID if result BSSID not provided
+    local channel=${5:-0}
     local outfile="$TEMP_DIR/anqp_${bssid//:/}.txt"
 
     # ANQP Element IDs to query:
@@ -868,15 +904,43 @@ query_anqp() {
 
     LOG "  Querying ANQP from $bssid..."
 
+    # Convert channel to frequency for targeted scanning
+    channel_to_freq() {
+        local ch=$1
+        if [ "$ch" -ge 1 ] && [ "$ch" -le 14 ]; then
+            # 2.4GHz
+            if [ "$ch" -eq 14 ]; then echo 2484; else echo $((2407 + ch * 5)); fi
+        elif [ "$ch" -ge 36 ] && [ "$ch" -le 177 ]; then
+            # 5GHz
+            echo $((5000 + ch * 5))
+        elif [ "$ch" -ge 1 ] && [ "$ch" -le 233 ]; then
+            # 6GHz (simplified)
+            echo $((5950 + ch * 5))
+        else
+            echo 0
+        fi
+    }
+
     # Check if BSS is in cache (should be from the full scan done earlier)
     if ! wpa_cli -p "$WPA_CTRL_IFACE" -i "$iface" bss "$bssid" 2>/dev/null | grep -q "bssid"; then
-        # BSS not in cache - need to rescan DFS channels and wpa_supplicant
-        LOG "  BSS not in cache, rescanning..."
-        local dfs_freqs="5260 5280 5300 5320 5500 5520 5540 5560 5580 5600 5620 5640 5660 5680 5700 5720"
-        iw dev "$iface" scan freq $dfs_freqs passive >/dev/null 2>&1
-        sleep 2
-        wpa_cli -p "$WPA_CTRL_IFACE" -i "$iface" scan >/dev/null 2>&1
-        sleep 6
+        # BSS not in cache - do targeted rescan on the AP's channel
+        LOG "  BSS not in cache, rescanning ch $channel..."
+
+        local freq=$(channel_to_freq "$channel")
+        if [ "$freq" -gt 0 ]; then
+            # Targeted scan on specific frequency
+            iw dev "$iface" scan freq "$freq" passive >/dev/null 2>&1
+            sleep 2
+            wpa_cli -p "$WPA_CTRL_IFACE" -i "$iface" scan freq="$freq" >/dev/null 2>&1
+        else
+            # Fallback: scan all DFS frequencies
+            local dfs_freqs="5260 5280 5300 5320 5500 5520 5540 5560 5580 5600 5620 5640 5660 5680 5700 5720"
+            iw dev "$iface" scan freq $dfs_freqs passive >/dev/null 2>&1
+            sleep 2
+            wpa_cli -p "$WPA_CTRL_IFACE" -i "$iface" scan >/dev/null 2>&1
+        fi
+        sleep 4
+
         # Check again after rescan
         if ! wpa_cli -p "$WPA_CTRL_IFACE" -i "$iface" bss "$bssid" 2>/dev/null | grep -q "bssid"; then
             LOG "  BSS still not found, skipping"
@@ -1741,7 +1805,7 @@ phase_1c_anqp_query() {
         else
             LOG "  BSSID: $bssid | Channel: $channel"
             SPINNER ON
-            query_anqp "$mgmt_iface" "$query_bssid" "$ssid" "$bssid"
+            query_anqp "$mgmt_iface" "$query_bssid" "$ssid" "$bssid" "$channel"
             SPINNER OFF
         fi
 
@@ -2343,7 +2407,7 @@ show_results_summary() {
         LOG "Beacon Data from $ap_count APs:"
         LOG "  Beacon RCOIs:  $beacon_rcoi_count"
         LOG ""
-        LOG "(Install wpad-openssl for"
+        LOG "(Install wpad for"
         LOG " full ANQP data)"
     fi
     LOG ""
@@ -2371,7 +2435,7 @@ show_config_menu() {
         LOG "[B] Exit"
     else
         LOG "Mode: BEACON ONLY"
-        LOG "(wpad-openssl missing)"
+        LOG "(wpad missing)"
         LOG ""
         LOG "Without ANQP support:"
         LOG "  + Detect Passpoint APs"
@@ -2383,7 +2447,7 @@ show_config_menu() {
         LOG ""
         LOG "[A] Start Beacon-Only Scan"
         LOG "[B] Exit"
-        LOG "[>] Install wpad-openssl"
+        LOG "[>] Install wpad"
     fi
     LOG ""
 }
@@ -2467,7 +2531,7 @@ if $ANQP_AVAILABLE; then
 else
     LOG ""
     LOG "=== BEACON-ONLY MODE ==="
-    LOG "Skipping ANQP queries (wpad-openssl not installed)"
+    LOG "Skipping ANQP queries (wpad not installed)"
     LOG ""
     # In beacon-only mode, decode and display beacon RCOIs
     if [ -f "$UNIQUE_SSIDS_FILE" ]; then

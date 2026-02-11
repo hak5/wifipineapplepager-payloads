@@ -1,8 +1,0 @@
-{
-  "name": "Digital Tails",
-  "author": "Notorious-Squirrel + GPT",
-  "version": "1.0.0",
-  "description": "Passive recon: highlights client devices that persist nearby across scans (possible tail indicator).",
-  "category": "Reconnaissance"
-}
-

@@ -5,7 +5,7 @@
 FLIPPER_OUI="80:E1:26"
 SEEN=""
 
-LOG "FLIPPER HUNTER"
+TITLE "FLIPPER HUNTER"
 LOG "Initializing BLE..."
 
 hciconfig hci0 up 2>/dev/null
@@ -17,7 +17,7 @@ LOG "Scanning for Flippers..."
 sleep 2
 
 while true; do
-    LOG "HUNTING..."
+    TITLE "HUNTING..."
 
     for mac in $(bluetoothctl devices 2>/dev/null | grep "$FLIPPER_OUI" | awk '{print $2}'); do
         if ! echo "$SEEN" | grep -q "$mac"; then
