@@ -3,7 +3,7 @@
 **Curly** transforms your WiFi Pineapple Pager into a portable web reconnaissance and vulnerability scanning tool using curl. Perfect for pentesting and bug bounty hunting on the go!
 
 - **Author:** curtthecoder
-- **Version:** 3.6
+- **Version:** 3.7
 
 ---
 
@@ -12,6 +12,7 @@
 Curly performs comprehensive web security testing using only curl:
 
 - **IP Geolocation Lookup** - Resolves target IP and queries ipinfo.io for location, ISP, timezone data
+- **Protocol Availability Check** 🌐 - Detects if site responds on HTTP, HTTPS, or both; checks for proper HTTP→HTTPS redirects
 - **SSL/TLS Security Analysis** 🔒 - Certificate expiration, TLS version detection, weak cipher identification, self-signed cert detection
 - **Severity Scoring System** 📊 - All findings categorized as CRITICAL/HIGH/MEDIUM/LOW/INFO with beautiful summary report
 - **Scan Time Tracking** ⏱️ *(NEW in v3.6)* - Estimated times before scans + actual elapsed time in final summary
@@ -29,7 +30,7 @@ Curly performs comprehensive web security testing using only curl:
 - **Backup File Hunter** - Finds .bak, .old, .sql, .zip backup files
 - **HTTP Methods Testing** - Smart detection of dangerous methods (PUT, DELETE, TRACE, PATCH)
 - **Header Injection** - Tests for X-Forwarded-For, Host header, and bypass techniques
-- **Cookie Security** - Analyzes HttpOnly, Secure, and SameSite flags
+- **Cookie Security** - Analyzes HttpOnly, Secure, SameSite flags + detects JavaScript cookies (document.cookie) and cookie consent mechanisms
 - **CORS Misconfiguration** - Detects weak CORS policies
 - **Open Redirects** - Accurate detection of open redirect vulnerabilities
 - **API Reconnaissance** - Discovers API endpoints and checks for sensitive data exposure
@@ -40,11 +41,11 @@ Curly performs comprehensive web security testing using only curl:
 
 ### 6 Scan Modes
 
-1. **Quick Scan** - Fast reconnaissance (IP geo + SSL/TLS + WAF + tech + info + endpoints + HTML source)
-2. **Full Scan (All Modules)** - Comprehensive security testing (all 17 modules including SSL/TLS + parameter discovery!)
+1. **Quick Scan** - Fast reconnaissance (IP geo + protocol check + SSL/TLS + WAF + tech + info + endpoints + HTML source)
+2. **Full Scan (All Modules)** - Comprehensive security testing (all 18 modules including protocol check + SSL/TLS + parameter discovery!)
 3. **API Recon** - Focused API endpoint discovery + subdomain enumeration
-4. **Security Audit** - Deep security testing (IP geo + SSL/TLS + tech + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
-5. **Tech Fingerprint** - Identify IP location, SSL/TLS config, WAF, CDN, web server, and technology stack
+4. **Security Audit** - Deep security testing (IP geo + protocol check + SSL/TLS + tech + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
+5. **Tech Fingerprint** - Identify IP location, protocol availability, SSL/TLS config, WAF, CDN, web server, and technology stack
 6. **Subdomain Enum** - Test 50+ common subdomains for the target
 
 ### Visual & Audio Feedback
@@ -88,6 +89,7 @@ Curly performs comprehensive web security testing using only curl:
 ### Security Issues
 
 - ✅ **IP Geolocation** - IP address, hostname, city, region, country, ISP/organization, coordinates, timezone
+- 🌐 **Protocol Availability** - Detects HTTP/HTTPS availability; flags sites with no SSL (HIGH), missing HTTP→HTTPS redirects (MEDIUM), or secure HTTPS-only configs (INFO)
 - 🔒 **SSL/TLS Security** *(NEW in v3.5)* - Expired/expiring certificates, self-signed certs, weak ciphers (DES, RC4, MD5), outdated TLS versions (1.0/1.1), certificate chain issues
 - 📊 **Severity Scoring** *(NEW in v3.5)* - CRITICAL/HIGH/MEDIUM/LOW/INFO classification for all findings with summary report
 - 🔍 **Parameter Discovery** *(NEW in v3.5)* - Tests debug, auth, data, config parameters (~30 total); detects reflection, behavior changes, parameter pollution
@@ -104,7 +106,7 @@ Curly performs comprehensive web security testing using only curl:
 - ✅ **Backup files** - .bak, .old, .sql, .zip, .tar.gz with 80+ combinations tested
 - ✅ **API documentation** - `/swagger.json`, `/openapi.json`, GraphQL endpoints (validates JSON format to prevent false positives)
 - ✅ **Dangerous HTTP methods** - PUT, DELETE, TRACE, PATCH (smart detection, filters rate limiting)
-- ✅ **Cookie security** - Missing HttpOnly, Secure, SameSite flags
+- ✅ **Cookie security** - Missing HttpOnly, Secure, SameSite flags; JavaScript cookie detection (document.cookie); cookie consent banner detection
 - ✅ **CORS misconfigurations** - Wildcard and reflected origins
 - ✅ **Open redirect vulnerabilities** - Accurate detection (no false positives!)
 - ✅ **SSRF vectors** - Tests 8 common redirect parameters + cloud metadata
@@ -292,6 +294,67 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 
 ---
 
+## What's New in v3.7
+
+### Protocol Availability Check (v3.7):
+
+**🌐 HTTP/HTTPS Detection**
+- **Dual Protocol Testing** - Checks if site responds on both HTTP (port 80) and HTTPS (port 443)
+  - Reports HTTP status codes for each protocol
+  - Identifies sites only available via HTTP (no encryption) - HIGH severity
+  - Detects when both protocols are available but HTTP doesn't redirect to HTTPS - MEDIUM severity
+  - Confirms secure configurations where HTTP properly redirects to HTTPS - INFO
+  - Notes HTTPS-only sites as secure configuration - INFO
+- **Redirect Verification** - Uses curl to follow HTTP requests and verify final URL is HTTPS
+- **Why This Matters:**
+  - Without redirect enforcement, users can accidentally use unencrypted HTTP
+  - Mixed content risks when both protocols serve the same content
+  - Helps identify targets that need HTTPS redirect configuration
+
+### Automatic Update Checking (v3.7):
+
+**🔄 Version Check System**
+- **Automatic Update Notifications** - Payload checks GitHub for newer versions on startup
+  - Compares local version against remote VERSION file
+  - Displays "UPDATE AVAILABLE!" banner when newer version exists
+  - Shows current vs latest version numbers with link to update
+  - Gracefully continues if network unavailable or check fails
+- **Configurable** - Set `ENABLE_UPDATE_CHECK=false` in payload.sh to disable
+- **Non-Blocking** - Quick 3-second timeout, won't slow down scans
+
+### Enhanced Cookie Security Analysis (v3.7):
+
+**🍪 JavaScript Cookie Detection**
+- **document.cookie Scanning** - Detects cookies set via JavaScript, not just HTTP headers
+  - Scans HTML/JS source for `document.cookie =` assignments
+  - Counts cookie read operations (`document.cookie` access)
+  - Extracts and displays sample cookie patterns found in code
+  - Identifies cookies that won't appear in curl's HTTP header checks
+- **Security Implications** - Warns that JS-set cookies cannot have HttpOnly flag (XSS vulnerability)
+
+**🔐 Cookie Consent Detection**
+- **GDPR/Consent Banner Detection** - Identifies 15+ common consent management platforms:
+  - CookieBot, OneTrust, TrustArc, Osano, Quantcast, Didomi
+  - Iubenda, Complianz, Klaro, TarteAuCitron, and more
+- **Explains Missing Cookies** - When consent is detected but no cookies found, explains that cookies may only appear after user consents in browser
+- **Reduces False Negatives** - No more "No cookies found" when the site actually has cookies behind consent
+
+**📖 Manual Verification Guide**
+- **Step-by-Step Browser Instructions** - When no HTTP cookies are detected:
+  - How to check `document.cookie` in browser DevTools console
+  - How to view cookies in Application tab → Storage → Cookies
+  - Instructions for accepting consent and re-checking
+- **Explains curl Limitations** - Educates users that curl cannot execute JavaScript or interact with consent dialogs
+- **Context-Aware Guidance** - Different instructions shown based on whether consent banners were detected
+
+**Why This Matters:**
+- Many modern sites set cookies via JavaScript, not HTTP headers
+- GDPR compliance means cookies often require user consent first
+- curl-based scanning has inherent limitations - now the tool explains them
+- Prevents false sense of security when "No cookies" is reported
+
+---
+
 ## What's New in v3.6
 
 ### Major Update - Comprehensive Security Scanner (v3.6):
@@ -437,7 +500,7 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 - 🔍 **Technology Fingerprinting** - CMS, frameworks, libraries with versions
 - 🌐 **Subdomain Enumeration** - Tests 50+ common subdomains
 - 🗂️ **Backup File Hunter** - Tests 80+ backup file combinations
-- 🍪 **Cookie Security Analysis** - HttpOnly, Secure, SameSite flag checking
+- 🍪 **Cookie Security Analysis** - HttpOnly, Secure, SameSite flags + JavaScript cookie detection + consent banner detection *(enhanced in v3.7)*
 
 ### Improvements:
 - ✅ **Smarter HTTP Methods Testing** - Filters rate limiting (429/503), only flags real vulnerabilities
