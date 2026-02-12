@@ -1,0 +1,3 @@
+# Build artifacts (compile with 'make')
+libpagerctl.so
+examples/demo
