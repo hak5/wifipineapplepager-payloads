@@ -2,7 +2,7 @@
 # Title: Curly - Web Recon & Vuln Scanner
 # Description: Curl-based web reconnaissance and vulnerability testing for pentesting and bug bounty hunting
 # Author: curtthecoder
-# Version: 3.6
+# Version: 3.7
 
 # === CONFIG ===
 LOOTDIR=/root/loot/curly
@@ -425,6 +425,66 @@ scan_ssl_tls() {
     log_result ""
 }
 
+# Protocol Availability Check (HTTP/HTTPS)
+scan_protocol_availability() {
+    log_result "[+] PROTOCOL AVAILABILITY CHECK"
+    led_scanning
+
+    LOG "Checking HTTP and HTTPS availability..."
+
+    local http_url="http://${TARGET_HOST}"
+    local https_url="https://${TARGET_HOST}"
+
+    # Test HTTP availability
+    local http_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT --connect-timeout 5 "$http_url" 2>/dev/null)
+    local http_available=false
+    if [ -n "$http_status" ] && [ "$http_status" != "000" ]; then
+        http_available=true
+    fi
+
+    # Test HTTPS availability
+    local https_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT --connect-timeout 5 "$https_url" 2>/dev/null)
+    local https_available=false
+    if [ -n "$https_status" ] && [ "$https_status" != "000" ]; then
+        https_available=true
+    fi
+
+    # Report findings
+    if [ "$http_available" = "true" ] && [ "$https_available" = "true" ]; then
+        log_result "[*] HTTP available  (port 80):  HTTP $http_status"
+        log_result "[*] HTTPS available (port 443): HTTP $https_status"
+
+        # Check if HTTP redirects to HTTPS
+        local http_final=$(curl -s -o /dev/null -w "%{url_effective}" -m $TIMEOUT --connect-timeout 5 -L "$http_url" 2>/dev/null)
+
+        if echo "$http_final" | grep -q "^https://"; then
+            log_finding "INFO" "HTTP redirects to HTTPS (good practice)"
+        else
+            log_finding "MEDIUM" "HTTP does NOT redirect to HTTPS - mixed content risk"
+            log_result "  Recommendation: Configure HTTP to HTTPS redirect"
+            play_found
+        fi
+
+    elif [ "$http_available" = "true" ] && [ "$https_available" = "false" ]; then
+        log_result "[*] HTTP available  (port 80):  HTTP $http_status"
+        log_result "[*] HTTPS not available (port 443)"
+        log_finding "HIGH" "Site only available via HTTP - no encryption!"
+        log_result "  All traffic is unencrypted and can be intercepted"
+        play_found
+
+    elif [ "$http_available" = "false" ] && [ "$https_available" = "true" ]; then
+        log_result "[*] HTTP not available (port 80)"
+        log_result "[*] HTTPS available (port 443): HTTP $https_status"
+        log_finding "INFO" "HTTPS only - HTTP not available (secure configuration)"
+
+    else
+        log_result "[*] Neither HTTP nor HTTPS responding"
+        log_finding "INFO" "Site may be down or blocking requests"
+    fi
+
+    log_result ""
+}
+
 # 1. Information Gathering
 scan_info() {
     log_result "[+] INFORMATION GATHERING"
@@ -439,10 +499,10 @@ scan_info() {
     log_result "--- Security Headers Check ---"
     local headers=$(curl -sI -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
 
-    [ -z "$(echo "$headers" | grep -i 'X-Frame-Options')" ] && log_finding "MEDIUM" "Missing: X-Frame-Options" && play_found
-    [ -z "$(echo "$headers" | grep -i 'X-Content-Type-Options')" ] && log_finding "MEDIUM" "Missing: X-Content-Type-Options" && play_found
-    [ -z "$(echo "$headers" | grep -i 'Strict-Transport-Security')" ] && log_finding "MEDIUM" "Missing: HSTS" && play_found
-    [ -z "$(echo "$headers" | grep -i 'Content-Security-Policy')" ] && log_finding "MEDIUM" "Missing: CSP" && play_found
+    [ -z "$(echo "$headers" | grep -i 'X-Frame-Options')" ] && LOG "green" "Missing: X-Frame-Options" && log_finding "MEDIUM" "Missing: X-Frame-Options" && play_found
+    [ -z "$(echo "$headers" | grep -i 'X-Content-Type-Options')" ] && LOG "green" "Missing: X-Content-Type-Options" && log_finding "MEDIUM" "Missing: X-Content-Type-Options" && play_found
+    [ -z "$(echo "$headers" | grep -i 'Strict-Transport-Security')" ] && LOG "green" "Missing: HSTS" && log_finding "MEDIUM" "Missing: HSTS" && play_found
+    [ -z "$(echo "$headers" | grep -i 'Content-Security-Policy')" ] && LOG "green" "Missing: CSP" && log_finding "MEDIUM" "Missing: CSP" && play_found
 
     # Server fingerprinting
     local server=$(echo "$headers" | grep -i "^Server:" | cut -d':' -f2- | tr -d '\r')
@@ -667,6 +727,7 @@ scan_endpoints() {
 
             # Only report if it's real (not homepage/soft-404)
             if [ $is_real -eq 1 ]; then
+                LOG "green" "FOUND [$status]: $endpoint"
                 log_finding "$severity" "FOUND [$status]: $endpoint"
                 found=$((found + 1))
                 if [ "$severity" = "CRITICAL" ] || [ "$severity" = "HIGH" ]; then
@@ -680,6 +741,7 @@ scan_endpoints() {
             local redirect_location=$(curl -sI -m $TIMEOUT "$url" 2>/dev/null | grep -i "^location:" | cut -d' ' -f2 | tr -d '\r')
             # Don't report if redirecting to homepage or root
             if [ -n "$redirect_location" ] && ! echo "$redirect_location" | grep -qE "^/?$|^${TARGET_URL}/?$"; then
+                LOG "green" "REDIRECT [$status]: $endpoint -> $redirect_location"
                 log_result "[*] REDIRECT [$status]: $endpoint -> $redirect_location"
                 found=$((found + 1))
             fi
@@ -896,18 +958,91 @@ scan_headers() {
         play_found
     fi
 
-    # X-Original-URL bypass attempt
-    local bypass_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: /admin" "$TARGET_URL" 2>/dev/null)
-    if [ "$bypass_status" = "200" ]; then
-        log_finding "HIGH" "X-Original-URL bypass possible"
+    # X-Original-URL bypass attempt (with content verification to reduce false positives)
+    LOG "Testing X-Original-URL bypass..."
+
+    # Get baseline response (normal request without header)
+    local baseline_content=$(curl -s -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
+    local baseline_size=${#baseline_content}
+
+    # Test paths that commonly require authentication
+    local test_paths="/admin /console /dashboard /wp-admin /manager /settings /config"
+    local bypass_detected=false
+    local bypass_path=""
+
+    for path in $test_paths; do
+        # Request with X-Original-URL header
+        local bypass_response=$(curl -s -m $TIMEOUT -H "X-Original-URL: $path" "$TARGET_URL" 2>/dev/null)
+        local bypass_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: $path" "$TARGET_URL" 2>/dev/null)
+        local bypass_size=${#bypass_response}
+
+        # Skip if not HTTP 200
+        [ "$bypass_status" != "200" ] && continue
+
+        # Calculate size difference percentage
+        local size_diff=0
+        if [ $baseline_size -gt 0 ]; then
+            size_diff=$(( (bypass_size - baseline_size) * 100 / baseline_size ))
+            # Get absolute value
+            [ $size_diff -lt 0 ] && size_diff=$(( size_diff * -1 ))
+        fi
+
+        # Check for admin-specific keywords in response that wouldn't be on homepage
+        local admin_keywords="admin panel|dashboard|control panel|administration|logout|sign out|user management|settings panel|admin area|configuration|manage users|admin menu|cpanel|administrator"
+        local has_admin_content=false
+
+        if echo "$bypass_response" | grep -qiE "$admin_keywords"; then
+            # Make sure these keywords aren't in the baseline too
+            if ! echo "$baseline_content" | grep -qiE "$admin_keywords"; then
+                has_admin_content=true
+            fi
+        fi
+
+        # Check for login/auth bypass indicators
+        local auth_indicators="welcome admin|logged in as|my account|profile settings|admin dashboard"
+        local has_auth_bypass=false
+
+        if echo "$bypass_response" | grep -qiE "$auth_indicators"; then
+            if ! echo "$baseline_content" | grep -qiE "$auth_indicators"; then
+                has_auth_bypass=true
+            fi
+        fi
+
+        # Determine if this is a real bypass
+        # Criteria: significant size difference AND (admin content OR auth bypass indicators)
+        if [ $size_diff -gt 20 ] && ([ "$has_admin_content" = "true" ] || [ "$has_auth_bypass" = "true" ]); then
+            bypass_detected=true
+            bypass_path="$path"
+            break
+        fi
+
+        # Also flag if we see completely different content structure (like a login form appearing)
+        if echo "$bypass_response" | grep -qiE "<form.*login|<form.*password|type=['\"]password['\"]"; then
+            if ! echo "$baseline_content" | grep -qiE "<form.*login|<form.*password|type=['\"]password['\"]"; then
+                bypass_detected=true
+                bypass_path="$path"
+                log_result "[*] Login form detected with X-Original-URL: $path"
+                break
+            fi
+        fi
+    done
+
+    if [ "$bypass_detected" = "true" ]; then
+        log_finding "HIGH" "X-Original-URL bypass CONFIRMED for: $bypass_path"
+        log_result "  Content changed significantly when header was sent"
+        log_result "  This may allow bypassing access controls!"
         log_result ""
-        log_result "    HOW TO VERIFY:"
-        log_result "    Try accessing protected paths using X-Original-URL header:"
-        log_result "    curl -H \"X-Original-URL: /admin\" \"$TARGET_URL\""
-        log_result "    curl -H \"X-Original-URL: /console\" \"$TARGET_URL\""
-        log_result "    If these return different content, ACL bypass is possible!"
+        log_result "  HOW TO EXPLOIT:"
+        log_result "  curl -H \"X-Original-URL: $bypass_path\" \"$TARGET_URL\""
         play_found
         led_found
+    else
+        # Check if server even processes the header (for informational purposes)
+        local header_test=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: /admin" "$TARGET_URL" 2>/dev/null)
+        if [ "$header_test" = "200" ]; then
+            log_result "[*] X-Original-URL header accepted but no bypass detected"
+            log_result "  Server returned normal content (likely ignores the header)"
+        fi
     fi
 
     log_result ""
@@ -953,6 +1088,7 @@ scan_redirects() {
             # Extract the redirect destination (the actual domain being redirected TO)
             # Check if it starts with http:// or https:// followed by evil.com
             if echo "$location" | grep -qE '^https?://evil\.com(/|$)'; then
+                LOG "green" "Open redirect found via: $param -> $location"
                 log_finding "HIGH" "Open redirect via: $param"
                 log_result "    Redirects to: $location"
                 play_found
@@ -961,6 +1097,7 @@ scan_redirects() {
                 sleep 0.5
             elif echo "$location" | grep -qE '^//evil\.com(/|$)'; then
                 # Protocol-relative URL (//evil.com)
+                LOG "green" "Open redirect found via: $param -> $location"
                 log_finding "HIGH" "Open redirect via: $param"
                 log_result "    Redirects to: $location"
                 play_found
@@ -1160,6 +1297,7 @@ scan_api() {
             fi
 
             if [ $is_real_api -eq 1 ]; then
+                LOG "green" "API FOUND [$status]: $endpoint"
                 log_finding "INFO" "API FOUND [$status]: $endpoint"
                 found=1
 
@@ -1188,6 +1326,7 @@ scan_api() {
                 fi
 
                 if [ $has_sensitive -eq 1 ]; then
+                    LOG "green" "Possible sensitive data in API response!"
                     log_finding "CRITICAL" "Possible sensitive data in API response!"
                     play_found
                     led_found
@@ -1231,6 +1370,7 @@ scan_backups() {
             if [ "$status" = "200" ]; then
                 # Ignore if it's HTML (likely a redirect to main page)
                 if ! echo "$content_type" | grep -qi "text/html"; then
+                    LOG "green" "BACKUP FOUND: /$file (${content_type})"
                     log_finding "CRITICAL" "BACKUP FOUND: /$file (${content_type})"
                     play_found
                     led_found
@@ -1255,13 +1395,25 @@ scan_cookies() {
 
     LOG "Analyzing cookies..."
     local cookies=$(curl -s -I -m $TIMEOUT "$TARGET_URL" 2>/dev/null | grep -i "^Set-Cookie:")
+    local body=$(curl -s -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
+    local js_cookies_found=0
+    local consent_detected=0
 
+    # Check for cookie consent banners/scripts (may prevent cookies until user consents)
+    LOG "Checking for cookie consent mechanisms..."
+    if echo "$body" | grep -qiE 'cookie.?consent|consent.?cookie|gdpr|cookiebot|onetrust|trustarc|cookielaw|cookie.?banner|cookie.?notice|cookie.?policy|accept.?cookie|cookie.?accept|tarteaucitron|klaro|osano|quantcast|didomi|iubenda|complianz'; then
+        consent_detected=1
+        log_result "[*] Cookie consent mechanism detected"
+        log_result "    NOTE: Cookies may only be set AFTER user consents in browser"
+    fi
+
+    # Check HTTP Set-Cookie headers
     if [ -z "$cookies" ]; then
-        log_result "[*] No cookies set"
+        log_result "[*] No cookies in HTTP headers (Set-Cookie)"
     else
-        log_result "[*] Cookies detected, analyzing..."
+        log_result "[*] HTTP Set-Cookie headers detected, analyzing..."
         local cookie_count=$(echo "$cookies" | wc -l | tr -d ' ')
-        log_result "[*] Found $cookie_count cookie(s)"
+        log_result "[*] Found $cookie_count cookie(s) in headers"
 
         # Check each cookie for security flags
         while IFS= read -r cookie; do
@@ -1284,6 +1436,88 @@ scan_cookies() {
                 log_finding "LOW" "Cookie '$cookie_name' missing SameSite flag"
             fi
         done <<< "$cookies"
+    fi
+
+    # Check for JavaScript-based cookie setting (document.cookie)
+    # This catches cookies that wouldn't appear in HTTP headers
+    log_result ""
+    log_result "[*] Checking for JavaScript cookie operations..."
+
+    # Look for document.cookie assignments in the HTML/JS
+    local js_cookie_sets=$(echo "$body" | grep -oE 'document\.cookie\s*=' | wc -l | tr -d ' ')
+    local js_cookie_reads=$(echo "$body" | grep -oE 'document\.cookie[^=]|document\.cookie$' | wc -l | tr -d ' ')
+
+    if [ "$js_cookie_sets" -gt 0 ]; then
+        js_cookies_found=1
+        log_finding "INFO" "Found $js_cookie_sets JavaScript cookie assignment(s) (document.cookie=)"
+        log_result "    These cookies are set via JS and won't appear in HTTP headers"
+
+        # Try to extract what cookies are being set
+        local cookie_patterns=$(echo "$body" | grep -oE "document\.cookie\s*=\s*['\"][^'\"]{1,100}" | head -5)
+        if [ -n "$cookie_patterns" ]; then
+            log_result "    Sample JS cookie operations found:"
+            while IFS= read -r pattern; do
+                # Clean up and display
+                local cleaned=$(echo "$pattern" | sed "s/document\.cookie\s*=\s*['\"]//g" | cut -c1-60)
+                [ -n "$cleaned" ] && log_result "      - $cleaned..."
+            done <<< "$cookie_patterns"
+        fi
+
+        # Check if JS cookies lack security (they can't set HttpOnly via JS)
+        log_finding "LOW" "JS-set cookies cannot have HttpOnly flag (XSS risk if sensitive)"
+    fi
+
+    if [ "$js_cookie_reads" -gt 0 ]; then
+        log_result "[*] Found $js_cookie_reads JavaScript cookie read(s) (document.cookie)"
+        log_result "    Site actively reads cookies via JavaScript"
+    fi
+
+    # Summary and manual verification instructions
+    log_result ""
+    if [ -z "$cookies" ] && [ $js_cookies_found -eq 0 ]; then
+        if [ $consent_detected -eq 1 ]; then
+            log_result "[*] No cookies detected - likely blocked by consent mechanism"
+            log_result ""
+            log_result "━━━ MANUAL VERIFICATION REQUIRED ━━━"
+            log_result "This site has cookie consent. To see actual cookies:"
+            log_result ""
+            log_result "1. Open the site in a browser"
+            log_result "2. Accept cookies via the consent banner"
+            log_result "3. Open DevTools (F12) → Console tab"
+            log_result "4. Type: document.cookie"
+            log_result "5. Check Application tab → Cookies for full details"
+            log_result ""
+            log_result "Or use DevTools Network tab to see Set-Cookie headers"
+            log_result "after accepting consent."
+            log_result "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        else
+            log_result "[*] No cookies detected in headers or JavaScript"
+            log_result ""
+            log_result "━━━ MANUAL VERIFICATION ━━━"
+            log_result "curl cannot execute JavaScript or interact with consent dialogs."
+            log_result "To verify cookies exist:"
+            log_result ""
+            log_result "1. Open site in browser → DevTools (F12)"
+            log_result "2. Console tab → type: document.cookie"
+            log_result "3. Application tab → Storage → Cookies"
+            log_result ""
+            log_result "If browser shows cookies but this scan doesn't, they're"
+            log_result "either set via JavaScript or require user interaction."
+            log_result "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        fi
+    elif [ $js_cookies_found -eq 1 ]; then
+        log_result "━━━ IMPORTANT NOTE ━━━"
+        log_result "This site sets cookies via JavaScript (document.cookie)."
+        log_result "These cookies:"
+        log_result "  - Cannot have HttpOnly flag (accessible to XSS attacks)"
+        log_result "  - May contain tracking/analytics data"
+        log_result "  - Won't appear in curl HTTP header checks"
+        log_result ""
+        log_result "To analyze JS-set cookies:"
+        log_result "  1. Open site in browser"
+        log_result "  2. DevTools (F12) → Console → document.cookie"
+        log_result "  3. Check Application → Cookies for security flags"
+        log_result "━━━━━━━━━━━━━━━━━━━━━━━━"
     fi
 
     log_result ""
@@ -1439,15 +1673,35 @@ scan_tech() {
         fi
 
         # Test for user enumeration via ?author=1
-        local author_page=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
-        if echo "$author_page" | grep -qiE "author/|posts by"; then
+        # WordPress redirects /?author=1 to /author/username/ revealing the username
+        local author_redirect=$(curl -s -o /dev/null -w "%{redirect_url}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
+        local author_username=""
+
+        if echo "$author_redirect" | grep -q "/author/"; then
+            # Extract username from redirect URL (e.g., /author/admin/ -> admin)
+            author_username=$(echo "$author_redirect" | sed -n 's|.*/author/\([^/]*\).*|\1|p')
+        fi
+
+        # If no redirect, check page content for author info
+        if [ -z "$author_username" ]; then
+            local author_page=$(curl -s -m $TIMEOUT -L "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
+            # Try to extract from author archive page title or URL in content
+            if echo "$author_page" | grep -qiE "author/|posts by"; then
+                author_username=$(echo "$author_page" | grep -oE 'author/[^/"]+' | head -1 | sed 's|author/||')
+            fi
+        fi
+
+        if [ -n "$author_username" ]; then
+            LOG "green" "WP user enumeration via ?author=1"
             log_finding "MEDIUM" "WP user enumeration via ?author=1"
+            log_result "  Username (author=1): $author_username"
             play_found
         fi
 
         # Test for xmlrpc
         local xmlrpc_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/xmlrpc.php" 2>/dev/null)
         if [ "$xmlrpc_status" = "200" ]; then
+            LOG "green" "xmlrpc.php accessible"
             log_finding "LOW" "xmlrpc.php accessible"
             play_found
         fi
@@ -1455,6 +1709,7 @@ scan_tech() {
         # Test for debug log
         local debug_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/wp-content/debug.log" 2>/dev/null)
         if [ "$debug_status" = "200" ]; then
+            LOG "green" "debug.log exposed!"
             log_finding "CRITICAL" "debug.log exposed!"
             play_found
             led_found
@@ -1544,6 +1799,7 @@ scan_subdomains() {
         # Consider these status codes as "subdomain exists"
         case "$status" in
             200|301|302|303|307|308|401|403)
+                LOG "green" "FOUND: ${subdomain}.${TARGET_HOST} [HTTP $status]"
                 log_result "[!] FOUND: ${subdomain}.${TARGET_HOST} [HTTP $status]"
                 found=$((found + 1))
                 found_list+=("${subdomain}")
@@ -1596,6 +1852,7 @@ scan_html_source() {
     # Extract email addresses
     local emails=$(echo "$body" | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' | sort -u | head -5)
     if [ -n "$emails" ]; then
+        LOG "green" "Email addresses found!"
         log_finding "INFO" "Email addresses found:"
         while IFS= read -r email; do
             log_result "    $email"
@@ -1638,6 +1895,9 @@ scan_html_source() {
     # Only flag if we find actual stack traces, not just the word "error"
     if echo "$body" | grep -qiE '<pre.*stack|<div.*exception|Fatal error:|Uncaught|Notice:|Warning:.*line'; then
         log_finding "MEDIUM" "Possible stack trace/error in source"
+        log_result "  What: Debug errors or crash details visible on the page"
+        log_result "  Risk: May expose file paths, database info, or code structure"
+        log_result "  Fix:  Disable debug mode in production, log errors server-side"
         found=1
         play_found
     fi
@@ -1705,6 +1965,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}  # Absolute value
 
         if check_metadata_content "$aws_response" "aws"; then
+            LOG "green" "CONFIRMED AWS SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED AWS SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1720,6 +1981,7 @@ scan_cloud_metadata() {
     # Try direct access (if scanner is running on AWS)
     local aws_direct=$(curl -s -m 2 "http://169.254.169.254/latest/meta-data/" 2>/dev/null)
     if [ -n "$aws_direct" ] && check_metadata_content "$aws_direct" "aws"; then
+        LOG "green" "Direct AWS metadata access detected!"
         log_finding "CRITICAL" "Direct AWS metadata access (scanner running on AWS instance)"
         play_found
         led_found
@@ -1738,6 +2000,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}
 
         if check_metadata_content "$gcp_response" "gcp"; then
+            LOG "green" "CONFIRMED GCP SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED GCP SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1762,6 +2025,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}
 
         if check_metadata_content "$azure_response" "azure"; then
+            LOG "green" "CONFIRMED Azure SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED Azure SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1793,6 +2057,7 @@ scan_cloud_metadata() {
             if check_metadata_content "$param_response" "aws" || \
                check_metadata_content "$param_response" "gcp" || \
                check_metadata_content "$param_response" "azure"; then
+                LOG "green" "CONFIRMED SSRF via parameter: $param"
                 log_finding "CRITICAL" "CONFIRMED SSRF via parameter: $param (metadata content detected)"
                 play_found
                 led_found
@@ -1879,8 +2144,44 @@ show_menu() {
 
 # === MAIN ===
 
-LOG "CURLY - Web Recon Scanner"
-LOG "by curtthecoder"
+LOG "green" "================================"
+LOG "green" "     CURLY - Web Recon Scanner"
+LOG "green" "        by curtthecoder"
+LOG "green" "================================"
+LOG ""
+
+# Version check
+CURRENT_VERSION="3.7"
+VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/reconnaissance/curly/VERSION"
+ENABLE_UPDATE_CHECK=true  # Set to false to disable
+
+if [ "$ENABLE_UPDATE_CHECK" = true ]; then
+    LOG "yellow" "[*] Checking for updates..."
+
+    # Fetch version file and HTTP status code
+    HTTP_RESPONSE=$(timeout 3 curl -s -w "\n%{http_code}" "$VERSION_CHECK_URL" 2>/dev/null)
+    HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -1)
+    LATEST_VERSION=$(echo "$HTTP_RESPONSE" | head -1 | tr -d '[:space:]')
+
+    # Check if request was successful (HTTP 200)
+    if [ "$HTTP_CODE" = "200" ] && [ -n "$LATEST_VERSION" ]; then
+        if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+            LOG ""
+            LOG "green" "========================================================"
+            LOG "green" "  UPDATE AVAILABLE!"
+            LOG "green" "  Current: v${CURRENT_VERSION} -> Latest: v${LATEST_VERSION}"
+            LOG "green" "  Update at: github.com/hak5/wifipineapplepager-payloads"
+            LOG "========================================================"
+            LOG ""
+            sleep 3
+        else
+            LOG "    [OK] Running latest version (v${CURRENT_VERSION})"
+        fi
+    else
+        # File not found or network issue - assume running current version
+        LOG "    [OK] Running current version (v${CURRENT_VERSION})"
+    fi
+fi
 LOG ""
 
 # Get target URL from user
@@ -1943,7 +2244,7 @@ LOG ""
 # Display estimated time for selected scan mode
 case $SCAN_MODE in
     1) LOG "Starting Quick Scan (estimated: ~30-45 seconds)..." ;;
-    2) LOG "Starting Full Scan (estimated: ~2-25 minutes)..." ;;
+    2) LOG "Starting Full Scan (estimated: ~5-25 minutes)..." ;;
     3) LOG "Starting API Recon (estimated: ~45-60 seconds)..." ;;
     4) LOG "Starting Security Audit (estimated: ~90-120 seconds)..." ;;
     5) LOG "Starting Tech Fingerprint (estimated: ~20-30 seconds)..." ;;
@@ -1957,6 +2258,7 @@ play_scan
 case $SCAN_MODE in
     1)  # Quick Scan
         scan_ip_geolocation
+        scan_protocol_availability
         scan_ssl_tls
         scan_waf
         scan_tech
@@ -1966,6 +2268,7 @@ case $SCAN_MODE in
         ;;
     2)  # Full Scan (All Modules)
         scan_ip_geolocation
+        scan_protocol_availability
         scan_ssl_tls
         scan_waf
         scan_tech
@@ -1990,6 +2293,7 @@ case $SCAN_MODE in
         ;;
     4)  # Security Audit
         scan_ip_geolocation
+        scan_protocol_availability
         scan_ssl_tls
         scan_tech
         scan_info
@@ -2004,6 +2308,7 @@ case $SCAN_MODE in
         ;;
     5)  # Tech Fingerprint
         scan_ip_geolocation
+        scan_protocol_availability
         scan_ssl_tls
         scan_waf
         scan_tech
