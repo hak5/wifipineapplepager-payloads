@@ -1,0 +1,7 @@
+lib/libpagerctl.so
+data/settings.json
+data/recovery.json
+data/session.json
+data/.next_payload
+__pycache__/
+*.pyc
