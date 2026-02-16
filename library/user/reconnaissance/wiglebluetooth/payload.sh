@@ -73,7 +73,6 @@ while true; do
         LOG blue "Disabling wigle mode"
         WIGLE_STOP
         combined_csv="/root/loot/wigle/wigle-combined_$(date +%Y%m%d_%H%M%S).csv"
-        mkdir -p /root/loot/wigle
         # Copy the first two lines (headers) from the Bluetooth CSV to the combined CSV
         head -n 2 "$latest_bluetooth_csv" > "$combined_csv"
         # Append the data from both CSV files to the combined CSV (skipping headers)
