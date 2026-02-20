@@ -1,8 +1,8 @@
-# Pagergotchi
+![Pagergotchi](screenshots/pagergotchi-header.png)
+
+![Pagergotchi](https://img.shields.io/badge/Hak5-WiFi%20Pineapple%20Pager-green)
 
 A port of [Pwnagotchi](https://github.com/jayofelern/pwnagotchi) for the Hak5 WiFi Pineapple Pager.
-
-![Pagergotchi in action](screenshots/handshake-captured.png)
 
 ## Features
 
