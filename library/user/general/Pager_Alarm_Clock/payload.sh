@@ -3,7 +3,7 @@
 # Title:  Pager Alarm Clock
 # Author: spywill
 # Description:  A simple alarm clock that runs in the background and displays the time in the format YYYY-MM-DD HH:MM AM/PM
-# Version: 1.0
+# Version: 1.1
 
 LOG ""
 LOG yellow "Pager Alarm Clock"
@@ -36,7 +36,12 @@ elif [[ "$ampm" == "AM" && "$hour" == "12" ]]; then
 	hour="00"
 fi
 
-alarm_datetime=$(printf "%s %02d:%02d" "$alarm_date" "$hour" "$minute")
+# --- Convert to epoch time ---
+alarm_epoch=$(date -d "$alarm_date $hour:$minute" +%s 2>/dev/null)
+if [ -z "$alarm_epoch" ]; then
+	LOG red "Invalid date/time"
+	exit 1
+fi
 
 LOG yellow "Alarm set for $input_datetime
 Pager Alarm Clock running in background
@@ -51,7 +56,7 @@ if [ ! -e "$INPUT" ]; then
 	exit 1
 fi
 
-# Function to play ringtone continuously
+# --- Function to play ringtone continuously ---
 play_ringtone() {
 	while true; do
 		RINGTONE "Alert1:d=4,o=5,b=285:8d5,8e5,8f5,8e5,8d5"
@@ -59,15 +64,15 @@ play_ringtone() {
 	done
 }
 
-# Main wait loop
+# --- Main wait loop ---
 while true; do
-	current=$(date +"%Y-%m-%d %H:%M")
+	current_epoch=$(date +%s)
 
-	if [[ "$current" == "$alarm_datetime" ]]; then
+	if (( current_epoch >= alarm_epoch )); then
 		PROMPT "Pager Alarm Clock
-        
+
 		current time: $(date +"%Y-%m-%d %I:%M %p")
-        
+
 		press any button to stop ringtone" &
 
 		play_ringtone &
@@ -76,25 +81,24 @@ while true; do
 		# Ensure ringtone stops if script exits
 		trap 'kill $RING_PID 2>/dev/null; pkill -f "RINGTONE" 2>/dev/null' EXIT
 
-		# Wait for button press
+		# --- Wait for button press ---
 		while true; do
-			# Read one 16-byte event
-			data=$(dd if="$INPUT" bs=16 count=1 2>/dev/null | hexdump -v -e '16/1 "%02x "')
+			data=$(dd if="$INPUT" bs=16 count=1 2>/dev/null | \
+			hexdump -v -e '16/1 "%02x "')
 
-			# Skip if nothing read
 			[ -z "$data" ] && continue
 
-			# Extract type and value
 			type=$(echo "$data" | awk '{print $9, $10}')
 			value=$(echo "$data" | awk '{print $13}')
 
 			if [ "$type" = "01 00" ] && [ "$value" = "01" ]; then
 				kill $RING_PID 2>/dev/null
 				pkill -f "RINGTONE" 2>/dev/null
-				exit 1
+				exit 0
 			fi
+
 			sleep 0.2
 		done
 	fi
-	sleep 10
+	sleep 1
 done &
