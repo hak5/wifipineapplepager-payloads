@@ -289,33 +289,91 @@ declare -a ENTERPRISE_CHANNELS
 declare -a ENTERPRISE_SIGNALS
 ENTERPRISE_COUNT=0
 
-scan_enterprise_networks() {
-    LOG blue "Scanning for enterprise networks..."
-    led_recon
-    local sid=$(START_SPINNER "Scanning WiFi...")
+# Find a WiFi interface suitable for scanning.
+# Tries common Pineapple Pager interface names in order.
+detect_scan_iface() {
+    local iface
+    for iface in wlan1 wlan0 wlan2; do
+        if iw dev "$iface" info >/dev/null 2>&1; then
+            echo "$iface"
+            return 0
+        fi
+    done
+    return 1
+}
 
-    ENTERPRISE_SSIDS=()
-    ENTERPRISE_BSSIDS=()
-    ENTERPRISE_CHANNELS=()
-    ENTERPRISE_SIGNALS=()
-    ENTERPRISE_COUNT=0
-
-    # Use iwinfo scan to detect 802.1X/EAP networks
-    local scan_output
-    scan_output=$(iwinfo wlan1 scan 2>/dev/null)
-
-    if [ -z "$scan_output" ]; then
-        scan_output=$(iwinfo wlan1mon scan 2>/dev/null)
+# Convert MHz frequency to 802.11 channel number
+freq_to_channel() {
+    local freq="$1"
+    if [ "$freq" -ge 2412 ] && [ "$freq" -le 2472 ]; then
+        echo $(( (freq - 2412) / 5 + 1 ))
+    elif [ "$freq" -eq 2484 ]; then
+        echo 14
+    elif [ "$freq" -ge 5180 ] && [ "$freq" -le 5825 ]; then
+        echo $(( (freq - 5000) / 5 ))
+    elif [ "$freq" -ge 5955 ] && [ "$freq" -le 7115 ]; then
+        echo $(( (freq - 5955) / 5 + 1 ))
+    else
+        echo "$DEFAULT_CHANNEL"
     fi
+}
 
-    STOP_SPINNER $sid
+# Parse 'iw dev <iface> scan' output.
+# iw output uses SSID:/freq:/signal: fields and marks enterprise via
+# "Authentication suites: IEEE 802.1X" inside the RSN block.
+parse_iw_scan() {
+    local scan_output="$1"
+    local current_bssid=""
+    local current_ssid=""
+    local current_channel=""
+    local current_signal=""
+    local current_is_enterprise=false
 
-    if [ -z "$scan_output" ]; then
-        LOG red "Scan failed - no results"
-        return 1
+    while IFS= read -r line; do
+        case "$line" in
+            BSS\ [0-9A-Fa-f][0-9A-Fa-f]:*)
+                # Save previous entry
+                if [ "$current_is_enterprise" = true ] && [ -n "$current_ssid" ]; then
+                    ENTERPRISE_SSIDS+=("$current_ssid")
+                    ENTERPRISE_BSSIDS+=("$current_bssid")
+                    ENTERPRISE_CHANNELS+=("${current_channel:-$DEFAULT_CHANNEL}")
+                    ENTERPRISE_SIGNALS+=("${current_signal:--99}")
+                fi
+                current_bssid=$(echo "$line" | grep -oE '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}')
+                current_ssid=""
+                current_channel=""
+                current_signal=""
+                current_is_enterprise=false
+                ;;
+            *"SSID: "*)
+                current_ssid=$(echo "$line" | sed 's/.*SSID: //')
+                ;;
+            *"freq: "*)
+                local freq
+                freq=$(echo "$line" | grep -oE 'freq: [0-9]+' | awk '{print $2}')
+                [ -n "$freq" ] && current_channel=$(freq_to_channel "$freq")
+                ;;
+            *"signal: "*)
+                current_signal=$(echo "$line" | grep -oE '\-[0-9]+' | head -1)
+                ;;
+            *"IEEE 802.1X"*|*"802.1X"*|*"Authentication suites:"*"802.1X"*)
+                current_is_enterprise=true
+                ;;
+        esac
+    done <<< "$scan_output"
+
+    # Don't forget last entry
+    if [ "$current_is_enterprise" = true ] && [ -n "$current_ssid" ]; then
+        ENTERPRISE_SSIDS+=("$current_ssid")
+        ENTERPRISE_BSSIDS+=("$current_bssid")
+        ENTERPRISE_CHANNELS+=("${current_channel:-$DEFAULT_CHANNEL}")
+        ENTERPRISE_SIGNALS+=("${current_signal:--99}")
     fi
+}
 
-    # Parse iwinfo output for 802.1X/EAP networks
+# Parse 'iwinfo <iface> scan' output.
+parse_iwinfo_scan() {
+    local scan_output="$1"
     local current_bssid=""
     local current_ssid=""
     local current_channel=""
@@ -333,7 +391,6 @@ scan_enterprise_networks() {
 
         case "$line" in
             *"Cell"*"Address:"*|*"BSS "*)
-                # Save previous entry if enterprise
                 if [ "$current_is_enterprise" = true ] && [ -n "$current_ssid" ]; then
                     ENTERPRISE_SSIDS+=("$current_ssid")
                     ENTERPRISE_BSSIDS+=("$current_bssid")
@@ -367,6 +424,53 @@ scan_enterprise_networks() {
         ENTERPRISE_BSSIDS+=("$current_bssid")
         ENTERPRISE_CHANNELS+=("${current_channel:-$DEFAULT_CHANNEL}")
         ENTERPRISE_SIGNALS+=("${current_signal:--99}")
+    fi
+}
+
+scan_enterprise_networks() {
+    LOG blue "Scanning for enterprise networks..."
+    led_recon
+    local sid=$(START_SPINNER "Scanning WiFi...")
+
+    ENTERPRISE_SSIDS=()
+    ENTERPRISE_BSSIDS=()
+    ENTERPRISE_CHANNELS=()
+    ENTERPRISE_SIGNALS=()
+    ENTERPRISE_COUNT=0
+
+    # Auto-detect the scan interface rather than hard-coding wlan1
+    local scan_iface
+    scan_iface=$(detect_scan_iface)
+    if [ -z "$scan_iface" ]; then
+        STOP_SPINNER $sid
+        LOG red "No WiFi interface found for scanning"
+        return 1
+    fi
+    LOG blue "Scanning on $scan_iface..."
+
+    # Try iwinfo first (friendlier output), fall back to iw dev scan
+    local scan_output
+    local use_iw=false
+
+    scan_output=$(iwinfo "$scan_iface" scan 2>/dev/null)
+
+    if [ -z "$scan_output" ]; then
+        LOG yellow "iwinfo scan empty, trying iw..."
+        scan_output=$(iw dev "$scan_iface" scan 2>/dev/null)
+        use_iw=true
+    fi
+
+    STOP_SPINNER $sid
+
+    if [ -z "$scan_output" ]; then
+        LOG red "Scan failed - no results"
+        return 1
+    fi
+
+    if [ "$use_iw" = true ]; then
+        parse_iw_scan "$scan_output"
+    else
+        parse_iwinfo_scan "$scan_output"
     fi
 
     ENTERPRISE_COUNT=${#ENTERPRISE_SSIDS[@]}
@@ -489,8 +593,9 @@ generate_certs() {
         -out "$CERT_DIR/server.pem" \
         2>/dev/null
 
-    # DH parameters (1024-bit for speed on ARM)
-    openssl dhparam -out "$CERT_DIR/dh.pem" 1024 2>/dev/null
+    # DH parameters (1024-bit, -dsaparam uses DSA-style generation which
+    # is orders of magnitude faster on ARM than standard prime search)
+    openssl dhparam -dsaparam -out "$CERT_DIR/dh.pem" 1024 2>/dev/null
 
     STOP_SPINNER $sid
 
