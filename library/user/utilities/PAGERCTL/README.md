@@ -7,7 +7,7 @@ Hardware control library for the WiFi Pineapple Pager. Provides smooth, flicker-
 - **Display** - Double-buffered framebuffer rendering (480x222 RGB565)
 - **Text** - Built-in bitmap font with multiple sizes
 - **TTF Fonts** - TrueType font rendering via stb_truetype
-- **Images** - Load and draw JPG, PNG, BMP, GIF images via stb_image
+- **Images** - Load and draw JPG, PNG, BMP, GIF images with alpha blending and rotation
 - **Input** - Button handling (D-pad, A, B, Power) with thread-safe event queue
 - **LEDs** - RGB D-pad LEDs and A/B button LEDs
 - **Audio** - Buzzer control with RTTTL ringtone support
@@ -146,9 +146,13 @@ int main() {
 | `pager_draw_image_scaled(x, y, w, h, handle)` | Draw loaded image scaled to w×h |
 | `pager_draw_image_file(x, y, filepath)` | Load and draw in one call |
 | `pager_draw_image_file_scaled(x, y, w, h, filepath)` | Load and draw scaled in one call |
+| `pager_draw_image_scaled_rotated(x, y, w, h, handle, rotation)` | Draw scaled and rotated (0/90/180/270) |
+| `pager_draw_image_file_scaled_rotated(x, y, w, h, filepath, rotation)` | Load, draw scaled and rotated |
 | `pager_get_image_info(filepath, &w, &h)` | Get image dimensions without loading |
 
-Supported formats: JPEG, PNG, BMP, GIF (first frame only)
+Supported formats: JPEG, PNG (with alpha), BMP, GIF (first frame only)
+
+PNG images with transparency are automatically alpha-blended over the framebuffer.
 
 **Python example:**
 ```python
@@ -160,6 +164,14 @@ img = p.load_image("/path/to/image.png")
 p.draw_image(10, 10, img)
 p.draw_image_scaled(100, 10, 50, 50, img)
 p.free_image(img)
+
+# Draw rotated (0, 90, 180, 270 degrees)
+p.draw_image_file_scaled_rotated(0, 0, 222, 480, "/path/to/image.png", 90)
+
+# Transparent PNGs are automatically alpha-blended
+overlay = p.load_image("/path/to/overlay.png")  # PNG with alpha
+p.draw_image(0, 0, overlay)  # Blends over existing content
+p.free_image(overlay)
 
 # Get dimensions without loading
 w, h = p.get_image_info("/path/to/image.jpg")

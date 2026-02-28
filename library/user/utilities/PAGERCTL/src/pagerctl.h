@@ -506,6 +506,7 @@ typedef struct {
     int width;
     int height;
     uint16_t *pixels;  /* RGB565 pixel data */
+    uint8_t  *alpha;   /* Alpha channel (0=transparent, 255=opaque), NULL if opaque */
 } pager_image_t;
 
 /* Load image from file into memory. Returns NULL on error.
@@ -537,5 +538,19 @@ int pager_draw_image_file_scaled(int x, int y, int dst_w, int dst_h, const char 
  * Returns 0 on success, -1 on error.
  */
 int pager_get_image_info(const char *filepath, int *width, int *height);
+
+/* Draw a loaded image scaled and rotated.
+ * rotation: 0, 90, 180, or 270 degrees (clockwise rotation of the source image).
+ * dst_w x dst_h is the destination rectangle size (after rotation).
+ * Supports alpha blending if the image has an alpha channel.
+ */
+void pager_draw_image_scaled_rotated(int x, int y, int dst_w, int dst_h,
+                                     const pager_image_t *img, int rotation);
+
+/* Load and draw image from file, scaled and rotated.
+ * Returns 0 on success, -1 on error.
+ */
+int pager_draw_image_file_scaled_rotated(int x, int y, int dst_w, int dst_h,
+                                         const char *filepath, int rotation);
 
 #endif /* PAGERCTL_H */

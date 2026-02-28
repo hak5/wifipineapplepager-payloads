@@ -271,6 +271,10 @@ class Pager:
         _lib.pager_draw_image_file_scaled.restype = c_int
         _lib.pager_get_image_info.argtypes = [c_char_p, POINTER(c_int), POINTER(c_int)]
         _lib.pager_get_image_info.restype = c_int
+        _lib.pager_draw_image_scaled_rotated.argtypes = [c_int, c_int, c_int, c_int, c_void_p, c_int]
+        _lib.pager_draw_image_scaled_rotated.restype = None
+        _lib.pager_draw_image_file_scaled_rotated.argtypes = [c_int, c_int, c_int, c_int, c_char_p, c_int]
+        _lib.pager_draw_image_file_scaled_rotated.restype = c_int
 
     # Initialization
     def init(self):
@@ -627,6 +631,15 @@ class Pager:
         if _lib.pager_get_image_info(filepath.encode(), byref(w), byref(h)) == 0:
             return (w.value, h.value)
         return None
+
+    def draw_image_scaled_rotated(self, x, y, w, h, handle, rotation=0):
+        """Draw a loaded image scaled and rotated. rotation: 0, 90, 180, 270."""
+        if handle:
+            _lib.pager_draw_image_scaled_rotated(x, y, w, h, handle, rotation)
+
+    def draw_image_file_scaled_rotated(self, x, y, w, h, filepath, rotation=0):
+        """Load and draw image from file, scaled and rotated. Returns 0 on success."""
+        return _lib.pager_draw_image_file_scaled_rotated(x, y, w, h, filepath.encode(), rotation)
 
     # Context manager support
     def __enter__(self):

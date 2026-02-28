@@ -1645,16 +1645,61 @@ static inline uint16_t rgb888_to_rgb565(uint8_t r, uint8_t g, uint8_t b) {
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
+/* Read a pixel from the framebuffer (with rotation transform) */
+static inline uint16_t read_pixel(int x, int y) {
+    if (!framebuffer) return 0;
+    int fx, fy;
+    transform_coords(x, y, &fx, &fy);
+    if (fx < 0 || fx >= PAGER_FB_WIDTH || fy < 0 || fy >= PAGER_FB_HEIGHT) return 0;
+    return framebuffer[fy * PAGER_FB_WIDTH + fx];
+}
+
+/* Alpha-blend foreground RGB565 over background RGB565.
+ * Uses >> 8 approximation instead of / 255 for speed on MIPS. */
+static inline uint16_t blend_rgb565(uint16_t fg, uint16_t bg, uint8_t alpha) {
+    uint8_t inv = 255 - alpha;
+
+    uint32_t fg_r = (fg >> 11) & 0x1F;
+    uint32_t fg_g = (fg >> 5)  & 0x3F;
+    uint32_t fg_b = fg & 0x1F;
+
+    uint32_t bg_r = (bg >> 11) & 0x1F;
+    uint32_t bg_g = (bg >> 5)  & 0x3F;
+    uint32_t bg_b = bg & 0x1F;
+
+    uint32_t r = (fg_r * alpha + bg_r * inv) >> 8;
+    uint32_t g = (fg_g * alpha + bg_g * inv) >> 8;
+    uint32_t b = (fg_b * alpha + bg_b * inv) >> 8;
+
+    return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
 /* Load image from file and return pager_image_t structure */
 pager_image_t *pager_load_image(const char *filepath) {
     if (!filepath) return NULL;
 
     int width, height, channels;
 
-    /* Load image - request RGB (3 channels) */
-    unsigned char *data = stbi_load(filepath, &width, &height, &channels, 3);
+    /* Probe native channel count without loading */
+    if (!stbi_info(filepath, &width, &height, &channels)) {
+        fprintf(stderr, "Failed to load image: %s\n", filepath);
+        return NULL;
+    }
+
+    int has_alpha = (channels == 4);
+    int req_channels = has_alpha ? 4 : 3;
+
+    /* Load image with appropriate channel count */
+    unsigned char *data = stbi_load(filepath, &width, &height, &channels, req_channels);
     if (!data) {
         fprintf(stderr, "Failed to load image: %s\n", filepath);
+        return NULL;
+    }
+
+    /* Sanity-check dimensions to prevent integer overflow in malloc */
+    if (width <= 0 || height <= 0 || width > 4096 || height > 4096) {
+        fprintf(stderr, "Image dimensions out of range: %dx%d\n", width, height);
+        stbi_image_free(data);
         return NULL;
     }
 
@@ -1673,15 +1718,39 @@ pager_image_t *pager_load_image(const char *filepath) {
         return NULL;
     }
 
+    /* Allocate alpha buffer if image has transparency */
+    if (has_alpha) {
+        img->alpha = malloc(width * height);
+        if (!img->alpha) {
+            free(img->pixels);
+            free(img);
+            stbi_image_free(data);
+            return NULL;
+        }
+    } else {
+        img->alpha = NULL;
+    }
+
     img->width = width;
     img->height = height;
 
-    /* Convert RGB888 to RGB565 */
-    for (int i = 0; i < width * height; i++) {
-        uint8_t r = data[i * 3 + 0];
-        uint8_t g = data[i * 3 + 1];
-        uint8_t b = data[i * 3 + 2];
-        img->pixels[i] = rgb888_to_rgb565(r, g, b);
+    /* Convert to RGB565 and extract alpha */
+    if (has_alpha) {
+        for (int i = 0; i < width * height; i++) {
+            uint8_t r = data[i * 4 + 0];
+            uint8_t g = data[i * 4 + 1];
+            uint8_t b = data[i * 4 + 2];
+            uint8_t a = data[i * 4 + 3];
+            img->pixels[i] = rgb888_to_rgb565(r, g, b);
+            img->alpha[i] = a;
+        }
+    } else {
+        for (int i = 0; i < width * height; i++) {
+            uint8_t r = data[i * 3 + 0];
+            uint8_t g = data[i * 3 + 1];
+            uint8_t b = data[i * 3 + 2];
+            img->pixels[i] = rgb888_to_rgb565(r, g, b);
+        }
     }
 
     stbi_image_free(data);
@@ -1691,9 +1760,8 @@ pager_image_t *pager_load_image(const char *filepath) {
 /* Free a loaded image */
 void pager_free_image(pager_image_t *img) {
     if (img) {
-        if (img->pixels) {
-            free(img->pixels);
-        }
+        free(img->pixels);
+        free(img->alpha);
         free(img);
     }
 }
@@ -1710,7 +1778,18 @@ void pager_draw_image(int x, int y, const pager_image_t *img) {
             int screen_x = x + ix;
             if (screen_x < 0 || screen_x >= logical_width) continue;
 
-            pager_set_pixel(screen_x, screen_y, img->pixels[iy * img->width + ix]);
+            int src_idx = iy * img->width + ix;
+            uint16_t color = img->pixels[src_idx];
+
+            if (img->alpha) {
+                uint8_t a = img->alpha[src_idx];
+                if (a == 0) continue;
+                if (a < 255) {
+                    color = blend_rgb565(color, read_pixel(screen_x, screen_y), a);
+                }
+            }
+
+            pager_set_pixel(screen_x, screen_y, color);
         }
     }
 }
@@ -1726,13 +1805,26 @@ void pager_draw_image_scaled(int x, int y, int dst_w, int dst_h, const pager_ima
         if (screen_y < 0 || screen_y >= logical_height) continue;
 
         int src_y = (dy * img->height) / dst_h;
+        if (src_y >= img->height) src_y = img->height - 1;
 
         for (int dx = 0; dx < dst_w; dx++) {
             int screen_x = x + dx;
             if (screen_x < 0 || screen_x >= logical_width) continue;
 
             int src_x = (dx * img->width) / dst_w;
-            pager_set_pixel(screen_x, screen_y, img->pixels[src_y * img->width + src_x]);
+            if (src_x >= img->width) src_x = img->width - 1;
+            int src_idx = src_y * img->width + src_x;
+            uint16_t color = img->pixels[src_idx];
+
+            if (img->alpha) {
+                uint8_t a = img->alpha[src_idx];
+                if (a == 0) continue;
+                if (a < 255) {
+                    color = blend_rgb565(color, read_pixel(screen_x, screen_y), a);
+                }
+            }
+
+            pager_set_pixel(screen_x, screen_y, color);
         }
     }
 }
@@ -1772,4 +1864,101 @@ int pager_get_image_info(const char *filepath, int *width, int *height) {
         return 0;
     }
     return -1;
+}
+
+/* Draw a loaded image scaled and rotated.
+ * rotation: 0, 90, 180, or 270 (CW rotation of source image).
+ * dst_w x dst_h is the size on screen (after rotation). */
+void pager_draw_image_scaled_rotated(int x, int y, int dst_w, int dst_h,
+                                     const pager_image_t *img, int rotation) {
+    if (!img || !img->pixels || !framebuffer) return;
+    if (dst_w <= 0 || dst_h <= 0) return;
+
+    /* Normalize rotation */
+    rotation = ((rotation % 360) + 360) % 360;
+
+    /* No rotation — use the standard scaled draw */
+    if (rotation == 0) {
+        pager_draw_image_scaled(x, y, dst_w, dst_h, img);
+        return;
+    }
+
+    /* Source dimensions as seen after rotation */
+    int rot_w, rot_h;
+    if (rotation == 90 || rotation == 270) {
+        rot_w = img->height;
+        rot_h = img->width;
+    } else {
+        rot_w = img->width;
+        rot_h = img->height;
+    }
+
+    for (int dy = 0; dy < dst_h; dy++) {
+        int screen_y = y + dy;
+        if (screen_y < 0 || screen_y >= logical_height) continue;
+
+        /* Map to rotated source coordinate */
+        int ry = (dy * rot_h) / dst_h;
+        if (ry >= rot_h) ry = rot_h - 1;
+
+        for (int dx = 0; dx < dst_w; dx++) {
+            int screen_x = x + dx;
+            if (screen_x < 0 || screen_x >= logical_width) continue;
+
+            int rx = (dx * rot_w) / dst_w;
+            if (rx >= rot_w) rx = rot_w - 1;
+
+            /* Map rotated coords back to original image coords */
+            int orig_x, orig_y;
+            switch (rotation) {
+                case 90:
+                    orig_x = img->width - 1 - ry;
+                    orig_y = rx;
+                    break;
+                case 180:
+                    orig_x = img->width - 1 - rx;
+                    orig_y = img->height - 1 - ry;
+                    break;
+                case 270:
+                    orig_x = ry;
+                    orig_y = img->height - 1 - rx;
+                    break;
+                default:
+                    orig_x = rx;
+                    orig_y = ry;
+                    break;
+            }
+
+            /* Bounds check on original image */
+            if (orig_x < 0 || orig_x >= img->width ||
+                orig_y < 0 || orig_y >= img->height) continue;
+
+            int src_idx = orig_y * img->width + orig_x;
+            uint16_t color = img->pixels[src_idx];
+
+            /* Alpha blending */
+            if (img->alpha) {
+                uint8_t a = img->alpha[src_idx];
+                if (a == 0) continue;
+                if (a < 255) {
+                    color = blend_rgb565(color, read_pixel(screen_x, screen_y), a);
+                }
+            }
+
+            pager_set_pixel(screen_x, screen_y, color);
+        }
+    }
+}
+
+/* Load and draw image from file, scaled and rotated */
+int pager_draw_image_file_scaled_rotated(int x, int y, int dst_w, int dst_h,
+                                         const char *filepath, int rotation) {
+    if (!filepath) return -1;
+
+    pager_image_t *img = pager_load_image(filepath);
+    if (!img) return -1;
+
+    pager_draw_image_scaled_rotated(x, y, dst_w, dst_h, img, rotation);
+    pager_free_image(img);
+    return 0;
 }
