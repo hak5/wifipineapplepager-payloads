@@ -298,6 +298,39 @@ for level in range(100, 20, -10):
 
 Note: Returns -1 if backlight control is not available on the device.
 
+### Screenshot
+
+| Function | Description |
+|----------|-------------|
+| `pager_screenshot(filepath, rotation)` | Save display to PNG or BMP file |
+
+Reads directly from `/dev/fb0` — captures whatever is currently on screen, regardless of which process drew it. Does not require `pager_init()`.
+
+The `rotation` parameter controls output orientation:
+- `0` — raw portrait (222x480)
+- `270` — landscape (480x222, typical for most apps)
+- `90`, `180` — other orientations
+
+**Python example:**
+```python
+from pagerctl import Pager
+p = Pager()
+
+# Landscape screenshot (default)
+p.screenshot("/tmp/screen.png")
+
+# Portrait screenshot
+p.screenshot("/tmp/screen.png", 0)
+
+# Save as BMP
+p.screenshot("/tmp/screen.bmp")
+```
+
+**CLI one-liner (over SSH):**
+```bash
+python3 -c "from pagerctl import Pager; Pager().screenshot('/tmp/screen.png')"
+```
+
 ### Utilities
 
 | Function | Description |

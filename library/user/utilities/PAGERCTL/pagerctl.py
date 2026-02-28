@@ -275,6 +275,8 @@ class Pager:
         _lib.pager_draw_image_scaled_rotated.restype = None
         _lib.pager_draw_image_file_scaled_rotated.argtypes = [c_int, c_int, c_int, c_int, c_char_p, c_int]
         _lib.pager_draw_image_file_scaled_rotated.restype = c_int
+        _lib.pager_screenshot.argtypes = [c_char_p, c_int]
+        _lib.pager_screenshot.restype = c_int
 
     # Initialization
     def init(self):
@@ -640,6 +642,12 @@ class Pager:
     def draw_image_file_scaled_rotated(self, x, y, w, h, filepath, rotation=0):
         """Load and draw image from file, scaled and rotated. Returns 0 on success."""
         return _lib.pager_draw_image_file_scaled_rotated(x, y, w, h, filepath.encode(), rotation)
+
+    def screenshot(self, filepath, rotation=270):
+        """Save hardware display to PNG or BMP. Reads /dev/fb0 directly.
+        rotation: 0=portrait (222x480), 270=landscape (480x222, default).
+        Returns 0 on success."""
+        return _lib.pager_screenshot(filepath.encode(), rotation)
 
     # Context manager support
     def __enter__(self):

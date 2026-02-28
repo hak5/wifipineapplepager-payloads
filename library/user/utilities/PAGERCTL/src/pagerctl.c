@@ -29,6 +29,10 @@
 #define STBI_NO_LINEAR
 #include "stb_image.h"
 
+/* stb_image_write for screenshot support (PNG/BMP) */
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 /* Framebuffer state */
 static int fb_fd = -1;
 static uint16_t *framebuffer = NULL;
@@ -1961,4 +1965,118 @@ int pager_draw_image_file_scaled_rotated(int x, int y, int dst_w, int dst_h,
     pager_draw_image_scaled_rotated(x, y, dst_w, dst_h, img, rotation);
     pager_free_image(img);
     return 0;
+}
+
+/*
+ * ============================================================
+ *  Screenshot
+ * ============================================================
+ */
+
+/* Save the hardware display contents to a PNG or BMP file.
+ * Reads directly from /dev/fb0 so it captures whatever is on screen,
+ * regardless of which process drew it. Does not require pager_init().
+ * rotation: 0 = raw portrait (222x480), 270 = landscape (480x222).
+ * File format is determined by extension (.png or .bmp).
+ * Returns 0 on success, -1 on error. */
+int pager_screenshot(const char *filepath, int rotation) {
+    if (!filepath) return -1;
+
+    int fb_w = PAGER_FB_WIDTH;
+    int fb_h = PAGER_FB_HEIGHT;
+    size_t fb_size = fb_w * fb_h * sizeof(uint16_t);
+
+    /* Normalize rotation */
+    rotation = ((rotation % 360) + 360) % 360;
+
+    /* Output dimensions depend on rotation */
+    int out_w, out_h;
+    if (rotation == 90 || rotation == 270) {
+        out_w = fb_h;  /* 480 */
+        out_h = fb_w;  /* 222 */
+    } else {
+        out_w = fb_w;  /* 222 */
+        out_h = fb_h;  /* 480 */
+    }
+
+    /* Read directly from hardware framebuffer */
+    int fd = open("/dev/fb0", O_RDONLY);
+    if (fd < 0) {
+        perror("pager_screenshot: failed to open /dev/fb0");
+        return -1;
+    }
+
+    uint16_t *fb_data = malloc(fb_size);
+    if (!fb_data) {
+        close(fd);
+        return -1;
+    }
+
+    ssize_t bytes_read = read(fd, fb_data, fb_size);
+    close(fd);
+
+    if (bytes_read < (ssize_t)fb_size) {
+        fprintf(stderr, "pager_screenshot: short read from fb0 (%zd/%zu)\n",
+                bytes_read, fb_size);
+        free(fb_data);
+        return -1;
+    }
+
+    /* Allocate RGB888 output buffer */
+    unsigned char *rgb = malloc(out_w * out_h * 3);
+    if (!rgb) {
+        free(fb_data);
+        return -1;
+    }
+
+    /* Convert RGB565 to RGB888 with rotation */
+    for (int y = 0; y < out_h; y++) {
+        for (int x = 0; x < out_w; x++) {
+            /* Map output (x,y) back to framebuffer coords */
+            int fx, fy;
+            switch (rotation) {
+                case 90:
+                    fx = y;
+                    fy = fb_h - 1 - x;
+                    break;
+                case 180:
+                    fx = fb_w - 1 - x;
+                    fy = fb_h - 1 - y;
+                    break;
+                case 270:
+                    fx = fb_w - 1 - y;
+                    fy = x;
+                    break;
+                default: /* 0 */
+                    fx = x;
+                    fy = y;
+                    break;
+            }
+
+            uint16_t px = 0;
+            if (fx >= 0 && fx < fb_w && fy >= 0 && fy < fb_h) {
+                px = fb_data[fy * fb_w + fx];
+            }
+
+            int idx = (y * out_w + x) * 3;
+            rgb[idx + 0] = ((px >> 11) & 0x1F) << 3;  /* R */
+            rgb[idx + 1] = ((px >> 5) & 0x3F) << 2;   /* G */
+            rgb[idx + 2] = (px & 0x1F) << 3;           /* B */
+        }
+    }
+
+    free(fb_data);
+
+    /* Determine format from file extension */
+    int result = 0;
+    const char *ext = strrchr(filepath, '.');
+    if (ext && (strcmp(ext, ".bmp") == 0 || strcmp(ext, ".BMP") == 0)) {
+        result = stbi_write_bmp(filepath, out_w, out_h, 3, rgb);
+    } else {
+        /* Default to PNG */
+        result = stbi_write_png(filepath, out_w, out_h, 3, rgb, out_w * 3);
+    }
+
+    free(rgb);
+    return result ? 0 : -1;
 }

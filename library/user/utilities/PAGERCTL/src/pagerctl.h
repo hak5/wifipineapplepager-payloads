@@ -553,4 +553,12 @@ void pager_draw_image_scaled_rotated(int x, int y, int dst_w, int dst_h,
 int pager_draw_image_file_scaled_rotated(int x, int y, int dst_w, int dst_h,
                                          const char *filepath, int rotation);
 
+/* Save the hardware display to a PNG or BMP file.
+ * Reads directly from /dev/fb0 — captures whatever is on screen.
+ * Does not require pager_init(). Format determined by extension.
+ * rotation: 0 = raw portrait (222x480), 270 = landscape (480x222).
+ * Returns 0 on success, -1 on error.
+ */
+int pager_screenshot(const char *filepath, int rotation);
+
 #endif /* PAGERCTL_H */
