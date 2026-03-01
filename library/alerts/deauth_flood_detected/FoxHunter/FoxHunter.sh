@@ -86,8 +86,6 @@ trigger_alert() {
     local ts
     ts=$(date '+%H:%M:%S')
 
-    # Save current terminal state, go full-screen alert
-    tput smcup 2>/dev/null
     clear
 
     echo -e ""
@@ -130,8 +128,7 @@ trigger_alert() {
     # Wait for user to acknowledge
     read -r -s
 
-    # Restore terminal and return to monitoring view
-    tput rmcup 2>/dev/null
+    # Return to monitoring view
     print_status_screen
 }
 
@@ -206,7 +203,7 @@ detect_interface() {
 # ----------------------------------------------
 check_deps() {
     local missing=()
-    for cmd in tcpdump iw ip grep awk wc date tput; do
+    for cmd in tcpdump iw ip grep awk wc date; do
         if ! command -v "$cmd" &>/dev/null; then
             missing+=("$cmd")
         fi
@@ -240,7 +237,6 @@ cleanup() {
     jobs -p | xargs kill 2>/dev/null
 
     echo -e "${GREEN}[✓]${RESET} FoxHunter stopped. Event log saved to: ${CYAN}${EVENT_LOG}${RESET}"
-    tput rmcup 2>/dev/null
     exit 0
 }
 
@@ -358,4 +354,5 @@ main() {
 }
 
 main
+
 
