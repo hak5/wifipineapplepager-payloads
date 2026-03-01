@@ -69,7 +69,7 @@ No additional packages required.
 ```
 #!/bin/bash
 
-scp -r /home/user/Downloads/payload.sh root@172.16.52.1:/mmc/root/payloads/user/incident_response/SKYPIEA/
+scp -r /home/user/Downloads/payload.sh root@172.16.52.1:/mmc/root/payloads/user/incident_response/SKYPIEA/payload.sh
 ```
 
 Or manually via SSH:
