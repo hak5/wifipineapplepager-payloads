@@ -197,7 +197,7 @@ for ch in $CHANNELS; do
 
     # Sample frame count on this channel
     frame_count=$(timeout "${CHANNEL_HOP_INTERVAL}" tcpdump -i "${MON_IFACE}" \
-        --snapshot-lenght=32 -c 100 2>/dev/null | wc -l)
+        --snapshot-length=32 -c 100 2>/dev/null | wc -l)
 
     line=$(printf "  CH %-5s  | %s frames" "${ch}" "${frame_count}")
     echo "${line}" >> "${CHANNEL_FILE}"
