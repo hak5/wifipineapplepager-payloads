@@ -1,7 +1,7 @@
 # 🦊 FoxHunter
 
-> **Deauth Flood Detection for the WiFi Pineapple Pager**
-> Author: FBG0X00 | Version: 1.0
+> **Passive Deauth Flood Detection for the WiFi Pineapple Pager**
+> Author: 0x00 | Version: 1.0
 
 ---
 
@@ -41,26 +41,34 @@ A full-featured deauth flood detector designed to be run over SSH. Captures pack
 
 - WiFi Pineapple Pager (SSH access)
 - Monitor mode interface (`wlan0mon` or equivalent)
-- `tcpdump`, `iw`, `ip`, `awk`, `tput`
+- `tcpdump`, `iw`, `ip`, `awk`, `wc`, `date` (all pre-installed on Pager)
 
 ### Installation
 
-Copy the script to your Pager to SSH or use SCP:
+- Download the FoxHunter.sh payload.
+- SSH into your pager and navigate to the /mmc/root/payloads/alerts/deauth_flood_detected DIR then use mkdir FoxHunter to make a FoxHunter folder.
+- Exit out of SSH
+- Open your Terminal to Navigate to your Downloads DIR where the payload is usually located.
+- Use "pwd" to view the location to the Downloads DIR. Example /home/user/Downloads.
+- You should then be able to use the SCP command to move the payload to your pager easily like the example down below.
+- or Copy and paste the script to your Pager via SSH which should be the easiest way to do it.
 
-- Since you downloaded the file it should be in your Downloads Directory Example: /home/user/Downloads/payload.sh
-- Use 'pwd' to find the path in your terminal.
 ```
 #!/bin/bash
 
-scp /home/user/Downloads/FoxHunter.sh root@172.16.52.1:/mmc/root/payloads/alerts/FoxHunter
+scp /home/user/Downloads/FoxHunter.sh root@172.16.52.1:/mmc/root/payloads/alerts/deauth_flood_detected/FoxHunter/FoxHunter.sh
 ```
 
 Make it executable:
 
+- Inside SSH navigate to the DIR where the payload is located which is /mmc/root/payloads/alerts/deauth_flood_detected/Foxhunter.
+- You should be able to then use the "chmod" command to make it into an executable like the example down below.
+- To execute use ./FoxHunter.sh
+
 ```
 #!/bin/bash
 
-chmod +x /root/FoxHunter.sh
+chmod +x FoxHunter.sh
 ```
 
 ### Configuration
@@ -70,15 +78,15 @@ Edit the variables at the top of the script before running:
 ```
 #!/bin/bash
 
-IFACE=""          # Leave blank to auto-detect, or set to "wlan0mon"
+IFACE=""          # Leave blank to auto-detect, or set e.g. "wlan0mon"
 THRESHOLD=50      # Deauth packets per window before alerting
 WINDOW_SIZE=30    # Detection window in seconds
-LOG_DIR="/mmc/root/loot/foxhunter"   # Log directory (use /mmc/root/loot/ for SD card persistence)
+LOG_DIR="/mmc/root/loot/FoxHunter"   # Log directory (use /mmc/root/loot/ for SD card persistence)
 ALERT_SOUND=true  # Audible beep on alert
 MAX_LOG_LINES=500 # Max lines in packet log before trimming
 ```
 
-> **Note on LOG_DIR:** If your Pager stores loot on the SD card, use `/mmc/root/loot/foxhunter`. If you want temp-only storage (faster, lost on reboot), use `/tmp/foxhunter`.
+> **Note on LOG_DIR:** If your Pager stores loot on the SD card, use `/mmc/root/loot/FoxHunter`. If you want temp-only storage (faster, lost on reboot), use `/tmp/FoxHunter`.
 
 ### Usage
 
@@ -86,7 +94,7 @@ MAX_LOG_LINES=500 # Max lines in packet log before trimming
 #!/bin/bash
 
 ssh root@172.16.52.1
-bash /root/FoxHunter.sh
+bash .mmc/root/payloads/alerts/deauth_flood_detected/FoxHunter/FoxHunter.sh
 ```
 
 FoxHunter will auto-detect your monitor interface, start capturing, and display the live dashboard. When a deauth flood exceeds the threshold, a full-screen alert interrupts the terminal. Press **Enter** to dismiss and return to monitoring.
@@ -100,16 +108,14 @@ $LOG_DIR/events.log          # Timestamped alert and info log
 $LOG_DIR/deauth_packets.txt  # Raw tcpdump packet capture (trimmed automatically)
 ```
 
----
-
 ## payload.sh — Pager Alert Payload
 
-A lightweight native alert payload that integrates directly with the Pagers built-in PineAP recon engine. No capture loop needed — the Pager detects the flood and calls this script automatically.
+A lightweight alert payload that integrates directly with the Pagers built-in PineAP recon engine. No capture loop needed — the Pager detects the flood and calls this script automatically.
 
 ### Features
 
-- Triggered automatically by PineAPs deauth flood detection
-- Full-screen `ALERT` notification on the Pagers physical display
+- Triggered automatically by PineAP's deauth flood detection
+- Full-screen `ALERT` notification on the Pager's physical display
 - Triple-pulse vibration pattern for tactile alerting
 - Alert ringtone plays automatically (firmware 1.0.5+)
 - Logs all events with full MAC details to loot directory
@@ -129,22 +135,27 @@ The Pagers PineAP recon engine monitors wireless traffic continuously. When it d
 
 ### Installation
 
+- SSH into the pager and navigate to /mmc/root/payloads/alerts/deauth_flood_detected/FoxHunter.
+- Once inside the DIR use "nano" to Copy and Paste the script into the payload.sh file.
+- Press ctrl + x then y then ENTER to save the payload to the file.
+- I Recommend Copy and Pasting the payload using SSH than using SCP as it could cause problems with both FoxHunter.sh and payload.sh being in one file.
+- If you still wanna use SCP the Example below should help.
+- Remember to use "pwd" to view the Downloads DIR if you decide to use SCP.
+
 Copy the payload to the correct alerts directory on your Pager:
 
-- Since you downloaded the file it should be in your Downloads Directory Example: /home/user/Downloads/payload.sh
-- Use 'pwd' to find the path in your terminal.
 ```
 #!/bin/bash
 
-scp /home/user/Downloads/payload.sh root@172.16.52.1:/root/payloads/alerts/deauth_flood_detected/FoxHunter/
+scp /home/user/Downloads/payload.sh root@172.16.52.1:/mmc/root/payloads/alerts/deauth_flood_detected/FoxHunter/payload.sh
 ```
 
-Or create the directory and file manually in SSH:
+Or create the directory and file manually via SSH:
 
 ```
 #!/bin/bash
 
-mkdir -p /root/payloads/alerts/deauth_flood_detected/foxhunter/
+mkdir -p /mmc/root/payloads/alerts/deauth_flood_detected/FoxHunter/
 ```
 
 ### Enabling the Payload
@@ -178,13 +189,13 @@ LOG_FILE="/mmc/root/loot/foxhunter_events.log"
 Both scripts write logs to the Pagers loot directory. On Pagers with SD card storage, use:
 
 ```
-/mmc/root/loot/foxhunter/
+/mmc/root/loot/FoxHunter/
 ```
 
 On Pagers without SD card, use:
 
 ```
-/root/loot/foxhunter/
+/root/loot/FoxHunter/
 ```
 
 Logs can be reviewed at any time via SSH or the **Virtual Pager** browser interface.
@@ -202,4 +213,6 @@ Only deploy on networks you own or have explicit written permission to monitor.
 ## Credits
 
 Built for the **WiFi Pineapple Pager** by Hak5.
+Author: **0x00**
+
 
