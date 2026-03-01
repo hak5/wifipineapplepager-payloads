@@ -10,7 +10,7 @@
 #
 # Title:       FoxHunter
 # Description: Passive Deauth Flood Detection — Terminal Version
-# Author:      0x00
+# Author:      FBG0x00
 # Version:     1.0
 # Target:      WiFi Pineapple (OpenWrt)
 # ============================================================
@@ -60,7 +60,7 @@ print_banner() {
     echo -e "  |_|  \___/_/\_\|_| |_||_____||_| |_|   |_|   "
     echo -e "${RESET}"
     echo -e "${DIM}  -----------------------------------------------------------------------------${RESET}"
-    echo -e "${WHITE}  Passive Deauth Flood Detection Payload ${DIM}│${RESET}${CYAN} WiFi Pineapple ${DIM}│${RESET}${WHITE} v1.0 by 0x00${RESET}"
+    echo -e "${WHITE}  Passive Deauth Flood Detection Payload ${DIM}│${RESET}${CYAN} WiFi Pineapple ${DIM}│${RESET}${WHITE} v1.0 by FBG0x00${RESET}"
     echo -e "${DIM}  -----------------------------------------------------------------------------${RESET}"
     echo ""
 }
