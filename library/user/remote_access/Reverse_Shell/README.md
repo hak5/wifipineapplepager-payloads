@@ -78,20 +78,20 @@ Stops if unreachable.
 ### 4. Existing Tunnel Detection
 
 Checks for: ssh -fN -R
-`<REMOTE_PORT>`{=html}:localhost:`<LOCAL_PORT>`{=html}
+`<REMOTE_PORT>`:localhost:`<LOCAL_PORT>`
 
 Allows user to kill or keep existing tunnel.
 
 ### 5. Starts Reverse Tunnel
 
-sshpass -p "`<password>`{=html}"\
+sshpass -p "`<password>`"\
 ssh -fN\
--R `<REMOTE_PORT>`{=html}:localhost:`<LOCAL_PORT>`{=html}\
+-R `<REMOTE_PORT>`:localhost:`<LOCAL_PORT>`\
 -o ExitOnForwardFailure=yes\
 -o ServerAliveInterval=60\
 -o ServerAliveCountMax=5\
 -o StrictHostKeyChecking=no\
-`<username>`{=html}@`<remote_ip>`{=html}
+`<username>`@`<remote_ip>`
 
 ### 6. Tunnel Health Verification
 
