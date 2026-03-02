@@ -74,10 +74,7 @@ ALERT_LINE_2="Src: ${SOURCE_MAC}"
 ALERT_LINE_3="AP:  ${AP_MAC}"
 ALERT_LINE_4="Cli: ${CLIENT_MAC}"
 
-ALERT "${ALERT_LINE_1}
-${ALERT_LINE_2}
-${ALERT_LINE_3}
-${ALERT_LINE_4}"
+ALERT "${ALERT_LINE_1}" "${ALERT_LINE_2}" "${ALERT_LINE_3}" "${ALERT_LINE_4}"
 
 
 # ──────────────────────────────────────────────
