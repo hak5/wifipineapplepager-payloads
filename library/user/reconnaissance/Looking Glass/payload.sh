@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Title:       Looking Glass
 # Description:  Detects nearby smart glasses via BLE advertising
 #               frames using Bluetooth SIG company IDs.
