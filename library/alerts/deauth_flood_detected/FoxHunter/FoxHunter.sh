@@ -87,7 +87,10 @@ trigger_alert() {
     ts=$(date '+%H:%M:%S')
 
     clear
-
+    printf '\a\a\a'
+    echo ""
+    echo ""
+    echo ""
     echo -e ""
     echo -e "${RED}${BOLD}"
     echo -e "  |--------------------------------------------------------------|"
