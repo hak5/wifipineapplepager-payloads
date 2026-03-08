@@ -8,8 +8,11 @@
 HANDSHAKE_DIR="/root/loot/handshakes/"
 
 #Making sure MAC is searchable
-mac_clean=$(printf "%s" "$_RECON_SELECTED_CLIENT_MAC_ADDRESS" | sed 's/[[:space:]]//g')
+mac_clean=$(echo "$_RECON_SELECTED_CLIENT_MAC_ADDRESS" | tr -d ' :')
 mac_upper=${mac_clean^^}
+
+LOG "$_RECON_SELECTED_CLIENT_MAC_ADDRESS"
+LOG "$mac_upper"
 
 #Count files containing MAC anywhere in filename
 handshake_count=$(find "$HANDSHAKE_DIR" -type f -name "*${mac_upper}*.22000" 2>/dev/null | wc -l)
