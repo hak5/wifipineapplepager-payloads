@@ -8,7 +8,7 @@
 HANDSHAKE_DIR="/root/loot/handshakes/"
 
 #Making sure BSSID/MAC is searchable
-bssid_clean=$(printf "%s" "$_RECON_SELECTED_AP_BSSID" | sed 's/[[:space:]]//g')
+bssid_clean=$(echo "$_RECON_SELECTED_AP_BSSID" | tr -d ' :')
 bssid_upper=${bssid_clean^^}
 
 #Count files containing MAC anywhere in the filename
@@ -17,4 +17,3 @@ pcap_count=$(find "$HANDSHAKE_DIR" -type f -name "*${bssid_upper}*.pcap" 2>/dev/
 
 #Final output
 ALERT "#@ HACK THE PLANET @# \n\n AP SSID: $_RECON_SELECTED_AP_SSID \n AP BSSID: $_RECON_SELECTED_AP_BSSID \n Handshake Count: $handshake_count \n PCAP Count: $pcap_count"
-
