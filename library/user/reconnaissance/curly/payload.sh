@@ -2,13 +2,14 @@
 # Title: Curly - Web Recon & Vuln Scanner
 # Description: Curl-based web reconnaissance and vulnerability testing for pentesting and bug bounty hunting
 # Author: curtthecoder
-# Version: 3.6
+# Version: 3.8
 
 # === CONFIG ===
 LOOTDIR=/root/loot/curly
 INPUT=/dev/input/event0
 TIMEOUT=10
 DISCORD_WEBHOOK=""  # Set your Discord webhook URL here
+WPSCAN_API_TOKEN="" # Free API token from https://wpscan.com/register
 
 # Severity tracking
 CRITICAL_FINDINGS=0
@@ -247,6 +248,30 @@ follow_redirects() {
     fi
 }
 
+# Compare two version strings: returns 0 if v1 < v2, 1 if v1 >= v2
+# Used to check if installed version is still vulnerable (fixed_in > installed)
+version_less_than() {
+    local v1="$1"  # installed version
+    local v2="$2"  # fixed_in version
+
+    local v1_major=$(echo "$v1" | cut -d. -f1)
+    local v1_minor=$(echo "$v1" | cut -d. -f2)
+    local v1_patch=$(echo "$v1" | cut -d. -f3)
+    [ -z "$v1_patch" ] && v1_patch=0
+
+    local v2_major=$(echo "$v2" | cut -d. -f1)
+    local v2_minor=$(echo "$v2" | cut -d. -f2)
+    local v2_patch=$(echo "$v2" | cut -d. -f3)
+    [ -z "$v2_patch" ] && v2_patch=0
+
+    if [ "$v1_major" -lt "$v2_major" ] 2>/dev/null; then return 0; fi
+    if [ "$v1_major" -gt "$v2_major" ] 2>/dev/null; then return 1; fi
+    if [ "$v1_minor" -lt "$v2_minor" ] 2>/dev/null; then return 0; fi
+    if [ "$v1_minor" -gt "$v2_minor" ] 2>/dev/null; then return 1; fi
+    if [ "$v1_patch" -lt "$v2_patch" ] 2>/dev/null; then return 0; fi
+    return 1  # equal or greater = not vulnerable
+}
+
 # === SCAN MODULES ===
 
 # 0. IP Geolocation Lookup
@@ -261,6 +286,12 @@ scan_ip_geolocation() {
     # Fallback method if nslookup format differs
     if [ -z "$target_ip" ]; then
         target_ip=$(host "$TARGET_HOST" 2>/dev/null | grep "has address" | head -1 | awk '{print $4}')
+    fi
+
+    # Fallback: Use Google DNS-over-HTTPS (works on BusyBox where nslookup/host may be limited)
+    if [ -z "$target_ip" ]; then
+        LOG "Using DNS-over-HTTPS fallback..."
+        target_ip=$(curl -s -m 5 "https://dns.google/resolve?name=${TARGET_HOST}&type=A" 2>/dev/null | grep -oE '"data":"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | cut -d'"' -f4)
     fi
 
     if [ -z "$target_ip" ]; then
@@ -303,6 +334,57 @@ scan_ip_geolocation() {
     [ -n "$timezone" ] && log_result "  Timezone    : $timezone"
     log_result "━━━━━━━━━━━━━━━━━━━━━━"
 
+    log_result ""
+}
+
+# WHOIS Domain Registration Info
+scan_whois() {
+    log_result "[+] WHOIS DOMAIN INFO"
+    led_scanning
+
+    LOG "Querying WHOIS for $TARGET_HOST..."
+
+    # Strip to apex domain (e.g. sub.example.com -> example.com)
+    local apex_domain=$(echo "$TARGET_HOST" | awk -F'.' '{if(NF>2) print $(NF-1)"."$NF; else print $0}')
+
+    # Query RDAP — follow redirects (-L) since rdap.org redirects to the authoritative registry
+    local rdap_json=$(curl -s -L -m $TIMEOUT "https://rdap.org/domain/${apex_domain}" 2>/dev/null)
+
+    # Try exact match first, then case-insensitive fallback
+    local raw_date=$(echo "$rdap_json" | jq -r '.events[] | select(.eventAction=="registration") | .eventDate' 2>/dev/null)
+
+    if [ -z "$raw_date" ] || [ "$raw_date" = "null" ]; then
+        raw_date=$(echo "$rdap_json" | jq -r '.events[] | select(.eventAction | ascii_downcase == "registration") | .eventDate' 2>/dev/null | head -1)
+    fi
+
+    if [ -z "$raw_date" ] || [ "$raw_date" = "null" ]; then
+        log_result "[*] Creation date unavailable"
+        log_result ""
+        return
+    fi
+
+    # Format ISO 8601 (2018-01-24T05:00:00Z) -> "January 24, 2018"
+    local year=$(echo "$raw_date" | cut -d'-' -f1)
+    local month_num=$(echo "$raw_date" | cut -d'-' -f2)
+    local day=$(echo "$raw_date" | cut -d'-' -f3 | cut -c1-2 | sed 's/^0//')
+    local month
+    case "$month_num" in
+        01) month="January"   ;;
+        02) month="February"  ;;
+        03) month="March"     ;;
+        04) month="April"     ;;
+        05) month="May"       ;;
+        06) month="June"      ;;
+        07) month="July"      ;;
+        08) month="August"    ;;
+        09) month="September" ;;
+        10) month="October"   ;;
+        11) month="November"  ;;
+        12) month="December"  ;;
+        *)  month="$month_num" ;;
+    esac
+
+    log_result "[*] Creation Date: $month $day, $year"
     log_result ""
 }
 
@@ -425,6 +507,66 @@ scan_ssl_tls() {
     log_result ""
 }
 
+# Protocol Availability Check (HTTP/HTTPS)
+scan_protocol_availability() {
+    log_result "[+] PROTOCOL AVAILABILITY CHECK"
+    led_scanning
+
+    LOG "Checking HTTP and HTTPS availability..."
+
+    local http_url="http://${TARGET_HOST}"
+    local https_url="https://${TARGET_HOST}"
+
+    # Test HTTP availability
+    local http_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT --connect-timeout 5 "$http_url" 2>/dev/null)
+    local http_available=false
+    if [ -n "$http_status" ] && [ "$http_status" != "000" ]; then
+        http_available=true
+    fi
+
+    # Test HTTPS availability
+    local https_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT --connect-timeout 5 "$https_url" 2>/dev/null)
+    local https_available=false
+    if [ -n "$https_status" ] && [ "$https_status" != "000" ]; then
+        https_available=true
+    fi
+
+    # Report findings
+    if [ "$http_available" = "true" ] && [ "$https_available" = "true" ]; then
+        log_result "[*] HTTP available  (port 80):  HTTP $http_status"
+        log_result "[*] HTTPS available (port 443): HTTP $https_status"
+
+        # Check if HTTP redirects to HTTPS
+        local http_final=$(curl -s -o /dev/null -w "%{url_effective}" -m $TIMEOUT --connect-timeout 5 -L "$http_url" 2>/dev/null)
+
+        if echo "$http_final" | grep -q "^https://"; then
+            log_finding "INFO" "HTTP redirects to HTTPS (good practice)"
+        else
+            log_finding "MEDIUM" "HTTP does NOT redirect to HTTPS - mixed content risk"
+            log_result "  Recommendation: Configure HTTP to HTTPS redirect"
+            play_found
+        fi
+
+    elif [ "$http_available" = "true" ] && [ "$https_available" = "false" ]; then
+        log_result "[*] HTTP available  (port 80):  HTTP $http_status"
+        log_result "[*] HTTPS not available (port 443)"
+        log_finding "HIGH" "Site only available via HTTP - no encryption!"
+        log_result "  All traffic is unencrypted and can be intercepted"
+        play_found
+
+    elif [ "$http_available" = "false" ] && [ "$https_available" = "true" ]; then
+        log_result "[*] HTTP not available (port 80)"
+        log_result "[*] HTTPS available (port 443): HTTP $https_status"
+        log_finding "INFO" "HTTPS only - HTTP not available (secure configuration)"
+
+    else
+        log_result "[*] Neither HTTP nor HTTPS responding"
+        log_finding "INFO" "Site may be down or blocking requests"
+    fi
+
+    log_result ""
+}
+
 # 1. Information Gathering
 scan_info() {
     log_result "[+] INFORMATION GATHERING"
@@ -439,10 +581,10 @@ scan_info() {
     log_result "--- Security Headers Check ---"
     local headers=$(curl -sI -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
 
-    [ -z "$(echo "$headers" | grep -i 'X-Frame-Options')" ] && log_finding "MEDIUM" "Missing: X-Frame-Options" && play_found
-    [ -z "$(echo "$headers" | grep -i 'X-Content-Type-Options')" ] && log_finding "MEDIUM" "Missing: X-Content-Type-Options" && play_found
-    [ -z "$(echo "$headers" | grep -i 'Strict-Transport-Security')" ] && log_finding "MEDIUM" "Missing: HSTS" && play_found
-    [ -z "$(echo "$headers" | grep -i 'Content-Security-Policy')" ] && log_finding "MEDIUM" "Missing: CSP" && play_found
+    [ -z "$(echo "$headers" | grep -i 'X-Frame-Options')" ] && LOG "green" "Missing: X-Frame-Options" && log_finding "MEDIUM" "Missing: X-Frame-Options" && play_found
+    [ -z "$(echo "$headers" | grep -i 'X-Content-Type-Options')" ] && LOG "green" "Missing: X-Content-Type-Options" && log_finding "MEDIUM" "Missing: X-Content-Type-Options" && play_found
+    [ -z "$(echo "$headers" | grep -i 'Strict-Transport-Security')" ] && LOG "green" "Missing: HSTS" && log_finding "MEDIUM" "Missing: HSTS" && play_found
+    [ -z "$(echo "$headers" | grep -i 'Content-Security-Policy')" ] && LOG "green" "Missing: CSP" && log_finding "MEDIUM" "Missing: CSP" && play_found
 
     # Server fingerprinting
     local server=$(echo "$headers" | grep -i "^Server:" | cut -d':' -f2- | tr -d '\r')
@@ -667,6 +809,7 @@ scan_endpoints() {
 
             # Only report if it's real (not homepage/soft-404)
             if [ $is_real -eq 1 ]; then
+                LOG "green" "FOUND [$status]: $endpoint"
                 log_finding "$severity" "FOUND [$status]: $endpoint"
                 found=$((found + 1))
                 if [ "$severity" = "CRITICAL" ] || [ "$severity" = "HIGH" ]; then
@@ -680,6 +823,7 @@ scan_endpoints() {
             local redirect_location=$(curl -sI -m $TIMEOUT "$url" 2>/dev/null | grep -i "^location:" | cut -d' ' -f2 | tr -d '\r')
             # Don't report if redirecting to homepage or root
             if [ -n "$redirect_location" ] && ! echo "$redirect_location" | grep -qE "^/?$|^${TARGET_URL}/?$"; then
+                LOG "green" "REDIRECT [$status]: $endpoint -> $redirect_location"
                 log_result "[*] REDIRECT [$status]: $endpoint -> $redirect_location"
                 found=$((found + 1))
             fi
@@ -896,18 +1040,91 @@ scan_headers() {
         play_found
     fi
 
-    # X-Original-URL bypass attempt
-    local bypass_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: /admin" "$TARGET_URL" 2>/dev/null)
-    if [ "$bypass_status" = "200" ]; then
-        log_finding "HIGH" "X-Original-URL bypass possible"
+    # X-Original-URL bypass attempt (with content verification to reduce false positives)
+    LOG "Testing X-Original-URL bypass..."
+
+    # Get baseline response (normal request without header)
+    local baseline_content=$(curl -s -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
+    local baseline_size=${#baseline_content}
+
+    # Test paths that commonly require authentication
+    local test_paths="/admin /console /dashboard /wp-admin /manager /settings /config"
+    local bypass_detected=false
+    local bypass_path=""
+
+    for path in $test_paths; do
+        # Request with X-Original-URL header
+        local bypass_response=$(curl -s -m $TIMEOUT -H "X-Original-URL: $path" "$TARGET_URL" 2>/dev/null)
+        local bypass_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: $path" "$TARGET_URL" 2>/dev/null)
+        local bypass_size=${#bypass_response}
+
+        # Skip if not HTTP 200
+        [ "$bypass_status" != "200" ] && continue
+
+        # Calculate size difference percentage
+        local size_diff=0
+        if [ $baseline_size -gt 0 ]; then
+            size_diff=$(( (bypass_size - baseline_size) * 100 / baseline_size ))
+            # Get absolute value
+            [ $size_diff -lt 0 ] && size_diff=$(( size_diff * -1 ))
+        fi
+
+        # Check for admin-specific keywords in response that wouldn't be on homepage
+        local admin_keywords="admin panel|dashboard|control panel|administration|logout|sign out|user management|settings panel|admin area|configuration|manage users|admin menu|cpanel|administrator"
+        local has_admin_content=false
+
+        if echo "$bypass_response" | grep -qiE "$admin_keywords"; then
+            # Make sure these keywords aren't in the baseline too
+            if ! echo "$baseline_content" | grep -qiE "$admin_keywords"; then
+                has_admin_content=true
+            fi
+        fi
+
+        # Check for login/auth bypass indicators
+        local auth_indicators="welcome admin|logged in as|my account|profile settings|admin dashboard"
+        local has_auth_bypass=false
+
+        if echo "$bypass_response" | grep -qiE "$auth_indicators"; then
+            if ! echo "$baseline_content" | grep -qiE "$auth_indicators"; then
+                has_auth_bypass=true
+            fi
+        fi
+
+        # Determine if this is a real bypass
+        # Criteria: significant size difference AND (admin content OR auth bypass indicators)
+        if [ $size_diff -gt 20 ] && ([ "$has_admin_content" = "true" ] || [ "$has_auth_bypass" = "true" ]); then
+            bypass_detected=true
+            bypass_path="$path"
+            break
+        fi
+
+        # Also flag if we see completely different content structure (like a login form appearing)
+        if echo "$bypass_response" | grep -qiE "<form.*login|<form.*password|type=['\"]password['\"]"; then
+            if ! echo "$baseline_content" | grep -qiE "<form.*login|<form.*password|type=['\"]password['\"]"; then
+                bypass_detected=true
+                bypass_path="$path"
+                log_result "[*] Login form detected with X-Original-URL: $path"
+                break
+            fi
+        fi
+    done
+
+    if [ "$bypass_detected" = "true" ]; then
+        log_finding "HIGH" "X-Original-URL bypass CONFIRMED for: $bypass_path"
+        log_result "  Content changed significantly when header was sent"
+        log_result "  This may allow bypassing access controls!"
         log_result ""
-        log_result "    HOW TO VERIFY:"
-        log_result "    Try accessing protected paths using X-Original-URL header:"
-        log_result "    curl -H \"X-Original-URL: /admin\" \"$TARGET_URL\""
-        log_result "    curl -H \"X-Original-URL: /console\" \"$TARGET_URL\""
-        log_result "    If these return different content, ACL bypass is possible!"
+        log_result "  HOW TO EXPLOIT:"
+        log_result "  curl -H \"X-Original-URL: $bypass_path\" \"$TARGET_URL\""
         play_found
         led_found
+    else
+        # Check if server even processes the header (for informational purposes)
+        local header_test=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT -H "X-Original-URL: /admin" "$TARGET_URL" 2>/dev/null)
+        if [ "$header_test" = "200" ]; then
+            log_result "[*] X-Original-URL header accepted but no bypass detected"
+            log_result "  Server returned normal content (likely ignores the header)"
+        fi
     fi
 
     log_result ""
@@ -953,6 +1170,7 @@ scan_redirects() {
             # Extract the redirect destination (the actual domain being redirected TO)
             # Check if it starts with http:// or https:// followed by evil.com
             if echo "$location" | grep -qE '^https?://evil\.com(/|$)'; then
+                LOG "green" "Open redirect found via: $param -> $location"
                 log_finding "HIGH" "Open redirect via: $param"
                 log_result "    Redirects to: $location"
                 play_found
@@ -961,6 +1179,7 @@ scan_redirects() {
                 sleep 0.5
             elif echo "$location" | grep -qE '^//evil\.com(/|$)'; then
                 # Protocol-relative URL (//evil.com)
+                LOG "green" "Open redirect found via: $param -> $location"
                 log_finding "HIGH" "Open redirect via: $param"
                 log_result "    Redirects to: $location"
                 play_found
@@ -1160,6 +1379,7 @@ scan_api() {
             fi
 
             if [ $is_real_api -eq 1 ]; then
+                LOG "green" "API FOUND [$status]: $endpoint"
                 log_finding "INFO" "API FOUND [$status]: $endpoint"
                 found=1
 
@@ -1188,6 +1408,7 @@ scan_api() {
                 fi
 
                 if [ $has_sensitive -eq 1 ]; then
+                    LOG "green" "Possible sensitive data in API response!"
                     log_finding "CRITICAL" "Possible sensitive data in API response!"
                     play_found
                     led_found
@@ -1231,6 +1452,7 @@ scan_backups() {
             if [ "$status" = "200" ]; then
                 # Ignore if it's HTML (likely a redirect to main page)
                 if ! echo "$content_type" | grep -qi "text/html"; then
+                    LOG "green" "BACKUP FOUND: /$file (${content_type})"
                     log_finding "CRITICAL" "BACKUP FOUND: /$file (${content_type})"
                     play_found
                     led_found
@@ -1255,13 +1477,25 @@ scan_cookies() {
 
     LOG "Analyzing cookies..."
     local cookies=$(curl -s -I -m $TIMEOUT "$TARGET_URL" 2>/dev/null | grep -i "^Set-Cookie:")
+    local body=$(curl -s -m $TIMEOUT "$TARGET_URL" 2>/dev/null)
+    local js_cookies_found=0
+    local consent_detected=0
 
+    # Check for cookie consent banners/scripts (may prevent cookies until user consents)
+    LOG "Checking for cookie consent mechanisms..."
+    if echo "$body" | grep -qiE 'cookie.?consent|consent.?cookie|gdpr|cookiebot|onetrust|trustarc|cookielaw|cookie.?banner|cookie.?notice|cookie.?policy|accept.?cookie|cookie.?accept|tarteaucitron|klaro|osano|quantcast|didomi|iubenda|complianz'; then
+        consent_detected=1
+        log_result "[*] Cookie consent mechanism detected"
+        log_result "    NOTE: Cookies may only be set AFTER user consents in browser"
+    fi
+
+    # Check HTTP Set-Cookie headers
     if [ -z "$cookies" ]; then
-        log_result "[*] No cookies set"
+        log_result "[*] No cookies in HTTP headers (Set-Cookie)"
     else
-        log_result "[*] Cookies detected, analyzing..."
+        log_result "[*] HTTP Set-Cookie headers detected, analyzing..."
         local cookie_count=$(echo "$cookies" | wc -l | tr -d ' ')
-        log_result "[*] Found $cookie_count cookie(s)"
+        log_result "[*] Found $cookie_count cookie(s) in headers"
 
         # Check each cookie for security flags
         while IFS= read -r cookie; do
@@ -1284,6 +1518,88 @@ scan_cookies() {
                 log_finding "LOW" "Cookie '$cookie_name' missing SameSite flag"
             fi
         done <<< "$cookies"
+    fi
+
+    # Check for JavaScript-based cookie setting (document.cookie)
+    # This catches cookies that wouldn't appear in HTTP headers
+    log_result ""
+    log_result "[*] Checking for JavaScript cookie operations..."
+
+    # Look for document.cookie assignments in the HTML/JS
+    local js_cookie_sets=$(echo "$body" | grep -oE 'document\.cookie\s*=' | wc -l | tr -d ' ')
+    local js_cookie_reads=$(echo "$body" | grep -oE 'document\.cookie[^=]|document\.cookie$' | wc -l | tr -d ' ')
+
+    if [ "$js_cookie_sets" -gt 0 ]; then
+        js_cookies_found=1
+        log_finding "INFO" "Found $js_cookie_sets JavaScript cookie assignment(s) (document.cookie=)"
+        log_result "    These cookies are set via JS and won't appear in HTTP headers"
+
+        # Try to extract what cookies are being set
+        local cookie_patterns=$(echo "$body" | grep -oE "document\.cookie\s*=\s*['\"][^'\"]{1,100}" | head -5)
+        if [ -n "$cookie_patterns" ]; then
+            log_result "    Sample JS cookie operations found:"
+            while IFS= read -r pattern; do
+                # Clean up and display
+                local cleaned=$(echo "$pattern" | sed "s/document\.cookie\s*=\s*['\"]//g" | cut -c1-60)
+                [ -n "$cleaned" ] && log_result "      - $cleaned..."
+            done <<< "$cookie_patterns"
+        fi
+
+        # Check if JS cookies lack security (they can't set HttpOnly via JS)
+        log_finding "LOW" "JS-set cookies cannot have HttpOnly flag (XSS risk if sensitive)"
+    fi
+
+    if [ "$js_cookie_reads" -gt 0 ]; then
+        log_result "[*] Found $js_cookie_reads JavaScript cookie read(s) (document.cookie)"
+        log_result "    Site actively reads cookies via JavaScript"
+    fi
+
+    # Summary and manual verification instructions
+    log_result ""
+    if [ -z "$cookies" ] && [ $js_cookies_found -eq 0 ]; then
+        if [ $consent_detected -eq 1 ]; then
+            log_result "[*] No cookies detected - likely blocked by consent mechanism"
+            log_result ""
+            log_result "━━━ MANUAL VERIFICATION REQUIRED ━━━"
+            log_result "This site has cookie consent. To see actual cookies:"
+            log_result ""
+            log_result "1. Open the site in a browser"
+            log_result "2. Accept cookies via the consent banner"
+            log_result "3. Open DevTools (F12) → Console tab"
+            log_result "4. Type: document.cookie"
+            log_result "5. Check Application tab → Cookies for full details"
+            log_result ""
+            log_result "Or use DevTools Network tab to see Set-Cookie headers"
+            log_result "after accepting consent."
+            log_result "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        else
+            log_result "[*] No cookies detected in headers or JavaScript"
+            log_result ""
+            log_result "━━━ MANUAL VERIFICATION ━━━"
+            log_result "curl cannot execute JavaScript or interact with consent dialogs."
+            log_result "To verify cookies exist:"
+            log_result ""
+            log_result "1. Open site in browser → DevTools (F12)"
+            log_result "2. Console tab → type: document.cookie"
+            log_result "3. Application tab → Storage → Cookies"
+            log_result ""
+            log_result "If browser shows cookies but this scan doesn't, they're"
+            log_result "either set via JavaScript or require user interaction."
+            log_result "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        fi
+    elif [ $js_cookies_found -eq 1 ]; then
+        log_result "━━━ IMPORTANT NOTE ━━━"
+        log_result "This site sets cookies via JavaScript (document.cookie)."
+        log_result "These cookies:"
+        log_result "  - Cannot have HttpOnly flag (accessible to XSS attacks)"
+        log_result "  - May contain tracking/analytics data"
+        log_result "  - Won't appear in curl HTTP header checks"
+        log_result ""
+        log_result "To analyze JS-set cookies:"
+        log_result "  1. Open site in browser"
+        log_result "  2. DevTools (F12) → Console → document.cookie"
+        log_result "  3. Check Application → Cookies for security flags"
+        log_result "━━━━━━━━━━━━━━━━━━━━━━━━"
     fi
 
     log_result ""
@@ -1309,9 +1625,44 @@ scan_waf() {
     # Check DNS nameservers as fallback (Cloudflare nameservers typically end in .ns.cloudflare.com)
     if [ $cloudflare_detected -eq 0 ]; then
         LOG "Checking DNS nameservers for Cloudflare..."
-        local nameservers=$(nslookup -type=ns "$TARGET_HOST" 2>/dev/null | grep -i "cloudflare")
+
+        # NS records only exist on the apex/root domain, not subdomains
+        # e.g., www.powermag.com has no NS records, but powermag.com does
+        # Strip subdomain to get apex domain (handles www.example.com, sub.example.com, etc.)
+        local apex_domain=$(echo "$TARGET_HOST" | awk -F. '{if(NF>2){print $(NF-1)"."$NF}else{print $0}}')
+        LOG "Checking NS records for apex domain: $apex_domain"
+
+        # Method 1: nslookup -type=NS on the apex domain
+        local nameservers=$(nslookup -type=NS "$apex_domain" 2>/dev/null | grep -i "cloudflare")
+
         if [ -n "$nameservers" ]; then
             cloudflare_detected=1
+            LOG "Cloudflare nameservers found via nslookup"
+        fi
+
+        # Method 2: DNS-over-HTTPS fallback (in case nslookup fails)
+        if [ $cloudflare_detected -eq 0 ]; then
+            local dns_response=$(curl -s -m 5 "https://dns.google/resolve?name=${apex_domain}&type=NS" 2>/dev/null)
+
+            if echo "$dns_response" | grep -qi "cloudflare"; then
+                cloudflare_detected=1
+                LOG "Cloudflare nameservers found via DNS-over-HTTPS"
+            fi
+        fi
+
+        # Method 3: Check if target IP is in Cloudflare's IP ranges
+        if [ $cloudflare_detected -eq 0 ]; then
+            LOG "Checking Cloudflare IP ranges..."
+            local dns_a_response=$(curl -s -m 5 "https://dns.google/resolve?name=${TARGET_HOST}&type=A" 2>/dev/null)
+            local target_ip=$(echo "$dns_a_response" | grep -oE '"data":"[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | cut -d'"' -f4)
+
+            if [ -n "$target_ip" ]; then
+                # Cloudflare published IP ranges
+                if echo "$target_ip" | grep -qE '^104\.(1[6-9]|2[0-9]|3[01])\.|^172\.(6[4-9]|7[01])\.|^103\.2[12]\.|^141\.101\.|^108\.162\.|^190\.93\.|^188\.114\.|^197\.234\.|^198\.41\.|^162\.158\.|^131\.0\.72\.'; then
+                    cloudflare_detected=1
+                    LOG "Target IP $target_ip is in Cloudflare IP range"
+                fi
+            fi
         fi
     fi
 
@@ -1439,15 +1790,35 @@ scan_tech() {
         fi
 
         # Test for user enumeration via ?author=1
-        local author_page=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
-        if echo "$author_page" | grep -qiE "author/|posts by"; then
+        # WordPress redirects /?author=1 to /author/username/ revealing the username
+        local author_redirect=$(curl -s -o /dev/null -w "%{redirect_url}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
+        local author_username=""
+
+        if echo "$author_redirect" | grep -q "/author/"; then
+            # Extract username from redirect URL (e.g., /author/admin/ -> admin)
+            author_username=$(echo "$author_redirect" | sed -n 's|.*/author/\([^/]*\).*|\1|p')
+        fi
+
+        # If no redirect, check page content for author info
+        if [ -z "$author_username" ]; then
+            local author_page=$(curl -s -m $TIMEOUT -L "${TARGET_PROTO}://${TARGET_HOST}/?author=1" 2>/dev/null)
+            # Try to extract from author archive page title or URL in content
+            if echo "$author_page" | grep -qiE "author/|posts by"; then
+                author_username=$(echo "$author_page" | grep -oE 'author/[^/"]+' | head -1 | sed 's|author/||')
+            fi
+        fi
+
+        if [ -n "$author_username" ]; then
+            LOG "green" "WP user enumeration via ?author=1"
             log_finding "MEDIUM" "WP user enumeration via ?author=1"
+            log_result "  Username (author=1): $author_username"
             play_found
         fi
 
         # Test for xmlrpc
         local xmlrpc_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/xmlrpc.php" 2>/dev/null)
         if [ "$xmlrpc_status" = "200" ]; then
+            LOG "green" "xmlrpc.php accessible"
             log_finding "LOW" "xmlrpc.php accessible"
             play_found
         fi
@@ -1455,6 +1826,7 @@ scan_tech() {
         # Test for debug log
         local debug_status=$(curl -s -o /dev/null -w "%{http_code}" -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/wp-content/debug.log" 2>/dev/null)
         if [ "$debug_status" = "200" ]; then
+            LOG "green" "debug.log exposed!"
             log_finding "CRITICAL" "debug.log exposed!"
             play_found
             led_found
@@ -1507,6 +1879,474 @@ scan_tech() {
     log_result ""
 }
 
+# 11b. WordPress Version & Vulnerability Scanner
+scan_wordpress_vulns() {
+    log_result "[+] WORDPRESS VERSION & VULNERABILITY SCAN"
+    led_scanning
+
+    LOG "Detecting WordPress version..."
+
+    local wp_version=""
+    local wp_detected_by=""
+    local wp_evidence=""
+
+    # Method 1: RSS Feed generator tag (most reliable, same as WPScan "Rss Generator")
+    LOG "Checking RSS feed..."
+    local rss_response=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/feed/" 2>/dev/null)
+    local rss_version=$(echo "$rss_response" | grep -oE '<generator>https://wordpress\.org/\?v=[0-9.]+</generator>' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+
+    if [ -n "$rss_version" ]; then
+        wp_version="$rss_version"
+        wp_detected_by="Rss Generator (Aggressive Detection)"
+        wp_evidence="${TARGET_PROTO}://${TARGET_HOST}/feed/"
+        LOG "Found WP version $wp_version via RSS feed"
+    fi
+
+    # Method 2: Atom Feed generator tag (confirmation, same as WPScan "Atom Generator")
+    # Match specifically: <generator uri="https://wordpress.org/" version="6.7.2">WordPress</generator>
+    # Do NOT match generic version= attributes (like Atom spec version="1.0")
+    LOG "Checking Atom feed..."
+    local atom_response=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/feed/atom/" 2>/dev/null)
+    local atom_version=$(echo "$atom_response" | grep -oE '<generator[^>]*uri="https://wordpress\.org/"[^>]*version="[0-9]+\.[0-9]+(\.[0-9]+)?"' | grep -oE 'version="[0-9]+\.[0-9]+(\.[0-9]+)?"' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+    local atom_confirmed=""
+
+    if [ -n "$atom_version" ]; then
+        if [ -z "$wp_version" ]; then
+            wp_version="$atom_version"
+            wp_detected_by="Atom Generator (Aggressive Detection)"
+            wp_evidence="${TARGET_PROTO}://${TARGET_HOST}/feed/atom/"
+        else
+            atom_confirmed="yes"
+        fi
+        LOG "Found WP version $atom_version via Atom feed"
+    fi
+
+    # Method 3: Meta generator tag in HTML source
+    LOG "Checking meta generator tag..."
+    local body=$(curl -s -m $TIMEOUT "$TARGET_URL" 2>/dev/null | head -c 50000)
+    local meta_version=$(echo "$body" | grep -oiE '<meta name="generator" content="WordPress [0-9.]+"' | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+
+    if [ -n "$meta_version" ]; then
+        if [ -z "$wp_version" ]; then
+            wp_version="$meta_version"
+            wp_detected_by="Meta Generator (Passive Detection)"
+            wp_evidence="HTML source meta tag"
+        fi
+        LOG "Found WP version $meta_version via meta tag"
+    fi
+
+    # Method 4: wp-links-opml.php
+    # Output contains: <!--  generator="WordPress/6.9.1"  -->
+    LOG "Checking OPML link..."
+    local opml_response=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/wp-links-opml.php" 2>/dev/null)
+    local opml_version=""
+
+    # Only process if response looks like valid OPML (not a soft-404 HTML page)
+    if echo "$opml_response" | grep -qiE '<opml|generator.*WordPress'; then
+        opml_version=$(echo "$opml_response" | grep -oE 'WordPress/[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+    fi
+
+    if [ -n "$opml_version" ]; then
+        if [ -z "$wp_version" ]; then
+            wp_version="$opml_version"
+            wp_detected_by="OPML Link (Aggressive Detection)"
+            wp_evidence="${TARGET_PROTO}://${TARGET_HOST}/wp-links-opml.php"
+        fi
+        LOG "Found WP version $opml_version via OPML"
+    fi
+
+    # Method 5: readme.html (often removed but worth checking)
+    LOG "Checking readme.html..."
+    local readme_response=$(curl -s -m $TIMEOUT "${TARGET_PROTO}://${TARGET_HOST}/readme.html" 2>/dev/null)
+    local readme_version=$(echo "$readme_response" | grep -oiE 'Version [0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+
+    if [ -n "$readme_version" ]; then
+        if [ -z "$wp_version" ]; then
+            wp_version="$readme_version"
+            wp_detected_by="Readme (Aggressive Detection)"
+            wp_evidence="${TARGET_PROTO}://${TARGET_HOST}/readme.html"
+        fi
+        LOG "Found WP version $readme_version via readme.html"
+    fi
+
+    # Method 6: CSS/JS version query strings from WP CORE assets only (e.g., /wp-includes/js/jquery.min.js?ver=6.7.2)
+    # Only check /wp-includes/ and /wp-admin/ URLs - theme/plugin assets use their own version numbers
+    if [ -z "$wp_version" ]; then
+        LOG "Checking WP core asset version strings..."
+        local asset_version=$(echo "$body" | grep -oE '/wp-includes/[^"'"'"' >]+\?ver=[0-9]+\.[0-9]+(\.[0-9]+)?' | grep -oE 'ver=[0-9]+\.[0-9]+(\.[0-9]+)?' | sort | uniq -c | sort -rn | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+
+        # Also check wp-admin assets if nothing found
+        if [ -z "$asset_version" ]; then
+            asset_version=$(echo "$body" | grep -oE '/wp-admin/[^"'"'"' >]+\?ver=[0-9]+\.[0-9]+(\.[0-9]+)?' | grep -oE 'ver=[0-9]+\.[0-9]+(\.[0-9]+)?' | sort | uniq -c | sort -rn | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?')
+        fi
+
+        if [ -n "$asset_version" ]; then
+            wp_version="$asset_version"
+            wp_detected_by="WP Core Asset Versions (Passive Detection)"
+            wp_evidence="Most common ?ver= on /wp-includes/ assets"
+            LOG "Found likely WP version $asset_version via core asset versions"
+        fi
+    fi
+
+    # If no WordPress version found, check if it's even WordPress
+    if [ -z "$wp_version" ]; then
+        # Quick check if this is WordPress at all
+        if echo "$body" | grep -qE '/wp-content/|/wp-includes/'; then
+            log_result "[*] WordPress detected but version could not be determined"
+            log_result "    Version may be hidden by security plugin"
+            log_result ""
+        else
+            log_result "[*] WordPress not detected on this target"
+            log_result ""
+        fi
+        return
+    fi
+
+    # === Display version info (WPScan-style output) ===
+    log_result ""
+    log_result "[+] WordPress version $wp_version identified"
+    log_result " | Found By: $wp_detected_by"
+    log_result " |  - $wp_evidence"
+
+    if [ "$atom_confirmed" = "yes" ]; then
+        log_result " | Confirmed By: Atom Generator (Aggressive Detection)"
+        log_result " |  - ${TARGET_PROTO}://${TARGET_HOST}/feed/atom/"
+    fi
+
+    log_result " |"
+
+    # === Query WPScan API for vulnerabilities ===
+    if [ -z "$WPSCAN_API_TOKEN" ]; then
+        log_result " | [*] No WPScan API token configured - skipping vulnerability lookup"
+        log_result " |     Get a free token at: https://wpscan.com/register"
+        log_result " |     Then set WPSCAN_API_TOKEN in payload config"
+        log_result ""
+
+        # Still provide basic version risk assessment without API
+        log_result "[*] BASIC VERSION CHECK (without API):"
+
+        # Extract major.minor for comparison
+        local major=$(echo "$wp_version" | cut -d. -f1)
+        local minor=$(echo "$wp_version" | cut -d. -f2)
+        local patch=$(echo "$wp_version" | cut -d. -f3)
+        [ -z "$patch" ] && patch="0"
+
+        # Check if version is very old (rough heuristic)
+        if [ "$major" -lt 5 ]; then
+            log_finding "CRITICAL" "WordPress $wp_version is severely outdated (WP 5.0+ released Dec 2018)"
+            play_found
+            led_found
+        elif [ "$major" -eq 5 ] && [ "$minor" -lt 9 ]; then
+            log_finding "HIGH" "WordPress $wp_version is significantly outdated"
+            play_found
+        elif [ "$major" -eq 6 ] && [ "$minor" -lt 4 ]; then
+            log_finding "MEDIUM" "WordPress $wp_version may be outdated - check for updates"
+            play_found
+        fi
+
+        log_result "    For full vulnerability details, configure WPSCAN_API_TOKEN"
+        log_result ""
+        return
+    fi
+
+    # Format version for API: 6.7.2 -> 672
+    local api_version=$(echo "$wp_version" | tr -d '.')
+    LOG "Querying WPScan API for WordPress $wp_version..."
+
+    local api_response=$(curl -s -m $TIMEOUT \
+        -H "Authorization: Token token=$WPSCAN_API_TOKEN" \
+        "https://wpscan.com/api/v3/wordpresses/$api_version" 2>/dev/null)
+
+    # Check for API errors
+    if [ -z "$api_response" ]; then
+        log_result " | [*] Could not reach WPScan API"
+        log_result ""
+        return
+    fi
+
+    # Check for auth errors
+    if echo "$api_response" | grep -qiE '"error"|"Forbidden"|"Unauthorized"'; then
+        local api_error=$(echo "$api_response" | grep -oE '"message":"[^"]*"' | cut -d'"' -f4)
+        if [ -n "$api_error" ]; then
+            log_result " | [*] WPScan API error: $api_error"
+        else
+            log_result " | [*] WPScan API authentication failed - check your token"
+        fi
+        log_result ""
+        return
+    fi
+
+    # WPScan API stores vulns under the base version (major.minor), not the patch version
+    # e.g., vulns for 6.0.11 are listed under "60" (6.0), not "6011"
+    # If the full version returns no vulnerabilities, fall back to major.minor
+    local vuln_count=$(echo "$api_response" | grep -oE '"title":"[^"]*"' | wc -l | tr -d ' ')
+
+    if [ "$vuln_count" -eq 0 ] || [ -z "$vuln_count" ]; then
+        local major=$(echo "$wp_version" | cut -d. -f1)
+        local minor=$(echo "$wp_version" | cut -d. -f2)
+        local base_api_version="${major}${minor}"
+
+        # Only retry if base version is different from what we already tried
+        if [ "$base_api_version" != "$api_version" ]; then
+            LOG "No vulns found for $wp_version, trying base version ${major}.${minor}..."
+
+            api_response=$(curl -s -m $TIMEOUT \
+                -H "Authorization: Token token=$WPSCAN_API_TOKEN" \
+                "https://wpscan.com/api/v3/wordpresses/$base_api_version" 2>/dev/null)
+
+            if [ -n "$api_response" ] && ! echo "$api_response" | grep -qiE '"error"'; then
+                vuln_count=$(echo "$api_response" | grep -oE '"title":"[^"]*"' | wc -l | tr -d ' ')
+                LOG "Found $vuln_count vulnerabilities under base version ${major}.${minor}"
+            fi
+        fi
+    fi
+
+    # Parse vulnerabilities from JSON response
+    # WPScan API returns: {"672": {"release_date":"...","changelog_url":"...","status":"insecure","vulnerabilities":[...]}}
+    local release_status=""
+
+    # Check if version is marked insecure
+    if echo "$api_response" | grep -q '"status":"insecure"'; then
+        release_status="Insecure"
+    elif echo "$api_response" | grep -q '"status":"latest"'; then
+        release_status="Latest"
+    else
+        release_status="Unknown"
+    fi
+
+    # Get release date if available
+    local release_date=$(echo "$api_response" | grep -oE '"release_date":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [ "$release_status" = "Insecure" ]; then
+        log_result " | Status: Insecure$([ -n "$release_date" ] && echo ", released on $release_date")"
+        log_finding "HIGH" "WordPress $wp_version is marked INSECURE by WPScan"
+        play_found
+    elif [ "$release_status" = "Latest" ]; then
+        log_result " | Status: Latest$([ -n "$release_date" ] && echo ", released on $release_date")"
+        log_finding "INFO" "WordPress $wp_version is the latest version"
+    fi
+
+    # Parse all vulnerabilities, then filter to only those affecting the installed version
+    # Extract titles and fixed_in versions
+    local all_titles=$(echo "$api_response" | grep -oE '"title":"[^"]*"' | cut -d'"' -f4)
+    local all_fixed=$(echo "$api_response" | grep -oE '"fixed_in":"[^"]*"' | cut -d'"' -f4)
+    local all_cves=$(echo "$api_response" | grep -oE '"cve":\["[0-9-]+"\]|"cve":"[0-9-]+"' | grep -oE '[0-9][0-9-]+[0-9]')
+
+    # First pass: count only vulnerabilities that actually affect the installed version
+    # A vuln affects the installed version if:
+    #   - fixed_in is GREATER than installed version (not yet patched), OR
+    #   - fixed_in is empty/null (no fix available)
+    local affecting_count=0
+    local affecting_indices=""
+    local total_from_api=$(echo "$all_titles" | grep -c '.' 2>/dev/null)
+    local check_index=0
+
+    while IFS= read -r check_title; do
+        check_index=$((check_index + 1))
+        [ -z "$check_title" ] && continue
+
+        local check_fixed=$(echo "$all_fixed" | sed -n "${check_index}p")
+
+        if [ -z "$check_fixed" ]; then
+            # No fix available - still vulnerable
+            affecting_count=$((affecting_count + 1))
+            affecting_indices="$affecting_indices $check_index"
+        elif version_less_than "$wp_version" "$check_fixed"; then
+            # Installed version is older than the fix - still vulnerable
+            affecting_count=$((affecting_count + 1))
+            affecting_indices="$affecting_indices $check_index"
+        fi
+        # Otherwise: fixed_in <= installed version, already patched - skip
+    done <<< "$all_titles"
+
+    local patched_count=$((total_from_api - affecting_count))
+
+    if [ "$affecting_count" -gt 0 ]; then
+        log_result " |"
+        log_result " | [!] $affecting_count vulnerabilit$([ "$affecting_count" -eq 1 ] && echo "y" || echo "ies") affecting $wp_version:"
+        [ "$patched_count" -gt 0 ] && log_result " | [*] ($patched_count additional vulnerabilit$([ "$patched_count" -eq 1 ] && echo "y" || echo "ies") already patched in $wp_version)"
+        log_result " |"
+
+        # Second pass: display only the affecting vulnerabilities
+        for vuln_index in $affecting_indices; do
+            local title=$(echo "$all_titles" | sed -n "${vuln_index}p")
+            [ -z "$title" ] && continue
+
+            log_result " | [!] Title: $title"
+
+            # Get corresponding fixed_in version
+            local fixed_in=$(echo "$all_fixed" | sed -n "${vuln_index}p")
+            if [ -n "$fixed_in" ]; then
+                log_result " |     Fixed in: $fixed_in"
+            else
+                log_result " |     Fixed in: No known fix"
+            fi
+
+            # Get corresponding CVE
+            local cve=$(echo "$all_cves" | sed -n "${vuln_index}p")
+
+            # Build references
+            log_result " |     References:"
+
+            # Always try to find wpscan.com reference
+            local wpscan_url=$(echo "$api_response" | grep -oE '"url":"https://wpscan\.com/vulnerability/[^"]*"' | cut -d'"' -f4 | sed -n "${vuln_index}p")
+            [ -n "$wpscan_url" ] && log_result " |      - $wpscan_url"
+
+            # Add CVE reference
+            if [ -n "$cve" ]; then
+                log_result " |      - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-$cve"
+            fi
+
+            # Add any other reference URLs (patchstack, wordpress.org, etc)
+            echo "$api_response" | grep -oE '"url":"https://(patchstack|wordpress\.org|nvd\.nist\.gov)[^"]*"' | cut -d'"' -f4 | while IFS= read -r ref_url; do
+                [ -n "$ref_url" ] && log_result " |      - $ref_url"
+            done
+
+            log_result " |"
+
+            # Track severity based on title keywords
+            if echo "$title" | grep -qiE "RCE|remote code|SQL injection|authentication bypass|privilege escalation|deserialization"; then
+                log_finding "CRITICAL" "Vuln: $title"
+                play_found
+                led_found
+            elif echo "$title" | grep -qiE "XSS|cross.site|CSRF|SSRF|file upload|arbitrary|injection|traversal"; then
+                log_finding "HIGH" "Vuln: $title"
+                play_found
+            elif echo "$title" | grep -qiE "disclosure|sensitive|exposure|enumeration|redirect"; then
+                log_finding "MEDIUM" "Vuln: $title"
+            else
+                log_finding "MEDIUM" "Vuln: $title"
+            fi
+        done
+    else
+        log_result " |"
+        if [ "$total_from_api" -gt 0 ]; then
+            log_result " | [*] $total_from_api known vulnerabilities for this branch, all patched in $wp_version"
+        else
+            log_result " | [*] No known vulnerabilities found for this version"
+        fi
+    fi
+
+    # WordPress plugin vulnerability check (bonus - enumerate visible plugins)
+    log_result ""
+    log_result "[+] WORDPRESS PLUGIN ENUMERATION"
+    LOG "Enumerating WordPress plugins..."
+
+    local plugins=$(echo "$body" | grep -oE '/wp-content/plugins/[^/\"'"'"'?]+' | sort -u | sed 's|/wp-content/plugins/||')
+    local plugin_count=0
+
+    if [ -n "$plugins" ]; then
+        log_result "[*] Plugins detected in page source:"
+
+        while IFS= read -r plugin_slug; do
+            [ -z "$plugin_slug" ] && continue
+            plugin_count=$((plugin_count + 1))
+
+            # Try to get plugin version from readme.txt
+            local plugin_readme=$(curl -s -m 5 "${TARGET_PROTO}://${TARGET_HOST}/wp-content/plugins/${plugin_slug}/readme.txt" 2>/dev/null)
+            local plugin_version=""
+
+            if [ -n "$plugin_readme" ] && ! echo "$plugin_readme" | grep -qiE "<!DOCTYPE|<html"; then
+                plugin_version=$(echo "$plugin_readme" | grep -iE "^Stable tag:" | head -1 | sed 's/[Ss]table [Tt]ag:[[:space:]]*//' | tr -d '[:space:]')
+            fi
+
+            if [ -n "$plugin_version" ] && [ "$plugin_version" != "trunk" ]; then
+                log_result " | [*] $plugin_slug (v$plugin_version)"
+
+                # Query WPScan API for plugin vulns if token is set
+                if [ -n "$WPSCAN_API_TOKEN" ]; then
+                    local plugin_api=$(curl -s -m $TIMEOUT \
+                        -H "Authorization: Token token=$WPSCAN_API_TOKEN" \
+                        "https://wpscan.com/api/v3/plugins/$plugin_slug" 2>/dev/null)
+
+                    if [ -n "$plugin_api" ] && ! echo "$plugin_api" | grep -qiE '"error"'; then
+                        # Count vulns that affect this version (fixed_in > current version or no fix yet)
+                        local plugin_vuln_titles=$(echo "$plugin_api" | grep -oE '"title":"[^"]*"' | cut -d'"' -f4)
+                        local plugin_vuln_fixed=$(echo "$plugin_api" | grep -oE '"fixed_in":"[^"]*"' | cut -d'"' -f4)
+                        local plugin_vuln_count=$(echo "$plugin_vuln_titles" | grep -c '.' 2>/dev/null)
+
+                        if [ "$plugin_vuln_count" -gt 0 ]; then
+                            # Show vulnerabilities that may affect installed version
+                            local pv_index=0
+                            while IFS= read -r pv_title; do
+                                pv_index=$((pv_index + 1))
+                                [ -z "$pv_title" ] && continue
+                                local pv_fixed=$(echo "$plugin_vuln_fixed" | sed -n "${pv_index}p")
+
+                                # Simple version compare: if fixed_in exists and is newer, flag it
+                                if [ -n "$pv_fixed" ]; then
+                                    # Compare versions (basic: if fixed_in != current, might be vulnerable)
+                                    if [ "$pv_fixed" != "$plugin_version" ]; then
+                                        log_result " |   [!] $pv_title"
+                                        log_result " |       Fixed in: $pv_fixed"
+                                        log_finding "HIGH" "Plugin $plugin_slug vuln: $pv_title"
+                                        play_found
+                                    fi
+                                else
+                                    # No fix available
+                                    log_result " |   [!] $pv_title"
+                                    log_result " |       Fixed in: No known fix"
+                                    log_finding "CRITICAL" "Plugin $plugin_slug unpatched vuln: $pv_title"
+                                    play_found
+                                    led_found
+                                fi
+                            done <<< "$plugin_vuln_titles"
+                        fi
+                    fi
+                fi
+            else
+                log_result " | [*] $plugin_slug (version unknown)"
+            fi
+        done <<< "$plugins"
+
+        log_result " |"
+        log_result " | [*] $plugin_count plugin(s) found"
+    else
+        log_result "[*] No plugins detected in page source"
+        log_result "    Plugins may be hidden or loaded dynamically"
+    fi
+
+    # WordPress theme detection
+    log_result ""
+    log_result "[+] WORDPRESS THEME DETECTION"
+    local theme=$(echo "$body" | grep -oE '/wp-content/themes/[^/\"'"'"'?]+' | sort -u | head -1 | sed 's|/wp-content/themes/||')
+
+    if [ -n "$theme" ]; then
+        log_result "[*] Active theme: $theme"
+
+        # Try to get theme version
+        local theme_css=$(curl -s -m 5 "${TARGET_PROTO}://${TARGET_HOST}/wp-content/themes/${theme}/style.css" 2>/dev/null | head -30)
+        local theme_version=$(echo "$theme_css" | grep -iE "^[[:space:]]*Version:" | head -1 | sed 's/.*Version:[[:space:]]*//' | tr -d '[:space:]')
+
+        [ -n "$theme_version" ] && log_result " | Version: $theme_version"
+
+        # Query WPScan API for theme vulns
+        if [ -n "$WPSCAN_API_TOKEN" ] && [ -n "$theme" ]; then
+            local theme_api=$(curl -s -m $TIMEOUT \
+                -H "Authorization: Token token=$WPSCAN_API_TOKEN" \
+                "https://wpscan.com/api/v3/themes/$theme" 2>/dev/null)
+
+            if [ -n "$theme_api" ] && ! echo "$theme_api" | grep -qiE '"error"'; then
+                local theme_vuln_titles=$(echo "$theme_api" | grep -oE '"title":"[^"]*"' | cut -d'"' -f4)
+                local theme_vuln_count=$(echo "$theme_vuln_titles" | grep -c '.' 2>/dev/null)
+
+                if [ "$theme_vuln_count" -gt 0 ]; then
+                    log_result " | [!] $theme_vuln_count known vulnerabilit$([ "$theme_vuln_count" -eq 1 ] && echo "y" || echo "ies"):"
+                    echo "$theme_vuln_titles" | head -5 | while IFS= read -r tv_title; do
+                        [ -n "$tv_title" ] && log_result " |   [!] $tv_title"
+                    done
+                    log_finding "MEDIUM" "Theme $theme has $theme_vuln_count known vulnerability/ies"
+                    play_found
+                fi
+            fi
+        fi
+    else
+        log_result "[*] Could not determine active theme"
+    fi
+
+    log_result ""
+}
+
 # 12. Common Subdomain Checker
 scan_subdomains() {
     log_result "[+] SUBDOMAIN ENUMERATION"
@@ -1544,6 +2384,7 @@ scan_subdomains() {
         # Consider these status codes as "subdomain exists"
         case "$status" in
             200|301|302|303|307|308|401|403)
+                LOG "green" "FOUND: ${subdomain}.${TARGET_HOST} [HTTP $status]"
                 log_result "[!] FOUND: ${subdomain}.${TARGET_HOST} [HTTP $status]"
                 found=$((found + 1))
                 found_list+=("${subdomain}")
@@ -1596,6 +2437,7 @@ scan_html_source() {
     # Extract email addresses
     local emails=$(echo "$body" | grep -oE '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' | sort -u | head -5)
     if [ -n "$emails" ]; then
+        LOG "green" "Email addresses found!"
         log_finding "INFO" "Email addresses found:"
         while IFS= read -r email; do
             log_result "    $email"
@@ -1638,6 +2480,9 @@ scan_html_source() {
     # Only flag if we find actual stack traces, not just the word "error"
     if echo "$body" | grep -qiE '<pre.*stack|<div.*exception|Fatal error:|Uncaught|Notice:|Warning:.*line'; then
         log_finding "MEDIUM" "Possible stack trace/error in source"
+        log_result "  What: Debug errors or crash details visible on the page"
+        log_result "  Risk: May expose file paths, database info, or code structure"
+        log_result "  Fix:  Disable debug mode in production, log errors server-side"
         found=1
         play_found
     fi
@@ -1705,6 +2550,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}  # Absolute value
 
         if check_metadata_content "$aws_response" "aws"; then
+            LOG "green" "CONFIRMED AWS SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED AWS SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1720,6 +2566,7 @@ scan_cloud_metadata() {
     # Try direct access (if scanner is running on AWS)
     local aws_direct=$(curl -s -m 2 "http://169.254.169.254/latest/meta-data/" 2>/dev/null)
     if [ -n "$aws_direct" ] && check_metadata_content "$aws_direct" "aws"; then
+        LOG "green" "Direct AWS metadata access detected!"
         log_finding "CRITICAL" "Direct AWS metadata access (scanner running on AWS instance)"
         play_found
         led_found
@@ -1738,6 +2585,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}
 
         if check_metadata_content "$gcp_response" "gcp"; then
+            LOG "green" "CONFIRMED GCP SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED GCP SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1762,6 +2610,7 @@ scan_cloud_metadata() {
         size_diff=${size_diff#-}
 
         if check_metadata_content "$azure_response" "azure"; then
+            LOG "green" "CONFIRMED Azure SSRF - Metadata content detected!"
             log_finding "CRITICAL" "CONFIRMED Azure SSRF - Metadata content detected!"
             play_found
             led_found
@@ -1793,6 +2642,7 @@ scan_cloud_metadata() {
             if check_metadata_content "$param_response" "aws" || \
                check_metadata_content "$param_response" "gcp" || \
                check_metadata_content "$param_response" "azure"; then
+                LOG "green" "CONFIRMED SSRF via parameter: $param"
                 log_finding "CRITICAL" "CONFIRMED SSRF via parameter: $param (metadata content detected)"
                 play_found
                 led_found
@@ -1879,8 +2729,79 @@ show_menu() {
 
 # === MAIN ===
 
-LOG "CURLY - Web Recon Scanner"
-LOG "by curtthecoder"
+LOG "green" "================================"
+LOG "green" "     CURLY - Web Recon Scanner"
+LOG "green" "        by curtthecoder"
+LOG "green" "================================"
+LOG ""
+
+# === CONNECTION CHECK ===
+LOG "yellow" "[*] Checking internet connection..."
+
+# Try to reach a reliable public endpoint (Google DNS responds fast)
+CONN_TEST=$(curl -s -o /dev/null -w "%{http_code}" -m 5 "https://dns.google/resolve?name=google.com&type=A" 2>/dev/null)
+
+if [ "$CONN_TEST" != "200" ]; then
+    # Try a second endpoint in case the first is blocked
+    CONN_TEST=$(curl -s -o /dev/null -w "%{http_code}" -m 5 "https://1.1.1.1/cdn-cgi/trace" 2>/dev/null)
+fi
+
+if [ "$CONN_TEST" != "200" ]; then
+    LOG ""
+    LOG "red" "========================================"
+    LOG "red" "  NO INTERNET CONNECTION DETECTED!"
+    LOG "red" "========================================"
+    LOG ""
+    LOG "red" "  Curly requires an internet connection"
+    LOG "red" "  to scan targets."
+    LOG ""
+    LOG "red" "  Please connect to WiFi first:"
+    LOG "red" "    Settings -> WiFi Client Mode"
+    LOG ""
+    LOG "red" "  Then re-run this payload."
+    LOG "red" "========================================"
+    led_off
+    VIBRATE 100
+    sleep 1
+    VIBRATE 100
+    exit 1
+fi
+
+LOG "    [OK] Internet connection verified"
+LOG ""
+
+# Version check
+CURRENT_VERSION="3.8"
+VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/reconnaissance/curly/VERSION"
+ENABLE_UPDATE_CHECK=true  # Set to false to disable
+
+if [ "$ENABLE_UPDATE_CHECK" = true ]; then
+    LOG "yellow" "[*] Checking for updates..."
+
+    # Fetch version file and HTTP status code
+    HTTP_RESPONSE=$(timeout 3 curl -s -w "\n%{http_code}" "$VERSION_CHECK_URL" 2>/dev/null)
+    HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -1)
+    LATEST_VERSION=$(echo "$HTTP_RESPONSE" | head -1 | tr -d '[:space:]')
+
+    # Check if request was successful (HTTP 200)
+    if [ "$HTTP_CODE" = "200" ] && [ -n "$LATEST_VERSION" ]; then
+        if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+            LOG ""
+            LOG "green" "========================================================"
+            LOG "green" "  UPDATE AVAILABLE!"
+            LOG "green" "  Current: v${CURRENT_VERSION} -> Latest: v${LATEST_VERSION}"
+            LOG "green" "  Update at: github.com/hak5/wifipineapplepager-payloads"
+            LOG "========================================================"
+            LOG ""
+            sleep 3
+        else
+            LOG "    [OK] Running latest version (v${CURRENT_VERSION})"
+        fi
+    else
+        # File not found or network issue - assume running current version
+        LOG "    [OK] Running current version (v${CURRENT_VERSION})"
+    fi
+fi
 LOG ""
 
 # Get target URL from user
@@ -1943,7 +2864,7 @@ LOG ""
 # Display estimated time for selected scan mode
 case $SCAN_MODE in
     1) LOG "Starting Quick Scan (estimated: ~30-45 seconds)..." ;;
-    2) LOG "Starting Full Scan (estimated: ~2-25 minutes)..." ;;
+    2) LOG "Starting Full Scan (estimated: ~5-25 minutes)..." ;;
     3) LOG "Starting API Recon (estimated: ~45-60 seconds)..." ;;
     4) LOG "Starting Security Audit (estimated: ~90-120 seconds)..." ;;
     5) LOG "Starting Tech Fingerprint (estimated: ~20-30 seconds)..." ;;
@@ -1957,18 +2878,24 @@ play_scan
 case $SCAN_MODE in
     1)  # Quick Scan
         scan_ip_geolocation
+        scan_protocol_availability
+        scan_whois
         scan_ssl_tls
         scan_waf
         scan_tech
+        scan_wordpress_vulns
         scan_info
         scan_endpoints
         scan_html_source
         ;;
     2)  # Full Scan (All Modules)
         scan_ip_geolocation
+        scan_protocol_availability
+        scan_whois
         scan_ssl_tls
         scan_waf
         scan_tech
+        scan_wordpress_vulns
         scan_subdomains
         scan_info
         scan_html_source
@@ -1990,8 +2917,11 @@ case $SCAN_MODE in
         ;;
     4)  # Security Audit
         scan_ip_geolocation
+        scan_protocol_availability
+        scan_whois
         scan_ssl_tls
         scan_tech
+        scan_wordpress_vulns
         scan_info
         scan_html_source
         scan_parameters
@@ -2004,9 +2934,12 @@ case $SCAN_MODE in
         ;;
     5)  # Tech Fingerprint
         scan_ip_geolocation
+        scan_protocol_availability
+        scan_whois
         scan_ssl_tls
         scan_waf
         scan_tech
+        scan_wordpress_vulns
         scan_info
         ;;
     6)  # Subdomain Enumeration
