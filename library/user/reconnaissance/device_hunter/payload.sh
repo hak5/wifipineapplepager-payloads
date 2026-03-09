@@ -1,7 +1,7 @@
 #!/bin/bash
 # Title: Device Hunter
 # Description: Track any device by signal strength
-# Author: RocketGod - https://betaskynet.com
+# Author: RocketGod - https://betaskynet.com and NotPike Helped - https://bad-radio.solutions
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
 
 INPUT=/dev/input/event0
@@ -101,7 +101,7 @@ TOTAL_APS=0
 scan_targets() {
     LOG "Scanning..."
     local json=$(_pineap RECON APS limit=20 format=json)
-    
+
     AP_MACS=()
     AP_SSIDS=()
     AP_SIGNALS=()
@@ -127,7 +127,7 @@ scan_targets() {
     fi
     LOG "Found $TOTAL_APS targets"
 }
-
+ 
 show_target() {
     LOG ""
     LOG "[$((SELECTED + 1))/$TOTAL_APS] ${AP_SSIDS[$SELECTED]}"
@@ -174,20 +174,32 @@ make_bar() {
 }
 
 track_target() {
-    local mac="${AP_MACS[$SELECTED]}"
-    local ssid="${AP_SSIDS[$SELECTED]}"
-    
-    LOG ""
-    LOG "HUNTING: $ssid"
-    LOG "A = Stop"
-    LOG ""
-    
+    if [ $MODE_STATE -eq 0 ]; then # Manual Mode
+        local mac=$MAC_ADDRESS
+
+        LOG ""
+        LOG "HUNTING: $mac"
+        LOG "A = Stop"
+        LOG ""
+    else                           # Scan Mode
+        local mac="${AP_MACS[$SELECTED]}"
+        local ssid="${AP_SSIDS[$SELECTED]}"
+        
+        LOG ""
+        LOG "HUNTING: $ssid"
+        LOG "A = Stop"
+        LOG ""
+    fi
+        
     # Make sure no old monitor is running
     pkill -9 -f "_pineap MONITOR" 2>/dev/null
     sleep 0.2
     
     rm -f /tmp/hunter_signal
-    _pineap MONITOR "$mac" rate=200 timeout=3600 > /tmp/hunter_signal 2>&1 &
+
+    # 'any' reports signal from any packets including client devices
+    _pineap MONITOR "$mac" any rate=200 timeout=3600 > /tmp/hunter_signal 2>&1 &
+
     local monitor_pid=$!
     
     # Verify it started
@@ -243,6 +255,79 @@ track_target() {
     done
 }
 
+# === MENU LOGIC ===
+
+MODE_STATE=0 #0 is Manual 1 is Scan
+TOTAL_OPTIONS=2
+MAC_ADDRESS=0
+
+menu_text() {
+    LOG ""
+    if [ $MODE_STATE -eq 0 ]; then  # Manual Mode
+        LOG ""
+        LOG "+------------+"
+        LOG "|Manual Mode?|"
+        LOG "+------------+"
+        LOG "Scan Mode?"
+        LOG ""
+    else                            # Scan Mode
+        LOG ""
+        LOG "Manual Mode?"
+        LOG "+----------+"
+        LOG "|Scan Mode?|"
+        LOG "+----------+"
+        LOG ""
+    fi
+    LOG ""
+    LOG "UP/DOWN=Scroll A=Select"
+}
+
+# Redudent but I just copyed and paist the same logic from above. Maybe we can have more options in the future? :D
+menu_options() {
+    local OPTION=0
+    menu_text
+    
+    while true; do
+        local btn=$(WAIT_FOR_INPUT)
+        case "$btn" in
+            UP|LEFT)
+                OPTION=$((OPTION - 1))
+                [ $OPTION -lt 0 ] && OPTION=$((TOTAL_OPTIONS - 1))
+                ((MODE_STATE ^=1)) #Flip Flop
+                menu_text
+                ;;
+            DOWN|RIGHT)
+                OPTION=$((OPTION + 1))
+                [ $OPTION -ge $TOTAL_APS ] && OPTION=0
+                ((MODE_STATE ^=1)) #Flip Flop
+                menu_text
+                ;;
+            A)
+                play_found
+                return 0
+                ;;
+        esac
+    done
+}
+
+mac_address() {
+    MAC_ADDRESS=$(MAC_PICKER "Target MAC?" "DE:AD:BE:EF:CA:FE")
+    case $? in
+        $DUCKYSCRIPT_CANCELLED)
+            LOG "User cancelled"
+            exit 1
+            ;;
+        $DUCKYSCRIPT_REJECTED)
+            LOG "Dialog rejected"
+            exit 1
+            ;;
+        $DUCKYSCRIPT_ERROR)
+            LOG "An error occurred"
+            exit 1
+            ;;
+    esac
+}
+
 # === MAIN ===
 
 LOG "DEVICE HUNTER"
@@ -250,8 +335,15 @@ LOG "by RocketGod"
 LOG ""
 
 play_start
-scan_targets
-select_target
+menu_options
+
+if [ $MODE_STATE -eq 0 ]; then  # Manual Mode
+    mac_address
+else                            # Scan Mode
+    scan_targets
+    select_target
+fi
+
 track_target
 
 LOG "Done!"

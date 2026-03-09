@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>WiFi Security Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family:  -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background:  linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform:  translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .warning-icon {
+            text-align: center;
+            font-size: 64px;
+            margin-bottom:  20px;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size:  28px;
+        }
+        
+        .alert-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        
+        .alert-box strong {
+            color: #856404;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .info-section {
+            margin:  25px 0;
+            padding:  20px;
+            background:  #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .info-section h2 {
+            color: #667eea;
+            font-size: 18px;
+            margin-bottom:  15px;
+        }
+        
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #dee2e6;
+            flex-wrap: wrap;
+        }
+        
+        .info-item:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+            margin-right: 10px;
+        }
+        
+        .info-value {
+            color: #6c757d;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            text-align: right;
+            flex: 1;
+        }
+        
+        .vulnerability-list {
+            margin:  20px 0;
+        }
+        
+        .vulnerability-list ul {
+            list-style:  none;
+            padding-left: 0;
+        }
+        
+        .vulnerability-list li {
+            padding: 10px 0 10px 30px;
+            position: relative;
+            color: #495057;
+        }
+        
+        .vulnerability-list li: before {
+            content: "⚠️";
+            position:  absolute;
+            left: 0;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top:  20px;
+            border-top: 2px solid #dee2e6;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        
+        .demo-badge {
+            background: #dc3545;
+            color: white;
+            padding: 5px 15px;
+            border-radius:  20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        
+        .tech-badge {
+            background: #28a745;
+            color: white;
+            padding: 3px 10px;
+            border-radius:  12px;
+            font-size:  11px;
+            font-weight:  bold;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        
+        .interface-badge {
+            background: #17a2b8;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight:  bold;
+            display: inline-block;
+            margin-left:  10px;
+        }
+        
+        .trapped-message {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 20px;
+            margin: 25px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        
+        .trapped-message h3 {
+            color: #721c24;
+            margin-bottom: 10px;
+        }
+        
+        .trapped-message p {
+            color: #721c24;
+            margin:  5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="warning-icon">🔒</div>
+        <div style="text-align: center;">
+            <span class="demo-badge">DEMO MODE</span>
+            <span class="tech-badge">goodportal</span>
+        </div>
+        <h1>Captive Portal Security Demo</h1>
+        
+        <div class="alert-box">
+            <strong>⚠️ Educational Demonstration</strong>
+            You're connected to a network intercepting your traffic. All HTTP/HTTPS requests are redirected to this page.
+        </div>
+        
+        <div class="trapped-message">
+            <h3>🔁 Auto-Reconnection Risk</h3>
+            <p><strong>Did your device connect automatically?</strong> Most devices remember open networks and reconnect without asking.</p>
+            <p>Attackers exploit this by creating fake networks with familiar names.</p>
+        </div>
+        
+        <div class="vulnerability-list">
+            <h2 style="color: #dc3545; margin-bottom: 15px;">What Attackers Can Do:</h2>
+            <ul>
+                <li><strong>Auto-reconnection exploit:</strong> Your device connects without permission</li>
+                <li><strong>Traffic interception:</strong> All unencrypted data visible</li>
+                <li><strong>Fake login pages:</strong> Harvest credentials and personal info</li>
+                <li><strong>Man-in-the-middle:</strong> Inject malware or track activity</li>
+                <li><strong>SSL/TLS stripping:</strong> Downgrade secure connections</li>
+            </ul>
+        </div>
+        
+        <div class="alert-box" style="background: #d1ecf1; border-left-color: #0c5460;">
+            <strong style="color: #0c5460;">🛡️ Stay Safe:</strong>
+            • Disable auto-join for open WiFi networks<br>
+            • Always use a VPN on untrusted networks<br>
+            • Look for "HTTPS" and valid certificates<br>
+            • Never ignore certificate warnings<br>
+            • Forget networks after use<br>
+            • Be suspicious of unexpected login requests
+            • Never re-use passwords
+        </div>
+        
+        <div class="footer">
+            Educational Use Only • No Data Collected<br>
+            <br>
+            <em>Disconnect from this network to exit</em>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["pdm-backend >= 2.4.0"]
+build-backend = "pdm.backend"
+
+[project]
+name = "Responder-poisoner" # "responder" is already taken
+description = "LLMNR, NBT-NS and MDNS poisoner, with built-in HTTP/SMB/MSSQL/FTP/LDAP rogue authentication server supporting NTLMv1/NTLMv2/LMv2, Extended Security NTLMSSP and Basic HTTP authentication."
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+dynamic = ["version"]
+dependencies = ["aioquic", "netifaces>=0.10.4"]
+classifiers = [
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Security"
+]
+
+[project.urls]
+Homepage = "https://github.com/lgandx/Responder"
+Issues = "https://github.com/lgandx/Responder/issues"
+
+[project.scripts]
+responder = "Responder:main"
+
+[tool.pdm.build]
+includes = ["*.py", "files/", "poisoners/", "servers/", "certs/", "tools/", "Responder.conf"]
+
+[tool.pdm.version]
+source = "scm"

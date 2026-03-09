@@ -1,8 +1,8 @@
 #!/bin/bash
 # Title: Add SSID File
-# Description: Adds SSIDs in a designated file to the SSID Pool. List must be located in /root/loot/pools/. SSIDs in file must be in a list.
+# Description: Adds SSIDs in a designated file to the SSID Pool. List must be located in /root/loot/pools/.
 # Author: Skinny
-# Version: 1.0
+# Version: 1.0.6
 
 POOLPATH="/root/loot/pools"
 
@@ -21,9 +21,5 @@ fi
 LOG " "
 LOG "File Found. Uploading Pool"
 
-# Read each line of the file and ingest into the PineAP SSID Pool
-while IFS= read -r line; do
-  printf '%s\n' "$line"
-  PINEAPPLE_SSID_POOL_ADD "$line"
-  LOG "$line"
-done < "$FULLPATH"
+# Add SSID File to the Pool
+PINEAPPLE_SSID_POOL_ADD_FILE $FULLPATH

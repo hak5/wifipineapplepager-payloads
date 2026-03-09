@@ -1,8 +1,8 @@
 # Device Hunter (WiFi Pineapple Pager Payload)
 
-**Device Hunter** turns your WiFi Pineapple Pager into a “hot/cold” tracker for nearby APs by watching **signal strength (dBm)** in real time. Pick a target from recon results, then hunt it down using LED + sound + vibration feedback.
+**Device Hunter** turns your WiFi Pineapple Pager into a “hot/cold” tracker for nearby APs and Clients by watching **signal strength (dBm)** in real time. Manually enter in your target's MAC address or pick a target from recon results, then hunt it down using LED + sound + vibration feedback.
 
-- **Author:** RocketGod — https://betaskynet.com  
+- **Author:** RocketGod — https://betaskynet.com and NotPike helped — https://bad-radio.solutions   
 - **Crew:** The Pirates' Plunder — https://discord.gg/thepirates
 
 ---
@@ -23,7 +23,8 @@
 ## Usage
 
 1. Run the payload on the Pineapple Pager.
-2. Use the Pager controls:
+2. Select "Manual?" or "Scan?" to pick mode.
+3. Use the Pager controls:
    - **UP/DOWN:** scroll targets
    - **A:** start hunting the selected target
    - **A (during hunt):** stop hunting
@@ -49,4 +50,5 @@ A simple 20-char bar is printed each update:
 
 - Uses `_pineap RECON APS limit=20 format=json` for target selection.
 - Uses `_pineap MONITOR <mac> rate=200 timeout=3600` for tracking.
+- The 'any' flag for _pineap MONITOR will scan for any packets not just from APs. 
 - Cleanup is aggressive by design (kills monitor processes, clears temp files, resets examine lock, turns LEDs off).

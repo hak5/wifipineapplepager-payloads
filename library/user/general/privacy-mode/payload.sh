@@ -1,8 +1,8 @@
 #!/bin/bash
 #Title: toggle privacy mode
-#Description: Enables and disables privacy mode by edit the degub.json       
+#Description: Enables and disables privacy mode by edit the degub.json
 #Author: Rootjunky
-#Version: 1
+#Version: 2
 
 FILE=/usr/debug.json
 
@@ -11,8 +11,12 @@ FILE=/usr/debug.json
 
 if grep -q '"censor"[[:space:]]*:[[:space:]]*true' "$FILE"; then
     echo '{ "censor": false }' > "$FILE"
-LOG "Please reboot for privacy mode to turn off"
+LOG "Restarting server in 5 seconds to turn off privacy mode"
+sleep 5
+/etc/init.d/pineapplepager restart
 else
     echo '{ "censor": true }' > "$FILE"
-LOG "Please reboot for privacy mode to take effect"
+LOG "Restarting server in 5 seconds to enable privacy mode"
+sleep 5
+/etc/init.d/pineapplepager restart
 fi

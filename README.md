@@ -1,10 +1,8 @@
 # Payload Library for the [WiFi Pineapple Pager](https://hak5.org/products/wifi-pineapple-pager) by [Hak5](https://hak5.org)
 
-<p align="center">
-* this repo is under construction *
-  </p>
+> **Note:** This repository is under construction.
 
-This repository contains payloads, themes and ringtones for the Hak5 WiFi Pineapple Pager. Community developed payloads are listed and developers are encouraged to create pull requests to make changes to or submit new payloads.
+This repository contains **community-developed payloads** for the Hak5 WiFi Pineapple Pager. Community developed payloads are listed and developers are encouraged to create pull requests to make changes to or submit new payloads.
 
 **Payloads here are written in official DuckyScript™ + Bash specifically for the WiFi Pineapple Pager. Hak5 does NOT guarantee payload functionality.** <a href="#legal"><b>See Legal and Disclaimers</b></a>
 

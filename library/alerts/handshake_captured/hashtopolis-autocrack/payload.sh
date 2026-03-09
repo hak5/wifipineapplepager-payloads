@@ -2,7 +2,8 @@
 # Title: Hashtopolis Handshake Upload
 # Description: Automatically uploads captured handshakes to Hashtopolis server via API
 # Author: Huntz
-# Version: 1.0
+# Contributor: PanicAcid (Added Hash deduplication check to prevent the Payload uploading multiples of the same handshake)
+# Version: 1.1
 # Category: handshake_captured
 #
 # Requirements:
@@ -105,6 +106,21 @@ fi
 # Sanitize SSID to remove spaces or special chars that might break the task name
 SSID=$(echo "$SSID" | tr -dc 'a-zA-Z0-9_-')
 
+# =============================================================================
+# DEDUPLICATION CHECK (New Step)
+# =============================================================================
+# Use the unique MAC address as the anchor for the search
+MAC_CHECK="${_ALERT_HANDSHAKE_AP_MAC_ADDRESS}"
+
+# Query the server for all existing hashlists using the legacy API
+LIST_JSON="{\"section\":\"hashlist\",\"request\":\"listHashlists\",\"accessKey\":\"$API_KEY\"}"
+EXISTING_LISTS=$(curl -s -m 10 -X POST "$HASHTOPOLIS_URL" -H "Content-Type: application/json" -d "$LIST_JSON" 2>/dev/null)
+
+# Case-insensitive search ensures we catch matches regardless of MAC casing
+if echo "$EXISTING_LISTS" | grep -Fiq "$MAC_CHECK"; then
+    ALERT "Hashtopolis Upload - SKIPPED! Handshake for SSID: $SSID ($MAC_CHECK) already exists in Hashtopolis. Skipping upload."
+    exit 0
+fi
 
 # =============================================================================
 # VALIDATE HASHCAT FILE
