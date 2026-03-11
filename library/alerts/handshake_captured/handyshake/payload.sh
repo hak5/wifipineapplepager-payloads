@@ -2,7 +2,7 @@
 # Title: HandyShake - Enhanced Handshake Capture Alert
 # Author: curtthecoder - github.com/curthayman
 # Description: Comprehensive handshake alert with visual/tactile feedback, vendor lookup, and detailed logging
-# Version: 1.0
+# Version: 1.1
 # Based on: handshake-ssid by RootJunky
 
 # ============================================================================
@@ -187,7 +187,7 @@ fi
 _classify_device() {
     local vendor="$1"
     if echo "$vendor" | grep -qi "amazon"; then
-        echo "Amazon device (Echo/Fire TV/Kindle/Ring/Blink)"
+        echo "Amazon device (Echo/Fire TV/Kindle/Ring)"
     elif echo "$vendor" | grep -qi "apple"; then
         echo "Apple device (iPhone/iPad/MacBook/AirPods)"
     elif echo "$vendor" | grep -qi "samsung"; then
@@ -248,6 +248,12 @@ _classify_device() {
         echo "ESP32/ESP8266 IoT device (DIY/smart home)"
     elif echo "$vendor" | grep -qi "raspberry"; then
         echo "Raspberry Pi device"
+    elif echo "$vendor" | grep -qi "hon hai\|foxconn"; then
+        echo "Foxconn-built device (Amazon Echo/Fire TV, Nintendo Switch, Sony PlayStation, Vizio TV)"
+    elif echo "$vendor" | grep -qi "tonly"; then
+        echo "Tonly Technology device (Bluetooth speaker, soundbar, or TCL audio product)"
+    elif echo "$vendor" | grep -qi "altobeam"; then
+        echo "AltoBeam device (Smart TV, streaming box, or Android TV device)"
     fi
 }
 
@@ -260,7 +266,9 @@ _classify_network() {
         echo "Business/Enterprise (enterprise-grade access point)"
     elif echo "$ssid_lower" | grep -qi "corp\|office\|guest\|employee\|staff\|hotel\|cafe\|shop\|store\|restaurant\|bar\|inc\|llc\|ltd"; then
         echo "Likely Business/Public network"
-    elif echo "$ap_lower" | grep -qi "netgear\|linksys\|tp-link\|asus\|belkin\|d-link\|xfinity\|spectrum\|att\|verizon\|comcast\|cox\|google\|eero\|orbi\|synology\|ubiquiti\|unifi"; then
+    elif echo "$ssid_lower" | grep -qi "verizon_\|xfinity\|spectrum\|att\|optimum\|cox\|myspectrumwifi\|myfiosgateway"; then
+        echo "Home/Personal network (ISP-issued gateway)"
+    elif echo "$ap_lower" | grep -qi "netgear\|linksys\|tp-link\|asus\|belkin\|d-link\|xfinity\|spectrum\|att\|verizon\|comcast\|cox\|google\|eero\|orbi\|synology\|ubiquiti\|unifi\|askey\|sagemcom\|arris\|technicolor\|sercomm"; then
         echo "Home/Personal network (consumer router)"
     else
         echo "Unknown network type"
