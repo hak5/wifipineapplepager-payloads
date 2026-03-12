@@ -1,4 +1,4 @@
-# HAC5 - WPA-Enterprise Credential Harvester
+# VENOM - WPA-Enterprise Credential Harvester
 
 
 <img width="1024" height="1536" alt="ChatGPT Image Feb 20, 2026, 09_28_21 AM" src="https://github.com/user-attachments/assets/0e4d98a2-d5d8-495d-8af3-92d1f45f7c6e" />
@@ -38,10 +38,10 @@ This is the first WPA-Enterprise attack payload for the WiFi Pineapple Pager.
 
 ## Installation
 
-1. Copy this directory to `/root/payloads/user/exfiltration/hac5/`
+1. Copy this directory to `/root/payloads/user/exfiltration/venom/`
 2. Ensure the script is executable:
    ```bash
-   chmod +x /root/payloads/user/exfiltration/hac5/payload.sh
+   chmod +x /root/payloads/user/exfiltration/venom/payload.sh
    ```
 3. Install dependencies (payload will auto-detect and offer to install):
    ```bash
@@ -57,11 +57,11 @@ Edit the configuration section at the top of `payload.sh`:
 
 ```bash
 # Loot and temp directories
-LOOT_DIR="/root/loot/hac5"
-TEMP_DIR="/tmp/hac5"
+LOOT_DIR="/root/loot/venom"
+TEMP_DIR="/tmp/venom"
 
 # Rogue AP settings
-HAC5_IFACE="wlan_hac5"      # Virtual interface name
+VENOM_IFACE="wlan_venom"      # Virtual interface name
 PHY_DEVICE="phy1"              # Radio to use (phy1 = secondary)
 DEFAULT_CHANNEL=6              # Default channel if manual entry
 
@@ -76,7 +76,7 @@ CERT_DAYS=365
 ### From Pager Dashboard
 
 1. Navigate to **Payloads** > **User Payloads**
-2. Select **Exfiltration** > **HAC5**
+2. Select **Exfiltration** > **VENOM**
 3. Press the button to launch
 4. Follow the on-screen prompts through all 4 phases
 
@@ -92,7 +92,7 @@ Phase 1: RECON
 
 Phase 2: SETUP
   Generates self-signed CA + server certificates
-  Creates virtual WiFi interface (wlan_hac5)
+  Creates virtual WiFi interface (wlan_venom)
   Configures hostapd for WPA-Enterprise
   Confirm deployment
 
@@ -127,7 +127,7 @@ Windows clients and well-configured enterprise devices typically negotiate MSCHA
 
 ## Output
 
-All loot is saved to `/root/loot/hac5/session_YYYYMMDD_HHMMSS/`:
+All loot is saved to `/root/loot/venom/session_YYYYMMDD_HHMMSS/`:
 
 ```
 session_20260220_143022/
@@ -146,7 +146,7 @@ session_20260220_143022/
 
 Export the hashcat file from the Pager:
 ```bash
-scp root@172.16.42.1:/root/loot/hac5/session_*/hashcat_5500.txt .
+scp root@172.16.42.1:/root/loot/venom/session_*/hashcat_5500.txt .
 ```
 
 Crack with hashcat (mode 5500 = NetNTLMv1 / MSCHAPv2):
@@ -185,7 +185,7 @@ hashcat -m 5500 hashcat_5500.txt wordlist.txt -r rules/best64.rule
 ## Troubleshooting
 
 ### "hostapd failed to start"
-- Check the hostapd debug log: `cat /tmp/hac5/hostapd.log`
+- Check the hostapd debug log: `cat /tmp/venom/hostapd.log`
 - Ensure `wpad-openssl` is installed (not `wpad-basic`)
 - Verify the virtual interface was created: `iw dev`
 - Check if another hostapd is using the interface

