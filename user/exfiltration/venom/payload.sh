@@ -668,15 +668,6 @@ HOSTAPDEOF
     fi
 }
 
-    if [ -f "$HOSTAPD_CONF" ]; then
-        logboth green "hostapd config written"
-        return 0
-    else
-        logboth red "hostapd config failed"
-        return 1
-    fi
-}
-
 # ============================================
 # PHASE 3: DEPLOY
 # ============================================
