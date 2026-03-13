@@ -701,7 +701,7 @@ switch() {
     fi
 
     echo "Portal switched to \$NEW_PORTAL"
-    logger -t evilportal "Portal switched to \$NEW_PORTAL"
+    logger -t evilportal "Evil portal switched to \$NEW_PORTAL. Refresh client browser if necessary"
 
     return 0
 }

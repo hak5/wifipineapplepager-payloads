@@ -62,4 +62,4 @@ fi
 LOG "Switching Evil Portal to: $SELECTED_PORTAL"
 /etc/init.d/evilportal switch "$SELECTED_PORTAL"
 
-PROMPT "Evil Portal switched to:\n$SELECTED_PORTAL"
+ALERT "Evil Portal switched to:\n$SELECTED_PORTAL. Refresh browser if necessary."
