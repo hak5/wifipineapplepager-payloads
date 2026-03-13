@@ -2,7 +2,7 @@
 # Name: Switch Evil Portal
 # Description: Switches the active Evil Portal
 # Author: 0x4B
-# Version: 1.0
+# Version: 1.1
 # Category: Wireless
 
 PORTAL_DIR="/root/portals"
@@ -42,7 +42,7 @@ else
     WAIT_FOR_BUTTON_PRESS A
 
     # Prompt for number
-    CHOICE=$(NUMBER_PICKER "Enter portal number" "1")
+    CHOICE=$(NUMBER_PICKER "Enter portal number" "") # removed pre-fill selection
     if [ $? -ne 0 ]; then
         PROMPT "Selection cancelled"
         exit 0

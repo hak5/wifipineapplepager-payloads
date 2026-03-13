@@ -54,6 +54,8 @@ current -> Default
 
 Selecting 2 will update: `current -> google-login`
 
+**Note**: In some cases the client will continue showing the prior portal even though the symlink updated correctly. A simple refresh of the captive window will resolve this. 
+
 ---
 
 ## Logging
