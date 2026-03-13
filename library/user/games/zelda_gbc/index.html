@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GBC Emulator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#111;color:#eee;font-family:monospace;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:8px}
+#screen{image-rendering:pixelated;image-rendering:crisp-edges;display:block;border:2px solid #0f0;width:480px;height:432px;max-width:100%}
+#status{color:#0f0;margin:4px 0;font-size:12px;text-align:center}
+.gamepad{display:grid;grid-template-areas:"ul u ur . . . . . . ba"". l c r . . . sel str bb"". dl d dr . . . . . . .";grid-template-columns:repeat(10,32px);grid-template-rows:repeat(3,32px);gap:4px;margin-top:8px;user-select:none;-webkit-user-select:none}
+.btn{width:32px;height:32px;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#ccc;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:none}
+.btn:active,.btn.pressed{background:#555;color:#fff}
+.btn-up{grid-area:u}.btn-left{grid-area:l}.btn-center{grid-area:c;background:#1a1a1a;border-color:#222}.btn-right{grid-area:r}.btn-down{grid-area:d}
+.btn-a{grid-area:ba;background:#800;border-color:#f55}.btn-b{grid-area:bb;background:#440;border-color:#aa0}.btn-sel{grid-area:sel;font-size:9px}.btn-str{grid-area:str;font-size:9px}
+@media(max-width:380px){#screen{width:100%;height:auto;aspect-ratio:160/144}}
+#rom-picker{text-align:center;padding:20px;max-width:420px;width:100%}
+#rom-picker h2{color:#0f0;margin-bottom:16px;font-size:20px;letter-spacing:2px;font-family:monospace}
+.rom-item{background:#1a1a1a;border:1px solid #333;border-radius:6px;padding:10px 16px;margin:4px 0;cursor:pointer;color:#ccc;text-align:left;font-family:monospace}
+.rom-item:hover{background:#222;border-color:#0f0;color:#0f0}
+#rom-list{margin-bottom:16px}
+.upload-label{display:inline-block;background:#111;border:1px solid #444;border-radius:6px;padding:6px 14px;cursor:pointer;color:#aaa;font-size:12px;font-family:monospace}
+.upload-label:hover{border-color:#0f0;color:#0f0}
+#quit-btn{position:fixed;top:8px;right:8px;background:#111;border:1px solid #f55;color:#f55;padding:5px 12px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;z-index:999}
+#quit-btn:hover{background:#f55;color:#111}
+</style>
+</head>
+<body>
+<button id="quit-btn" onclick="if(confirm('Stop the server?')){fetch('/quit',{method:'POST'}).catch(()=>{});setTimeout(()=>{document.body.innerHTML='<p style=color:#0f0;font-family:monospace;padding:20px>Server stopped. You can close this tab.</p>';},300)}">Stop Server</button>
+<div id="rom-picker">
+  <h2>GBC EMULATOR</h2>
+  <div id="rom-list"><p style="color:#888">Loading...</p></div>
+  <label class="upload-label">Upload ROM (.gb / .gbc)
+    <input type="file" id="rom-upload" accept=".gb,.gbc" style="display:none">
+  </label>
+</div>
+<canvas id="screen" width="160" height="144" style="display:none"></canvas>
+<div id="status" style="display:none">Loading ROM…</div>
+<div class="gamepad" style="display:none">
+  <div class="btn btn-up" id="btn-up">▲</div>
+  <div class="btn btn-left" id="btn-left">◄</div>
+  <div class="btn btn-center">✛</div>
+  <div class="btn btn-right" id="btn-right">►</div>
+  <div class="btn btn-down" id="btn-down">▼</div>
+  <div class="btn btn-a" id="btn-a">A</div>
+  <div class="btn btn-b" id="btn-b">B</div>
+  <div class="btn btn-sel" id="btn-sel">SEL</div>
+  <div class="btn btn-str" id="btn-str">STR</div>
+</div>
+<script>
+"use strict";
+// ================================================================
+// Game Boy Color Emulator
+// Supports: SM83 CPU, GBC color palettes, MBC3, Timer, Joypad
+// ================================================================
+
+// ----------------------------------------------------------------
+// CPU — Sharp SM83 (LR35902)
+// ----------------------------------------------------------------
+class CPU {
+  constructor(gb) {
+    this.gb = gb;
+    this.interrupts = 0; // IF register
+    this.reset();
+  }
+  reset() {
+    // GBC post-boot register state
+    this.a=0x11; this.f=0x80;
+    this.b=0x00; this.c=0x00;
+    this.d=0xFF; this.e=0x56;
+    this.h=0x00; this.l=0x0D;
+    this.sp=0xFFFE; this.pc=0x0100;
+    this.ime=false; this.halted=false;
+    this.imeScheduled=false;
+  }
+  get af(){return(this.a<<8)|(this.f&0xF0)}
+  set af(v){this.a=(v>>8)&0xFF;this.f=v&0xF0}
+  get bc(){return(this.b<<8)|this.c}
+  set bc(v){this.b=(v>>8)&0xFF;this.c=v&0xFF}
+  get de(){return(this.d<<8)|this.e}
+  set de(v){this.d=(v>>8)&0xFF;this.e=v&0xFF}
+  get hl(){return(this.h<<8)|this.l}
+  set hl(v){this.h=(v>>8)&0xFF;this.l=v&0xFF}
+  get fZ(){return(this.f>>7)&1}
+  get fN(){return(this.f>>6)&1}
+  get fH(){return(this.f>>5)&1}
+  get fC(){return(this.f>>4)&1}
+  setF(z,n,h,c){this.f=((z?1:0)<<7)|((n?1:0)<<6)|((h?1:0)<<5)|((c?1:0)<<4)}
+
+  rb(a){return this.gb.mem.read(a&0xFFFF)}
+  wb(a,v){this.gb.mem.write(a&0xFFFF,v&0xFF)}
+  rw(a){return this.rb(a)|(this.rb((a+1)&0xFFFF)<<8)}
+  fetch(){const v=this.rb(this.pc);this.pc=(this.pc+1)&0xFFFF;return v}
+  fetchW(){const l=this.fetch(),h=this.fetch();return l|(h<<8)}
+  push(v){this.sp=(this.sp-2)&0xFFFF;this.wb(this.sp,v&0xFF);this.wb((this.sp+1)&0xFFFF,(v>>8)&0xFF)}
+  pop(){const l=this.rb(this.sp),h=this.rb((this.sp+1)&0xFFFF);this.sp=(this.sp+2)&0xFFFF;return l|(h<<8)}
+
+  add8(a,b,c=0){const r=a+b+c;this.setF((r&0xFF)===0,false,((a&0xF)+(b&0xF)+c)>0xF,r>0xFF);return r&0xFF}
+  sub8(a,b,c=0){const r=a-b-c;this.setF((r&0xFF)===0,true,((a&0xF)-(b&0xF)-c)<0,r<0);return r&0xFF}
+  inc8(v){const r=(v+1)&0xFF;this.f=((r===0?0x80:0))|((v&0xF)===0xF?0x20:0)|(this.f&0x10);return r}
+  dec8(v){const r=(v-1)&0xFF;this.f=(r===0?0x80:0)|0x40|((v&0xF)===0?0x20:0)|(this.f&0x10);return r}
+  addHL(v){const hl=this.hl,r=hl+v;this.f=(this.f&0x80)|(((hl&0xFFF)+(v&0xFFF))>0xFFF?0x20:0)|(r>0xFFFF?0x10:0);this.hl=r&0xFFFF}
+  addSP(e){const u=e&0xFF,se=u>127?u-256:u,r=(this.sp+se)&0xFFFF;this.f=(((this.sp&0xFF)+u)>0xFF?0x10:0)|(((this.sp&0xF)+(u&0xF))>0xF?0x20:0);return r}
+  and8(v){this.a&=v;this.f=(this.a===0?0x80:0)|0x20}
+  or8(v){this.a|=v;this.f=this.a===0?0x80:0}
+  xor8(v){this.a^=v;this.f=this.a===0?0x80:0}
+  cp8(v){this.sub8(this.a,v)}
+
+  rlc(v){const c=v>>7;const r=((v<<1)|c)&0xFF;this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  rrc(v){const c=v&1;const r=(v>>1)|(c<<7);this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  rl(v){const c=v>>7;const r=((v<<1)|this.fC)&0xFF;this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  rr(v){const c=v&1;const r=(v>>1)|(this.fC<<7);this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  sla(v){const c=v>>7;const r=(v<<1)&0xFF;this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  sra(v){const c=v&1;const r=(v>>1)|(v&0x80);this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  srl(v){const c=v&1;const r=v>>1;this.f=(r===0?0x80:0)|(c?0x10:0);return r}
+  swap(v){const r=((v&0xF)<<4)|(v>>4);this.f=r===0?0x80:0;return r}
+  bit(n,v){this.f=((v>>n)&1?0:0x80)|0x20|(this.f&0x10)}
+
+  handleInterrupts(){
+    const ie=this.rb(0xFFFF),ifl=this.interrupts,pend=ie&ifl&0x1F;
+    if(pend===0)return 0;
+    if(this.halted){this.halted=false;if(!this.ime)return 4}
+    if(!this.ime)return 0;
+    this.ime=false;
+    for(let i=0;i<5;i++){
+      if(pend&(1<<i)){
+        this.interrupts&=~(1<<i);
+        this.push(this.pc);
+        this.pc=0x40+i*8;
+        return 20;
+      }
+    }
+    return 0;
+  }
+
+  step(){
+    if(this.imeScheduled){this.ime=true;this.imeScheduled=false}
+    let cy=this.handleInterrupts();
+    if(cy>0)return cy;
+    if(this.halted)return 4;
+    const op=this.fetch();
+    switch(op){
+      case 0x00:return 4;
+      case 0x01:this.bc=this.fetchW();return 12;
+      case 0x02:this.wb(this.bc,this.a);return 8;
+      case 0x03:this.bc=(this.bc+1)&0xFFFF;return 8;
+      case 0x04:this.b=this.inc8(this.b);return 4;
+      case 0x05:this.b=this.dec8(this.b);return 4;
+      case 0x06:this.b=this.fetch();return 8;
+      case 0x07:{const c=this.a>>7;this.a=((this.a<<1)|c)&0xFF;this.f=c?0x10:0;return 4}
+      case 0x08:{const a=this.fetchW();this.wb(a,this.sp&0xFF);this.wb((a+1)&0xFFFF,(this.sp>>8)&0xFF);return 20}
+      case 0x09:this.addHL(this.bc);return 8;
+      case 0x0A:this.a=this.rb(this.bc);return 8;
+      case 0x0B:this.bc=(this.bc-1)&0xFFFF;return 8;
+      case 0x0C:this.c=this.inc8(this.c);return 4;
+      case 0x0D:this.c=this.dec8(this.c);return 4;
+      case 0x0E:this.c=this.fetch();return 8;
+      case 0x0F:{const c=this.a&1;this.a=(this.a>>1)|(c<<7);this.f=c?0x10:0;return 4}
+      case 0x10:this.fetch();return 4;
+      case 0x11:this.de=this.fetchW();return 12;
+      case 0x12:this.wb(this.de,this.a);return 8;
+      case 0x13:this.de=(this.de+1)&0xFFFF;return 8;
+      case 0x14:this.d=this.inc8(this.d);return 4;
+      case 0x15:this.d=this.dec8(this.d);return 4;
+      case 0x16:this.d=this.fetch();return 8;
+      case 0x17:{const c=this.a>>7;this.a=((this.a<<1)|this.fC)&0xFF;this.f=c?0x10:0;return 4}
+      case 0x18:{const e=this.fetch();this.pc=(this.pc+(e>127?e-256:e))&0xFFFF;return 12}
+      case 0x19:this.addHL(this.de);return 8;
+      case 0x1A:this.a=this.rb(this.de);return 8;
+      case 0x1B:this.de=(this.de-1)&0xFFFF;return 8;
+      case 0x1C:this.e=this.inc8(this.e);return 4;
+      case 0x1D:this.e=this.dec8(this.e);return 4;
+      case 0x1E:this.e=this.fetch();return 8;
+      case 0x1F:{const c=this.a&1;this.a=(this.a>>1)|(this.fC<<7);this.f=c?0x10:0;return 4}
+      case 0x20:{const e=this.fetch();if(!this.fZ){this.pc=(this.pc+(e>127?e-256:e))&0xFFFF;return 12}return 8}
+      case 0x21:this.hl=this.fetchW();return 12;
+      case 0x22:this.wb(this.hl,this.a);this.hl=(this.hl+1)&0xFFFF;return 8;
+      case 0x23:this.hl=(this.hl+1)&0xFFFF;return 8;
+      case 0x24:this.h=this.inc8(this.h);return 4;
+      case 0x25:this.h=this.dec8(this.h);return 4;
+      case 0x26:this.h=this.fetch();return 8;
+      case 0x27:{
+        let a=this.a;
+        if(!this.fN){if(this.fH||(a&0xF)>9)a+=6;if(this.fC||a>0x9F){a+=0x60;this.f|=0x10}}
+        else{if(this.fH)a-=6;if(this.fC)a-=0x60}
+        this.a=a&0xFF;this.f=(this.f&0x50)|(this.a===0?0x80:0);return 4}
+      case 0x28:{const e=this.fetch();if(this.fZ){this.pc=(this.pc+(e>127?e-256:e))&0xFFFF;return 12}return 8}
+      case 0x29:this.addHL(this.hl);return 8;
+      case 0x2A:this.a=this.rb(this.hl);this.hl=(this.hl+1)&0xFFFF;return 8;
+      case 0x2B:this.hl=(this.hl-1)&0xFFFF;return 8;
+      case 0x2C:this.l=this.inc8(this.l);return 4;
+      case 0x2D:this.l=this.dec8(this.l);return 4;
+      case 0x2E:this.l=this.fetch();return 8;
+      case 0x2F:this.a^=0xFF;this.f=(this.f&0x90)|0x60;return 4;
+      case 0x30:{const e=this.fetch();if(!this.fC){this.pc=(this.pc+(e>127?e-256:e))&0xFFFF;return 12}return 8}
+      case 0x31:this.sp=this.fetchW();return 12;
+      case 0x32:this.wb(this.hl,this.a);this.hl=(this.hl-1)&0xFFFF;return 8;
+      case 0x33:this.sp=(this.sp+1)&0xFFFF;return 8;
+      case 0x34:this.wb(this.hl,this.inc8(this.rb(this.hl)));return 12;
+      case 0x35:this.wb(this.hl,this.dec8(this.rb(this.hl)));return 12;
+      case 0x36:this.wb(this.hl,this.fetch());return 12;
+      case 0x37:this.f=(this.f&0x80)|0x10;return 4;
+      case 0x38:{const e=this.fetch();if(this.fC){this.pc=(this.pc+(e>127?e-256:e))&0xFFFF;return 12}return 8}
+      case 0x39:this.addHL(this.sp);return 8;
+      case 0x3A:this.a=this.rb(this.hl);this.hl=(this.hl-1)&0xFFFF;return 8;
+      case 0x3B:this.sp=(this.sp-1)&0xFFFF;return 8;
+      case 0x3C:this.a=this.inc8(this.a);return 4;
+      case 0x3D:this.a=this.dec8(this.a);return 4;
+      case 0x3E:this.a=this.fetch();return 8;
+      case 0x3F:this.f=(this.f&0x90)^0x10;return 4;
+      // LD r,r' block
+      case 0x40:return 4;
+      case 0x41:this.b=this.c;return 4;
+      case 0x42:this.b=this.d;return 4;
+      case 0x43:this.b=this.e;return 4;
+      case 0x44:this.b=this.h;return 4;
+      case 0x45:this.b=this.l;return 4;
+      case 0x46:this.b=this.rb(this.hl);return 8;
+      case 0x47:this.b=this.a;return 4;
+      case 0x48:this.c=this.b;return 4;
+      case 0x49:return 4;
+      case 0x4A:this.c=this.d;return 4;
+      case 0x4B:this.c=this.e;return 4;
+      case 0x4C:this.c=this.h;return 4;
+      case 0x4D:this.c=this.l;return 4;
+      case 0x4E:this.c=this.rb(this.hl);return 8;
+      case 0x4F:this.c=this.a;return 4;
+      case 0x50:this.d=this.b;return 4;
+      case 0x51:this.d=this.c;return 4;
+      case 0x52:return 4;
+      case 0x53:this.d=this.e;return 4;
+      case 0x54:this.d=this.h;return 4;
+      case 0x55:this.d=this.l;return 4;
+      case 0x56:this.d=this.rb(this.hl);return 8;
+      case 0x57:this.d=this.a;return 4;
+      case 0x58:this.e=this.b;return 4;
+      case 0x59:this.e=this.c;return 4;
+      case 0x5A:this.e=this.d;return 4;
+      case 0x5B:return 4;
+      case 0x5C:this.e=this.h;return 4;
+      case 0x5D:this.e=this.l;return 4;
+      case 0x5E:this.e=this.rb(this.hl);return 8;
+      case 0x5F:this.e=this.a;return 4;
+      case 0x60:this.h=this.b;return 4;
+      case 0x61:this.h=this.c;return 4;
+      case 0x62:this.h=this.d;return 4;
+      case 0x63:this.h=this.e;return 4;
+      case 0x64:return 4;
+      case 0x65:this.h=this.l;return 4;
+      case 0x66:this.h=this.rb(this.hl);return 8;
+      case 0x67:this.h=this.a;return 4;
+      case 0x68:this.l=this.b;return 4;
+      case 0x69:this.l=this.c;return 4;
+      case 0x6A:this.l=this.d;return 4;
+      case 0x6B:this.l=this.e;return 4;
+      case 0x6C:this.l=this.h;return 4;
+      case 0x6D:return 4;
+      case 0x6E:this.l=this.rb(this.hl);return 8;
+      case 0x6F:this.l=this.a;return 4;
+      case 0x70:this.wb(this.hl,this.b);return 8;
+      case 0x71:this.wb(this.hl,this.c);return 8;
+      case 0x72:this.wb(this.hl,this.d);return 8;
+      case 0x73:this.wb(this.hl,this.e);return 8;
+      case 0x74:this.wb(this.hl,this.h);return 8;
+      case 0x75:this.wb(this.hl,this.l);return 8;
+      case 0x76:this.halted=true;return 4;
+      case 0x77:this.wb(this.hl,this.a);return 8;
+      case 0x78:this.a=this.b;return 4;
+      case 0x79:this.a=this.c;return 4;
+      case 0x7A:this.a=this.d;return 4;
+      case 0x7B:this.a=this.e;return 4;
+      case 0x7C:this.a=this.h;return 4;
+      case 0x7D:this.a=this.l;return 4;
+      case 0x7E:this.a=this.rb(this.hl);return 8;
+      case 0x7F:return 4;
+      // ALU
+      case 0x80:this.a=this.add8(this.a,this.b);return 4;
+      case 0x81:this.a=this.add8(this.a,this.c);return 4;
+      case 0x82:this.a=this.add8(this.a,this.d);return 4;
+      case 0x83:this.a=this.add8(this.a,this.e);return 4;
+      case 0x84:this.a=this.add8(this.a,this.h);return 4;
+      case 0x85:this.a=this.add8(this.a,this.l);return 4;
+      case 0x86:this.a=this.add8(this.a,this.rb(this.hl));return 8;
+      case 0x87:this.a=this.add8(this.a,this.a);return 4;
+      case 0x88:this.a=this.add8(this.a,this.b,this.fC);return 4;
+      case 0x89:this.a=this.add8(this.a,this.c,this.fC);return 4;
+      case 0x8A:this.a=this.add8(this.a,this.d,this.fC);return 4;
+      case 0x8B:this.a=this.add8(this.a,this.e,this.fC);return 4;
+      case 0x8C:this.a=this.add8(this.a,this.h,this.fC);return 4;
+      case 0x8D:this.a=this.add8(this.a,this.l,this.fC);return 4;
+      case 0x8E:this.a=this.add8(this.a,this.rb(this.hl),this.fC);return 8;
+      case 0x8F:this.a=this.add8(this.a,this.a,this.fC);return 4;
+      case 0x90:this.a=this.sub8(this.a,this.b);return 4;
+      case 0x91:this.a=this.sub8(this.a,this.c);return 4;
+      case 0x92:this.a=this.sub8(this.a,this.d);return 4;
+      case 0x93:this.a=this.sub8(this.a,this.e);return 4;
+      case 0x94:this.a=this.sub8(this.a,this.h);return 4;
+      case 0x95:this.a=this.sub8(this.a,this.l);return 4;
+      case 0x96:this.a=this.sub8(this.a,this.rb(this.hl));return 8;
+      case 0x97:this.a=this.sub8(this.a,this.a);return 4;
+      case 0x98:this.a=this.sub8(this.a,this.b,this.fC);return 4;
+      case 0x99:this.a=this.sub8(this.a,this.c,this.fC);return 4;
+      case 0x9A:this.a=this.sub8(this.a,this.d,this.fC);return 4;
+      case 0x9B:this.a=this.sub8(this.a,this.e,this.fC);return 4;
+      case 0x9C:this.a=this.sub8(this.a,this.h,this.fC);return 4;
+      case 0x9D:this.a=this.sub8(this.a,this.l,this.fC);return 4;
+      case 0x9E:this.a=this.sub8(this.a,this.rb(this.hl),this.fC);return 8;
+      case 0x9F:this.a=this.sub8(this.a,this.a,this.fC);return 4;
+      case 0xA0:this.and8(this.b);return 4;
+      case 0xA1:this.and8(this.c);return 4;
+      case 0xA2:this.and8(this.d);return 4;
+      case 0xA3:this.and8(this.e);return 4;
+      case 0xA4:this.and8(this.h);return 4;
+      case 0xA5:this.and8(this.l);return 4;
+      case 0xA6:this.and8(this.rb(this.hl));return 8;
+      case 0xA7:this.and8(this.a);return 4;
+      case 0xA8:this.xor8(this.b);return 4;
+      case 0xA9:this.xor8(this.c);return 4;
+      case 0xAA:this.xor8(this.d);return 4;
+      case 0xAB:this.xor8(this.e);return 4;
+      case 0xAC:this.xor8(this.h);return 4;
+      case 0xAD:this.xor8(this.l);return 4;
+      case 0xAE:this.xor8(this.rb(this.hl));return 8;
+      case 0xAF:this.xor8(this.a);return 4;
+      case 0xB0:this.or8(this.b);return 4;
+      case 0xB1:this.or8(this.c);return 4;
+      case 0xB2:this.or8(this.d);return 4;
+      case 0xB3:this.or8(this.e);return 4;
+      case 0xB4:this.or8(this.h);return 4;
+      case 0xB5:this.or8(this.l);return 4;
+      case 0xB6:this.or8(this.rb(this.hl));return 8;
+      case 0xB7:this.or8(this.a);return 4;
+      case 0xB8:this.cp8(this.b);return 4;
+      case 0xB9:this.cp8(this.c);return 4;
+      case 0xBA:this.cp8(this.d);return 4;
+      case 0xBB:this.cp8(this.e);return 4;
+      case 0xBC:this.cp8(this.h);return 4;
+      case 0xBD:this.cp8(this.l);return 4;
+      case 0xBE:this.cp8(this.rb(this.hl));return 8;
+      case 0xBF:this.cp8(this.a);return 4;
+      // Control flow
+      case 0xC0:if(!this.fZ){this.pc=this.pop();return 20}return 8;
+      case 0xC1:this.bc=this.pop();return 12;
+      case 0xC2:{const a=this.fetchW();if(!this.fZ){this.pc=a;return 16}return 12}
+      case 0xC3:this.pc=this.fetchW();return 16;
+      case 0xC4:{const a=this.fetchW();if(!this.fZ){this.push(this.pc);this.pc=a;return 24}return 12}
+      case 0xC5:this.push(this.bc);return 16;
+      case 0xC6:this.a=this.add8(this.a,this.fetch());return 8;
+      case 0xC7:this.push(this.pc);this.pc=0x00;return 16;
+      case 0xC8:if(this.fZ){this.pc=this.pop();return 20}return 8;
+      case 0xC9:this.pc=this.pop();return 16;
+      case 0xCA:{const a=this.fetchW();if(this.fZ){this.pc=a;return 16}return 12}
+      case 0xCB:return this.stepCB();
+      case 0xCC:{const a=this.fetchW();if(this.fZ){this.push(this.pc);this.pc=a;return 24}return 12}
+      case 0xCD:{const a=this.fetchW();this.push(this.pc);this.pc=a;return 24}
+      case 0xCE:this.a=this.add8(this.a,this.fetch(),this.fC);return 8;
+      case 0xCF:this.push(this.pc);this.pc=0x08;return 16;
+      case 0xD0:if(!this.fC){this.pc=this.pop();return 20}return 8;
+      case 0xD1:this.de=this.pop();return 12;
+      case 0xD2:{const a=this.fetchW();if(!this.fC){this.pc=a;return 16}return 12}
+      case 0xD4:{const a=this.fetchW();if(!this.fC){this.push(this.pc);this.pc=a;return 24}return 12}
+      case 0xD5:this.push(this.de);return 16;
+      case 0xD6:this.a=this.sub8(this.a,this.fetch());return 8;
+      case 0xD7:this.push(this.pc);this.pc=0x10;return 16;
+      case 0xD8:if(this.fC){this.pc=this.pop();return 20}return 8;
+      case 0xD9:this.pc=this.pop();this.ime=true;return 16;
+      case 0xDA:{const a=this.fetchW();if(this.fC){this.pc=a;return 16}return 12}
+      case 0xDC:{const a=this.fetchW();if(this.fC){this.push(this.pc);this.pc=a;return 24}return 12}
+      case 0xDE:this.a=this.sub8(this.a,this.fetch(),this.fC);return 8;
+      case 0xDF:this.push(this.pc);this.pc=0x18;return 16;
+      case 0xE0:this.wb(0xFF00|this.fetch(),this.a);return 12;
+      case 0xE1:this.hl=this.pop();return 12;
+      case 0xE2:this.wb(0xFF00|this.c,this.a);return 8;
+      case 0xE5:this.push(this.hl);return 16;
+      case 0xE6:this.and8(this.fetch());return 8;
+      case 0xE7:this.push(this.pc);this.pc=0x20;return 16;
+      case 0xE8:this.sp=this.addSP(this.fetch());return 16;
+      case 0xE9:this.pc=this.hl;return 4;
+      case 0xEA:this.wb(this.fetchW(),this.a);return 16;
+      case 0xEE:this.xor8(this.fetch());return 8;
+      case 0xEF:this.push(this.pc);this.pc=0x28;return 16;
+      case 0xF0:this.a=this.rb(0xFF00|this.fetch());return 12;
+      case 0xF1:this.af=this.pop();return 12;
+      case 0xF2:this.a=this.rb(0xFF00|this.c);return 8;
+      case 0xF3:this.ime=false;return 4;
+      case 0xF5:this.push(this.af);return 16;
+      case 0xF6:this.or8(this.fetch());return 8;
+      case 0xF7:this.push(this.pc);this.pc=0x30;return 16;
+      case 0xF8:this.hl=this.addSP(this.fetch());return 12;
+      case 0xF9:this.sp=this.hl;return 8;
+      case 0xFA:this.a=this.rb(this.fetchW());return 16;
+      case 0xFB:this.imeScheduled=true;return 4;
+      case 0xFE:this.cp8(this.fetch());return 8;
+      case 0xFF:this.push(this.pc);this.pc=0x38;return 16;
+      default:return 4;
+    }
+  }
+
+  stepCB(){
+    const op=this.fetch(),r=op&7,b3=(op>>3)&7;
+    const G=()=>{switch(r){case 0:return this.b;case 1:return this.c;case 2:return this.d;case 3:return this.e;case 4:return this.h;case 5:return this.l;case 6:return this.rb(this.hl);default:return this.a}};
+    const S=(v)=>{switch(r){case 0:this.b=v;break;case 1:this.c=v;break;case 2:this.d=v;break;case 3:this.e=v;break;case 4:this.h=v;break;case 5:this.l=v;break;case 6:this.wb(this.hl,v);break;default:this.a=v}};
+    const xc=r===6?8:0;const v=G();
+    if(op<0x08){S(this.rlc(v))}
+    else if(op<0x10){S(this.rrc(v))}
+    else if(op<0x18){S(this.rl(v))}
+    else if(op<0x20){S(this.rr(v))}
+    else if(op<0x28){S(this.sla(v))}
+    else if(op<0x30){S(this.sra(v))}
+    else if(op<0x38){S(this.swap(v))}
+    else if(op<0x40){S(this.srl(v))}
+    else if(op<0x80){this.bit(b3,v);return 8+xc}
+    else if(op<0xC0){S(v&~(1<<b3))}
+    else{S(v|(1<<b3))}
+    return 8+xc;
+  }
+}
+
+// ----------------------------------------------------------------
+// Memory + MBC3
+// ----------------------------------------------------------------
+class Memory {
+  constructor(gb){
+    this.gb=gb;
+    this.rom=null;
+    this.romBank=1;
+    this.ramEnabled=false;
+    this.ramBank=0;
+    this.ram=new Uint8Array(32768);
+    this.wram=new Uint8Array(32768);
+    this.wramBank=1;
+    this.vram=new Uint8Array(16384); // 2x8KB banks
+    this.vramBank=0;
+    this.oam=new Uint8Array(160);
+    this.hram=new Uint8Array(127);
+    this.io=new Uint8Array(128);
+    this.ie=0;
+    // GBC color palettes
+    this.bgPal=new Uint8Array(64);
+    this.obPal=new Uint8Array(64);
+    this.bgIdx=0;this.bgAuto=false;
+    this.obIdx=0;this.obAuto=false;
+    // HDMA
+    this.hdmaSrc=0;this.hdmaDst=0;
+  }
+  reset(){
+    this.io.fill(0);
+    this.io[0x00]=0xCF;this.io[0x40]=0x91;this.io[0x41]=0x85;
+    this.io[0x42]=0;this.io[0x43]=0;this.io[0x44]=0x91;
+    this.io[0x45]=0;this.io[0x47]=0xFC;this.io[0x48]=0xFF;this.io[0x49]=0xFF;
+    this.io[0x4A]=0;this.io[0x4B]=0;
+  }
+  loadROM(data){this.rom=new Uint8Array(data)}
+
+  read(a){
+    a&=0xFFFF;
+    if(a<0x4000)return this.rom[a]||0;
+    if(a<0x8000)return this.rom[((this.romBank&0x7F)<<14)|(a&0x3FFF)]||0;
+    if(a<0xA000)return this.vram[(this.vramBank<<13)|(a&0x1FFF)];
+    if(a<0xC000){
+      if(this.ramEnabled&&this.ramBank<4)return this.ram[(this.ramBank<<13)|(a&0x1FFF)];
+      return 0xFF;
+    }
+    if(a<0xD000)return this.wram[a&0xFFF];
+    if(a<0xE000)return this.wram[(this.wramBank<<12)|(a&0xFFF)];
+    if(a<0xFE00)return this.read(a-0x2000);
+    if(a<0xFEA0)return this.oam[a-0xFE00];
+    if(a<0xFF00)return 0xFF;
+    if(a<0xFF80)return this.readIO(a&0x7F);
+    if(a<0xFFFF)return this.hram[a-0xFF80];
+    return this.ie;
+  }
+
+  write(a,v){
+    a&=0xFFFF;v&=0xFF;
+    if(a<0x2000){this.ramEnabled=(v&0xF)===0xA;return}
+    if(a<0x4000){this.romBank=(v&0x7F)||1;return}
+    if(a<0x6000){this.ramBank=v&0xF;return}
+    if(a<0x8000)return;
+    if(a<0xA000){this.vram[(this.vramBank<<13)|(a&0x1FFF)]=v;return}
+    if(a<0xC000){if(this.ramEnabled&&this.ramBank<4)this.ram[(this.ramBank<<13)|(a&0x1FFF)]=v;return}
+    if(a<0xD000){this.wram[a&0xFFF]=v;return}
+    if(a<0xE000){this.wram[(this.wramBank<<12)|(a&0xFFF)]=v;return}
+    if(a<0xFE00){this.write(a-0x2000,v);return}
+    if(a<0xFEA0){this.oam[a-0xFE00]=v;return}
+    if(a<0xFF00)return;
+    if(a<0xFF80){this.writeIO(a&0x7F,v);return}
+    if(a<0xFFFF){this.hram[a-0xFF80]=v;return}
+    this.ie=v;
+  }
+
+  readIO(r){
+    if(r===0x00)return this.gb.joy.read();
+    if(r===0x0F)return this.gb.cpu.interrupts|0xE0;
+    if(r===0x41){
+      const p=this.gb.ppu;
+      return(this.io[0x41]&0xF8)|p.mode|(p.ly===this.io[0x45]?4:0);
+    }
+    if(r===0x44)return this.gb.ppu.ly;
+    if(r===0x4F)return this.vramBank|0xFE;
+    if(r===0x68)return(this.bgAuto?0x80:0)|this.bgIdx;
+    if(r===0x69)return this.bgPal[this.bgIdx&0x3F];
+    if(r===0x6A)return(this.obAuto?0x80:0)|this.obIdx;
+    if(r===0x6B)return this.obPal[this.obIdx&0x3F];
+    if(r===0x70)return(this.wramBank&7)|0xF8;
+    return this.io[r]|0;
+  }
+
+  writeIO(r,v){
+    this.io[r]=v;
+    if(r===0x0F){this.gb.cpu.interrupts=v&0x1F;return}
+    if(r===0x44)return; // LY read-only
+    if(r===0x46){const s=v<<8;for(let i=0;i<160;i++)this.oam[i]=this.read(s+i);return}
+    if(r===0x4F){this.vramBank=v&1;return}
+    if(r===0x51){this.hdmaSrc=(this.hdmaSrc&0xFF)|(v<<8);return}
+    if(r===0x52){this.hdmaSrc=(this.hdmaSrc&0xFF00)|(v&0xF0);return}
+    if(r===0x53){this.hdmaDst=(this.hdmaDst&0xFF)|((v&0x1F)<<8);return}
+    if(r===0x54){this.hdmaDst=(this.hdmaDst&0x1F00)|(v&0xF0);return}
+    if(r===0x55){
+      const len=((v&0x7F)+1)<<4;
+      const src=this.hdmaSrc&0xFFF0;
+      const dst=(this.hdmaDst&0x1FF0)|0x8000;
+      for(let i=0;i<len;i++)this.write(dst+i,this.read(src+i));
+      this.io[r]=0xFF;return;
+    }
+    if(r===0x68){this.bgIdx=v&0x3F;this.bgAuto=!!(v&0x80);return}
+    if(r===0x69){this.bgPal[this.bgIdx&0x3F]=v;if(this.bgAuto)this.bgIdx=(this.bgIdx+1)&0x3F;return}
+    if(r===0x6A){this.obIdx=v&0x3F;this.obAuto=!!(v&0x80);return}
+    if(r===0x6B){this.obPal[this.obIdx&0x3F]=v;if(this.obAuto)this.obIdx=(this.obIdx+1)&0x3F;return}
+    if(r===0x70){this.wramBank=(v&7)||1;return}
+  }
+}
+
+// ----------------------------------------------------------------
+// PPU
+// ----------------------------------------------------------------
+class PPU {
+  constructor(gb){
+    this.gb=gb;
+    this.ly=0;this.mode=2;this.cyc=0;
+    this.winLine=0;
+    this.fb=new Uint32Array(160*144);
+  }
+  reset(){this.ly=0;this.mode=2;this.cyc=0;this.winLine=0}
+
+  get lcdc(){return this.gb.mem.io[0x40]}
+  get scy(){return this.gb.mem.io[0x42]}
+  get scx(){return this.gb.mem.io[0x43]}
+  get lyc(){return this.gb.mem.io[0x45]}
+  get wy(){return this.gb.mem.io[0x4A]}
+  get wx(){return this.gb.mem.io[0x4B]}
+  get stat(){return this.gb.mem.io[0x41]}
+
+  reqIRQ(n){this.gb.cpu.interrupts|=(1<<n)}
+
+  step(c){
+    if(!(this.lcdc&0x80))return;
+    this.cyc+=c;
+    switch(this.mode){
+      case 2:
+        if(this.cyc>=80){this.cyc-=80;this.mode=3}
+        break;
+      case 3:
+        if(this.cyc>=172){this.cyc-=172;this.renderLine();this.mode=0;if(this.stat&0x08)this.reqIRQ(1)}
+        break;
+      case 0:
+        if(this.cyc>=204){
+          this.cyc-=204;this.ly++;
+          if(this.ly===this.lyc&&(this.stat&0x40))this.reqIRQ(1);
+          if(this.ly===144){this.mode=1;this.reqIRQ(0);if(this.stat&0x10)this.reqIRQ(1)}
+          else{this.mode=2;if(this.stat&0x20)this.reqIRQ(1)}
+        }
+        break;
+      case 1:
+        if(this.cyc>=456){
+          this.cyc-=456;this.ly++;
+          if(this.ly>153){this.ly=0;this.winLine=0;this.mode=2;if(this.stat&0x20)this.reqIRQ(1)}
+          if(this.ly===this.lyc&&(this.stat&0x40))this.reqIRQ(1);
+        }
+        break;
+    }
+  }
+
+  gbcColor(pal,idx,obj){
+    const d=obj?this.gb.mem.obPal:this.gb.mem.bgPal;
+    const o=(pal<<3)|(idx<<1);
+    const c=d[o]|(d[o+1]<<8);
+    const r=(c&0x1F)<<3,g=((c>>5)&0x1F)<<3,b=((c>>10)&0x1F)<<3;
+    return 0xFF000000|(b<<16)|(g<<8)|r;
+  }
+
+  renderLine(){
+    const ly=this.ly;if(ly>=144)return;
+    const lcdc=this.lcdc;
+    const vram=this.gb.mem.vram;
+    const bgc=new Uint8Array(160),bgp=new Uint8Array(160),bgpr=new Uint8Array(160);
+
+    if(lcdc&0x01){
+      const tmap=(lcdc&0x08)?0x1C00:0x1800; // offset in vram (0x9800/0x9C00 - 0x8000)
+      const tileBase=(lcdc&0x10);
+      const scy=this.scy,scx=this.scx;
+      const ty=((ly+scy)&0xFF)>>3,tpY=(ly+scy)&7;
+      for(let x=0;x<160;x++){
+        const tx=((x+scx)&0xFF)>>3,tpX=(x+scx)&7;
+        const ta=tmap+(ty<<5)+tx;
+        const tnum=vram[ta];
+        const tattr=vram[0x2000+ta];
+        const flipX=tattr&0x20,flipY=tattr&0x40;
+        const vb=(tattr&0x08)?0x2000:0;
+        const pal=tattr&7;
+        const py=flipY?(7-tpY):tpY;
+        const px=flipX?(7-tpX):tpX;
+        let toff=tileBase?tnum<<4:(0x1000+((tnum<<24>>24)<<4));
+        const lo=vram[vb+toff+(py<<1)],hi=vram[vb+toff+(py<<1)+1];
+        const ci=((lo>>(7-px))&1)|(((hi>>(7-px))&1)<<1);
+        bgc[x]=ci;bgp[x]=pal;bgpr[x]=(tattr&0x80)?1:0;
+        this.fb[ly*160+x]=this.gbcColor(pal,ci,false);
+      }
+      // Window
+      if((lcdc&0x20)&&this.wy<=ly){
+        const wx=this.wx-7;
+        if(wx<160){
+          const wmap=(lcdc&0x40)?0x1C00:0x1800;
+          const wty=this.winLine>>3,wtpY=this.winLine&7;
+          for(let x=wx<0?0:wx;x<160;x++){
+            const wx2=x-wx;
+            const wtx=wx2>>3,wtpX=wx2&7;
+            const ta2=wmap+(wty<<5)+wtx;
+            const tnum=vram[ta2];
+            const tattr=vram[0x2000+ta2];
+            const flipX=tattr&0x20,flipY=tattr&0x40;
+            const vb=(tattr&0x08)?0x2000:0;
+            const pal=tattr&7;
+            const py=flipY?(7-wtpY):wtpY;
+            const px=flipX?(7-wtpX):wtpX;
+            let toff=tileBase?tnum<<4:(0x1000+((tnum<<24>>24)<<4));
+            const lo=vram[vb+toff+(py<<1)],hi=vram[vb+toff+(py<<1)+1];
+            const ci=((lo>>(7-px))&1)|(((hi>>(7-px))&1)<<1);
+            bgc[x]=ci;bgp[x]=pal;bgpr[x]=(tattr&0x80)?1:0;
+            this.fb[ly*160+x]=this.gbcColor(pal,ci,false);
+          }
+          this.winLine++;
+        }
+      }
+    }
+
+    if(lcdc&0x02){
+      const sh=(lcdc&0x04)?16:8;
+      let cnt=0;
+      for(let i=0;i<40&&cnt<10;i++){
+        const sy=this.gb.mem.oam[i*4]-16;
+        if(ly<sy||ly>=sy+sh)continue;
+        cnt++;
+        const sx=this.gb.mem.oam[i*4+1]-8;
+        let tn=this.gb.mem.oam[i*4+2];
+        const fl=this.gb.mem.oam[i*4+3];
+        const flipX=fl&0x20,flipY=fl&0x40,pri=fl&0x80;
+        const pal=fl&7,vb=(fl&0x08)?0x2000:0;
+        if(sh===16)tn&=0xFE;
+        let py=ly-sy;
+        if(flipY)py=sh-1-py;
+        const toff=(tn<<4)+((py&7)<<1)+(py>=8?16:0);
+        const lo=this.gb.mem.vram[vb+toff],hi=this.gb.mem.vram[vb+toff+1];
+        for(let x=0;x<8;x++){
+          const dx=sx+x;if(dx<0||dx>=160)continue;
+          const px=flipX?x:(7-x);
+          const ci=((lo>>px)&1)|(((hi>>px)&1)<<1);
+          if(ci===0)continue;
+          if((pri||bgpr[dx])&&bgc[dx]!==0)continue;
+          this.fb[ly*160+dx]=this.gbcColor(pal,ci,true);
+        }
+      }
+    }
+  }
+
+  blit(imgData){
+    const d=imgData.data;
+    for(let i=0;i<23040;i++){
+      const c=this.fb[i];
+      d[i*4]=(c)&0xFF;
+      d[i*4+1]=(c>>8)&0xFF;
+      d[i*4+2]=(c>>16)&0xFF;
+      d[i*4+3]=255;
+    }
+  }
+}
+
+// ----------------------------------------------------------------
+// Timer
+// ----------------------------------------------------------------
+class Timer {
+  constructor(gb){this.gb=gb;this.div=0;this.tima=0;this.tac=0;this.divC=0;this.timC=0}
+  reset(){this.divC=0;this.timC=0}
+  step(c){
+    this.divC+=c;
+    while(this.divC>=256){this.divC-=256;this.gb.mem.io[0x03]=(this.gb.mem.io[0x03]+1)&0xFF}
+    if(!(this.gb.mem.io[0x07]&4))return;
+    const f=[1024,16,64,256][this.gb.mem.io[0x07]&3];
+    this.timC+=c;
+    while(this.timC>=f){
+      this.timC-=f;
+      this.gb.mem.io[0x05]=(this.gb.mem.io[0x05]+1)&0xFF;
+      if(this.gb.mem.io[0x05]===0){
+        this.gb.mem.io[0x05]=this.gb.mem.io[0x06];
+        this.gb.cpu.interrupts|=4;
+      }
+    }
+  }
+}
+
+// ----------------------------------------------------------------
+// Joypad
+// ----------------------------------------------------------------
+class Joypad {
+  constructor(gb){this.gb=gb;this.btn=0xFF;this.dir=0xFF}
+  read(){
+    const s=this.gb.mem.io[0x00];
+    if(!(s&0x20))return 0xC0|(this.btn&0xF);
+    if(!(s&0x10))return 0xC0|(this.dir&0xF);
+    return 0xFF;
+  }
+  press(b){
+    if('ab select start'.includes(b)){
+      const i=['a','b','select','start'].indexOf(b);
+      if(i>=0){this.btn&=~(1<<i);this.gb.cpu.interrupts|=0x10}
+    }else{
+      const i=['right','left','up','down'].indexOf(b);
+      if(i>=0){this.dir&=~(1<<i);this.gb.cpu.interrupts|=0x10}
+    }
+  }
+  release(b){
+    if('ab select start'.includes(b)){
+      const i=['a','b','select','start'].indexOf(b);
+      if(i>=0)this.btn|=(1<<i);
+    }else{
+      const i=['right','left','up','down'].indexOf(b);
+      if(i>=0)this.dir|=(1<<i);
+    }
+  }
+}
+
+// ----------------------------------------------------------------
+// GameBoy
+// ----------------------------------------------------------------
+class GameBoy {
+  constructor(canvas){
+    this.canvas=canvas;
+    this.ctx=canvas.getContext('2d');
+    this.imgData=this.ctx.createImageData(160,144);
+    this.mem=new Memory(this);
+    this.cpu=new CPU(this);
+    this.ppu=new PPU(this);
+    this.timer=new Timer(this);
+    this.joy=new Joypad(this);
+    this.running=false;
+  }
+  load(data){this.mem.loadROM(data);this.reset()}
+  reset(){this.cpu.reset();this.mem.reset();this.ppu.reset();this.timer.reset();this.cpu.interrupts=0}
+  step(){const c=this.cpu.step();this.ppu.step(c);this.timer.step(c);return c}
+  run(){
+    this.running=true;
+    const FRAME=70224;
+    let last=0;
+    const loop=(ts)=>{
+      if(!this.running)return;
+      if(ts-last>=15){
+        last=ts;
+        let c=0;while(c<FRAME)c+=this.step();
+        this.ppu.blit(this.imgData);
+        this.ctx.putImageData(this.imgData,0,0);
+      }
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  }
+}
+
+// ----------------------------------------------------------------
+// Boot
+// ----------------------------------------------------------------
+const canvas=document.getElementById('screen');
+const status=document.getElementById('status');
+const picker=document.getElementById('rom-picker');
+const gb=new GameBoy(canvas);
+
+// --- Pager physical button polling ---
+const PAGER_MAP=[[0x01,'up'],[0x02,'down'],[0x04,'left'],[0x08,'right'],[0x10,'a'],[0x20,'b']];
+let _prevBtns=0;
+function pollPager(){
+  fetch('/buttons').then(r=>r.json()).then(d=>{
+    const cur=d.buttons|0,chg=cur^_prevBtns;
+    if(chg)for(const[bit,name]of PAGER_MAP){
+      if(chg&bit){if(cur&bit)gb.joy.press(name);else gb.joy.release(name);}
+    }
+    _prevBtns=cur;
+  }).catch(()=>{});
+}
+setInterval(pollPager,100);
+
+// --- ROM picker ---
+function showGame(name){
+  picker.style.display='none';
+  canvas.style.display='';
+  status.style.display='';
+  document.querySelector('.gamepad').style.display='';
+  status.textContent=name+' — Z=A  X=B  Enter=START  Shift=SELECT';
+}
+function loadROM(data,name){gb.load(data);showGame(name);gb.run();}
+function loadFromURL(url,name){
+  status.style.display='';status.textContent='Loading '+name+'…';
+  fetch(url).then(r=>{if(!r.ok)throw new Error(r.status);return r.arrayBuffer();})
+    .then(d=>loadROM(d,name))
+    .catch(e=>{status.style.display='';status.textContent='Error: '+e.message;});
+}
+
+// Fetch ROM list from server
+fetch('/roms').then(r=>r.json()).then(roms=>{
+  const list=document.getElementById('rom-list');
+  if(!roms.length){list.innerHTML='<p style="color:#888">No ROMs found. Upload one below.</p>';return;}
+  list.innerHTML='';
+  roms.forEach(name=>{
+    const div=document.createElement('div');
+    div.className='rom-item';div.textContent=name;
+    div.onclick=()=>loadFromURL('/rom/'+encodeURIComponent(name),name);
+    list.appendChild(div);
+  });
+}).catch(()=>{document.getElementById('rom-list').innerHTML='<p style="color:#888">Could not connect to server.</p>';});
+
+// ROM file upload
+document.getElementById('rom-upload').addEventListener('change',function(){
+  const file=this.files[0];if(!file)return;
+  status.style.display='';status.textContent='Uploading '+file.name+'…';
+  file.arrayBuffer()
+    .then(buf=>fetch('/upload',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Filename':file.name},body:buf}))
+    .then(r=>r.json())
+    .then(d=>{if(d.ok)loadFromURL('/rom/'+encodeURIComponent(d.name),d.name);else{status.textContent='Upload failed';}})
+    .catch(e=>{status.textContent='Upload error: '+e.message;});
+});
+
+// Keyboard
+const kmap={'ArrowUp':'up','ArrowDown':'down','ArrowLeft':'left','ArrowRight':'right',
+  'z':'a','Z':'a','x':'b','X':'b','Enter':'start','Shift':'select',
+  'q':'select','Q':'select','w':'start','W':'start'};
+document.addEventListener('keydown',e=>{const b=kmap[e.key];if(b){e.preventDefault();gb.joy.press(b)}});
+document.addEventListener('keyup',e=>{const b=kmap[e.key];if(b)gb.joy.release(b)});
+
+// Touch/mouse buttons
+const bmap={'btn-up':'up','btn-down':'down','btn-left':'left','btn-right':'right',
+  'btn-a':'a','btn-b':'b','btn-sel':'select','btn-str':'start'};
+Object.entries(bmap).forEach(([id,btn])=>{
+  const el=document.getElementById(id);if(!el)return;
+  const p=()=>{el.classList.add('pressed');gb.joy.press(btn)};
+  const r=()=>{el.classList.remove('pressed');gb.joy.release(btn)};
+  el.addEventListener('touchstart',e=>{e.preventDefault();p()},{passive:false});
+  el.addEventListener('touchend',e=>{e.preventDefault();r()},{passive:false});
+  el.addEventListener('touchcancel',e=>{e.preventDefault();r()},{passive:false});
+  el.addEventListener('mousedown',p);
+  el.addEventListener('mouseup',r);
+  el.addEventListener('mouseleave',r);
+});
+</script>
+</body>
+</html>
