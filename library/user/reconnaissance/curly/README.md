@@ -3,7 +3,7 @@
 **Curly** transforms your WiFi Pineapple Pager into a portable web reconnaissance and vulnerability scanning tool using curl. Perfect for pentesting and bug bounty hunting on the go!
 
 - **Author:** curtthecoder
-- **Version:** 3.6
+- **Version:** 3.8
 
 ---
 
@@ -12,6 +12,7 @@
 Curly performs comprehensive web security testing using only curl:
 
 - **IP Geolocation Lookup** - Resolves target IP and queries ipinfo.io for location, ISP, timezone data
+- **Protocol Availability Check** 🌐 - Detects if site responds on HTTP, HTTPS, or both; checks for proper HTTP→HTTPS redirects
 - **SSL/TLS Security Analysis** 🔒 - Certificate expiration, TLS version detection, weak cipher identification, self-signed cert detection
 - **Severity Scoring System** 📊 - All findings categorized as CRITICAL/HIGH/MEDIUM/LOW/INFO with beautiful summary report
 - **Scan Time Tracking** ⏱️ *(NEW in v3.6)* - Estimated times before scans + actual elapsed time in final summary
@@ -20,6 +21,7 @@ Curly performs comprehensive web security testing using only curl:
 - **Parameter Discovery** 🔍 - Tests 30+ common parameters for behavior changes, reflection, and pollution vulnerabilities
 - **WAF/CDN Detection** - Identifies Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - **Technology Fingerprinting** - Detects web servers, CMS (WordPress, Drupal, Joomla), frameworks (React, Vue, Angular)
+- **WordPress Version & Vulnerability Scanner** - Detects WP version via 6 methods (RSS, Atom, meta tag, OPML, readme, asset versions), queries WPScan API for known CVEs, enumerates plugins/themes with vulnerability lookup
 - **WordPress Security Tests** - Auto-runs when WordPress detected: user enumeration, xmlrpc, debug logs
 - **Subdomain Enumeration** - Tests 50+ common subdomains (api, admin, dev, staging, etc.)
 - **Information Gathering** - Headers, server fingerprinting, security header analysis
@@ -29,7 +31,7 @@ Curly performs comprehensive web security testing using only curl:
 - **Backup File Hunter** - Finds .bak, .old, .sql, .zip backup files
 - **HTTP Methods Testing** - Smart detection of dangerous methods (PUT, DELETE, TRACE, PATCH)
 - **Header Injection** - Tests for X-Forwarded-For, Host header, and bypass techniques
-- **Cookie Security** - Analyzes HttpOnly, Secure, and SameSite flags
+- **Cookie Security** - Analyzes HttpOnly, Secure, SameSite flags + detects JavaScript cookies (document.cookie) and cookie consent mechanisms
 - **CORS Misconfiguration** - Detects weak CORS policies
 - **Open Redirects** - Accurate detection of open redirect vulnerabilities
 - **API Reconnaissance** - Discovers API endpoints and checks for sensitive data exposure
@@ -40,11 +42,11 @@ Curly performs comprehensive web security testing using only curl:
 
 ### 6 Scan Modes
 
-1. **Quick Scan** - Fast reconnaissance (IP geo + SSL/TLS + WAF + tech + info + endpoints + HTML source)
-2. **Full Scan (All Modules)** - Comprehensive security testing (all 17 modules including SSL/TLS + parameter discovery!)
+1. **Quick Scan** - Fast reconnaissance (IP geo + protocol check + SSL/TLS + WAF + tech + WP vulns + info + endpoints + HTML source)
+2. **Full Scan (All Modules)** - Comprehensive security testing (all 19 modules including protocol check + SSL/TLS + WP vulnerability scan + parameter discovery!)
 3. **API Recon** - Focused API endpoint discovery + subdomain enumeration
-4. **Security Audit** - Deep security testing (IP geo + SSL/TLS + tech + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
-5. **Tech Fingerprint** - Identify IP location, SSL/TLS config, WAF, CDN, web server, and technology stack
+4. **Security Audit** - Deep security testing (IP geo + protocol check + SSL/TLS + tech + WP vulns + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
+5. **Tech Fingerprint** - Identify IP location, protocol availability, SSL/TLS config, WAF, CDN, web server, technology stack, and WordPress vulnerabilities
 6. **Subdomain Enum** - Test 50+ common subdomains for the target
 
 ### Visual & Audio Feedback
@@ -75,11 +77,15 @@ Curly performs comprehensive web security testing using only curl:
 2. **(Optional)** Configure Discord webhook in `payload.sh`:
    - Get webhook URL from Discord: Server Settings → Integrations → Webhooks → New Webhook
    - Edit line 11: `DISCORD_WEBHOOK="https://discord.com/api/webhooks/YOUR_WEBHOOK_HERE"`
-3. Enter target URL when prompted (e.g., `example.com` - no need for https://)
-4. Select scan mode (1-6) using number picker
-5. Press **A** to start the scan
-6. Watch results in real-time on the Pager display
-7. Results auto-saved to `/root/loot/curly/` (and sent to Discord if configured)
+3. **(Optional)** Configure WPScan API token for WordPress vulnerability lookup:
+   - Register for a free token at https://wpscan.com/register (25 requests/day)
+   - Edit line 12: `WPSCAN_API_TOKEN="your_token_here"`
+   - Without a token, Curly still detects WP version and does basic age checks
+4. Enter target URL when prompted (e.g., `example.com` - no need for https://)
+5. Select scan mode (1-6) using number picker
+6. Press **A** to start the scan
+7. Watch results in real-time on the Pager display
+8. Results auto-saved to `/root/loot/curly/` (and sent to Discord if configured)
 
 ---
 
@@ -88,12 +94,14 @@ Curly performs comprehensive web security testing using only curl:
 ### Security Issues
 
 - ✅ **IP Geolocation** - IP address, hostname, city, region, country, ISP/organization, coordinates, timezone
+- 🌐 **Protocol Availability** - Detects HTTP/HTTPS availability; flags sites with no SSL (HIGH), missing HTTP→HTTPS redirects (MEDIUM), or secure HTTPS-only configs (INFO)
 - 🔒 **SSL/TLS Security** *(NEW in v3.5)* - Expired/expiring certificates, self-signed certs, weak ciphers (DES, RC4, MD5), outdated TLS versions (1.0/1.1), certificate chain issues
 - 📊 **Severity Scoring** *(NEW in v3.5)* - CRITICAL/HIGH/MEDIUM/LOW/INFO classification for all findings with summary report
 - 🔍 **Parameter Discovery** *(NEW in v3.5)* - Tests debug, auth, data, config parameters (~30 total); detects reflection, behavior changes, parameter pollution
 - ✅ **WAF/CDN Protection** - Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - ✅ **Technology Stack** - Web servers, CMS platforms, frontend frameworks, libraries with versions
-- ✅ **WordPress Vulnerabilities** - User enumeration API, xmlrpc.php, debug logs, wp-admin access (with content verification to prevent false positives)
+- ✅ **WordPress Version & CVE Scanner** *(NEW in v3.8)* - Detects WP version via 6 methods (RSS feed, Atom feed, meta generator, OPML, readme.html, CSS/JS query strings), queries WPScan API for known CVEs with titles/references/fix versions, enumerates plugins + themes with vulnerability lookup
+- ✅ **WordPress Security Tests** - User enumeration API, xmlrpc.php, debug logs, wp-admin access (with content verification to prevent false positives)
 - ✅ **Subdomains** - Tests 50+ common subdomains (api, admin, dev, staging, mail, etc.)
 - ✅ **HTML Source Secrets** - Email addresses, API keys, internal URLs, TODO comments, stack traces
 - ✅ **Missing security headers** - X-Frame-Options, CSP, HSTS, X-Content-Type-Options
@@ -104,7 +112,7 @@ Curly performs comprehensive web security testing using only curl:
 - ✅ **Backup files** - .bak, .old, .sql, .zip, .tar.gz with 80+ combinations tested
 - ✅ **API documentation** - `/swagger.json`, `/openapi.json`, GraphQL endpoints (validates JSON format to prevent false positives)
 - ✅ **Dangerous HTTP methods** - PUT, DELETE, TRACE, PATCH (smart detection, filters rate limiting)
-- ✅ **Cookie security** - Missing HttpOnly, Secure, SameSite flags
+- ✅ **Cookie security** - Missing HttpOnly, Secure, SameSite flags; JavaScript cookie detection (document.cookie); cookie consent banner detection
 - ✅ **CORS misconfigurations** - Wildcard and reflected origins
 - ✅ **Open redirect vulnerabilities** - Accurate detection (no false positives!)
 - ✅ **SSRF vectors** - Tests 8 common redirect parameters + cloud metadata
@@ -292,6 +300,146 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 
 ---
 
+## What's New in v3.8
+
+### WordPress Version & Vulnerability Scanner (v3.8):
+
+**🔍 WordPress Version Detection (6 Methods)**
+- **RSS Feed Generator** - Parses `<generator>` tag from `/feed/` (most reliable, same as WPScan's "Rss Generator" aggressive detection)
+- **Atom Feed Generator** - Parses version attribute from `/feed/atom/` (used as confirmation)
+- **Meta Generator Tag** - Extracts version from `<meta name="generator">` in HTML source (passive detection)
+- **OPML Link** - Checks `/wp-links-opml.php` for generator version string
+- **readme.html** - Reads version from WordPress readme file (often removed but worth checking)
+- **CSS/JS Query Strings** - Fallback method: finds most common `?ver=X.X.X` parameter across page assets
+- **WPScan-Style Output** - Displays detection method and evidence URL, just like WPScan does
+
+**🛡️ Vulnerability Lookup via WPScan API**
+- **Free API Integration** - Queries WPScan's vulnerability database using just curl (25 free requests/day)
+- **CVE Details** - Shows vulnerability title, fixed-in version, and reference URLs (WPScan, CVE, Patchstack, WordPress.org)
+- **Severity Classification** - Auto-categorizes vulns: RCE/SQLi = CRITICAL, XSS/CSRF/SSRF = HIGH, Disclosure = MEDIUM
+- **Version Status** - Reports whether the installed version is marked "Insecure" or "Latest" by WPScan
+- **Graceful Fallback** - Without an API token, still provides basic version age assessment (outdated version warnings)
+- **Output Format** - Matches WPScan's familiar output style with `[!]` markers and indented references
+
+**🔌 WordPress Plugin Enumeration**
+- **Source Code Detection** - Extracts plugin slugs from `/wp-content/plugins/` paths in page source
+- **Version Detection** - Reads each plugin's `readme.txt` to determine installed version
+- **Plugin Vulnerability Lookup** - Queries WPScan API for known vulnerabilities per plugin
+- **Unpatched Vuln Detection** - Flags plugins with no known fix as CRITICAL severity
+
+**🎨 WordPress Theme Detection**
+- **Active Theme Identification** - Finds active theme from `/wp-content/themes/` paths
+- **Version Extraction** - Reads theme's `style.css` to determine version
+- **Theme Vulnerability Lookup** - Queries WPScan API for known theme vulnerabilities
+
+**⚙️ Configuration**
+- New config option: `WPSCAN_API_TOKEN=""` - Set your free API token from https://wpscan.com/register
+- Works without token (basic version age check) - full CVE data requires the free token
+- Added to Quick Scan, Full Scan, Security Audit, and Tech Fingerprint modes
+- Gracefully skips if target is not WordPress
+
+**Example Output:**
+```
+[+] WORDPRESS VERSION & VULNERABILITY SCAN
+
+[+] WordPress version 6.7.2 identified
+ | Found By: Rss Generator (Aggressive Detection)
+ |  - https://example.com/feed/
+ | Confirmed By: Atom Generator (Aggressive Detection)
+ |  - https://example.com/feed/atom/
+ |
+ | Status: Insecure, released on 2025-02-11
+ |
+ | [!] 2 vulnerabilities identified:
+ |
+ | [!] Title: WP < 6.8.3 - Author+ DOM Stored XSS
+ |     Fixed in: 6.7.4
+ |     References:
+ |      - https://wpscan.com/vulnerability/c4616b57-...
+ |      - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-58674
+ |
+ | [!] Title: WP < 6.8.3 - Contributor+ Sensitive Data Disclosure
+ |     Fixed in: 6.7.4
+ |     References:
+ |      - https://wpscan.com/vulnerability/1e2dad30-...
+ |      - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-58246
+
+[+] WORDPRESS PLUGIN ENUMERATION
+ | [*] contact-form-7 (v6.0.2)
+ |   [!] Contact Form 7 < 6.0.5 - Reflected XSS
+ |       Fixed in: 6.0.5
+ | [*] yoast-seo (v24.1)
+ |
+ | [*] 2 plugin(s) found
+
+[+] WORDPRESS THEME DETECTION
+[*] Active theme: flavor
+ | Version: 1.2.1
+```
+
+---
+
+## What's New in v3.7
+
+### Protocol Availability Check (v3.7):
+
+**🌐 HTTP/HTTPS Detection**
+- **Dual Protocol Testing** - Checks if site responds on both HTTP (port 80) and HTTPS (port 443)
+  - Reports HTTP status codes for each protocol
+  - Identifies sites only available via HTTP (no encryption) - HIGH severity
+  - Detects when both protocols are available but HTTP doesn't redirect to HTTPS - MEDIUM severity
+  - Confirms secure configurations where HTTP properly redirects to HTTPS - INFO
+  - Notes HTTPS-only sites as secure configuration - INFO
+- **Redirect Verification** - Uses curl to follow HTTP requests and verify final URL is HTTPS
+- **Why This Matters:**
+  - Without redirect enforcement, users can accidentally use unencrypted HTTP
+  - Mixed content risks when both protocols serve the same content
+  - Helps identify targets that need HTTPS redirect configuration
+
+### Automatic Update Checking (v3.7):
+
+**🔄 Version Check System**
+- **Automatic Update Notifications** - Payload checks GitHub for newer versions on startup
+  - Compares local version against remote VERSION file
+  - Displays "UPDATE AVAILABLE!" banner when newer version exists
+  - Shows current vs latest version numbers with link to update
+  - Gracefully continues if network unavailable or check fails
+- **Configurable** - Set `ENABLE_UPDATE_CHECK=false` in payload.sh to disable
+- **Non-Blocking** - Quick 3-second timeout, won't slow down scans
+
+### Enhanced Cookie Security Analysis (v3.7):
+
+**🍪 JavaScript Cookie Detection**
+- **document.cookie Scanning** - Detects cookies set via JavaScript, not just HTTP headers
+  - Scans HTML/JS source for `document.cookie =` assignments
+  - Counts cookie read operations (`document.cookie` access)
+  - Extracts and displays sample cookie patterns found in code
+  - Identifies cookies that won't appear in curl's HTTP header checks
+- **Security Implications** - Warns that JS-set cookies cannot have HttpOnly flag (XSS vulnerability)
+
+**🔐 Cookie Consent Detection**
+- **GDPR/Consent Banner Detection** - Identifies 15+ common consent management platforms:
+  - CookieBot, OneTrust, TrustArc, Osano, Quantcast, Didomi
+  - Iubenda, Complianz, Klaro, TarteAuCitron, and more
+- **Explains Missing Cookies** - When consent is detected but no cookies found, explains that cookies may only appear after user consents in browser
+- **Reduces False Negatives** - No more "No cookies found" when the site actually has cookies behind consent
+
+**📖 Manual Verification Guide**
+- **Step-by-Step Browser Instructions** - When no HTTP cookies are detected:
+  - How to check `document.cookie` in browser DevTools console
+  - How to view cookies in Application tab → Storage → Cookies
+  - Instructions for accepting consent and re-checking
+- **Explains curl Limitations** - Educates users that curl cannot execute JavaScript or interact with consent dialogs
+- **Context-Aware Guidance** - Different instructions shown based on whether consent banners were detected
+
+**Why This Matters:**
+- Many modern sites set cookies via JavaScript, not HTTP headers
+- GDPR compliance means cookies often require user consent first
+- curl-based scanning has inherent limitations - now the tool explains them
+- Prevents false sense of security when "No cookies" is reported
+
+---
+
 ## What's New in v3.6
 
 ### Major Update - Comprehensive Security Scanner (v3.6):
@@ -437,7 +585,7 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 - 🔍 **Technology Fingerprinting** - CMS, frameworks, libraries with versions
 - 🌐 **Subdomain Enumeration** - Tests 50+ common subdomains
 - 🗂️ **Backup File Hunter** - Tests 80+ backup file combinations
-- 🍪 **Cookie Security Analysis** - HttpOnly, Secure, SameSite flag checking
+- 🍪 **Cookie Security Analysis** - HttpOnly, Secure, SameSite flags + JavaScript cookie detection + consent banner detection *(enhanced in v3.7)*
 
 ### Improvements:
 - ✅ **Smarter HTTP Methods Testing** - Filters rate limiting (429/503), only flags real vulnerabilities
@@ -459,8 +607,8 @@ Potential additions:
 - Subdomain takeover detection
 - DNS zone transfer testing
 - Response time analysis for timing attacks
-- JSON/XML parsing and validation
 - Custom wordlist support for parameter fuzzing
+- WordPress plugin/theme version comparison (semantic version compare)
 
 ---
 
