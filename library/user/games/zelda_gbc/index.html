@@ -7,7 +7,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#111;color:#eee;font-family:monospace;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:8px}
-#screen{image-rendering:pixelated;image-rendering:crisp-edges;display:block;border:2px solid #0f0;width:320px;height:288px;max-width:100%}
+#screen{image-rendering:pixelated;image-rendering:crisp-edges;display:block;border:2px solid #0f0;width:480px;height:432px;max-width:100%}
 #status{color:#0f0;margin:4px 0;font-size:12px;text-align:center}
 .gamepad{display:grid;grid-template-areas:"ul u ur . . . . . . ba"". l c r . . . sel str bb"". dl d dr . . . . . . .";grid-template-columns:repeat(10,32px);grid-template-rows:repeat(3,32px);gap:4px;margin-top:8px;user-select:none;-webkit-user-select:none}
 .btn{width:32px;height:32px;background:#2a2a2a;border:1px solid #444;border-radius:6px;color:#ccc;font-size:12px;font-weight:bold;display:flex;align-items:center;justify-content:center;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:none}
@@ -22,9 +22,12 @@ body{background:#111;color:#eee;font-family:monospace;display:flex;flex-directio
 #rom-list{margin-bottom:16px}
 .upload-label{display:inline-block;background:#111;border:1px solid #444;border-radius:6px;padding:6px 14px;cursor:pointer;color:#aaa;font-size:12px;font-family:monospace}
 .upload-label:hover{border-color:#0f0;color:#0f0}
+#quit-btn{position:fixed;top:8px;right:8px;background:#111;border:1px solid #f55;color:#f55;padding:5px 12px;font-family:monospace;font-size:12px;cursor:pointer;border-radius:4px;z-index:999}
+#quit-btn:hover{background:#f55;color:#111}
 </style>
 </head>
 <body>
+<button id="quit-btn" onclick="if(confirm('Stop the server?')){fetch('/quit',{method:'POST'}).catch(()=>{});setTimeout(()=>{document.body.innerHTML='<p style=color:#0f0;font-family:monospace;padding:20px>Server stopped. You can close this tab.</p>';},300)}">Stop Server</button>
 <div id="rom-picker">
   <h2>GBC EMULATOR</h2>
   <div id="rom-list"><p style="color:#888">Loading...</p></div>
@@ -781,30 +784,6 @@ const status=document.getElementById('status');
 const picker=document.getElementById('rom-picker');
 const gb=new GameBoy(canvas);
 
-// --- Frame mirroring to pager LCD ---
-// Server expects GBC frame scaled 1.5x (240x216) as RGB565
-const FRAME_W=240,FRAME_H=216;
-const _offscreen=document.createElement('canvas');
-_offscreen.width=FRAME_W;_offscreen.height=FRAME_H;
-const _offCtx=_offscreen.getContext('2d');
-_offCtx.imageSmoothingEnabled=false; // pixel-perfect nearest-neighbor
-
-let _frameSending=false;
-function sendFrame(){
-  if(_frameSending)return;
-  _frameSending=true;
-  _offCtx.drawImage(canvas,0,0,FRAME_W,FRAME_H);
-  const rgba=_offCtx.getImageData(0,0,FRAME_W,FRAME_H).data;
-  const buf=new ArrayBuffer(FRAME_W*FRAME_H*2);
-  const view=new DataView(buf);
-  for(let i=0,n=FRAME_W*FRAME_H;i<n;i++){
-    const r=rgba[i*4],g=rgba[i*4+1],b=rgba[i*4+2];
-    view.setUint16(i*2,((r&0xF8)<<8)|((g&0xFC)<<3)|(b>>3),true);
-  }
-  fetch('/frame',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:new Uint8Array(buf)})
-    .catch(()=>{}).finally(()=>{_frameSending=false;});
-}
-
 // --- Pager physical button polling ---
 const PAGER_MAP=[[0x01,'up'],[0x02,'down'],[0x04,'left'],[0x08,'right'],[0x10,'a'],[0x20,'b']];
 let _prevBtns=0;
@@ -818,24 +797,6 @@ function pollPager(){
   }).catch(()=>{});
 }
 setInterval(pollPager,100);
-
-// Override run() to hook frame sending
-GameBoy.prototype.run=function(){
-  this.running=true;
-  const FRAME=70224;let last=0;
-  const loop=(ts)=>{
-    if(!this.running)return;
-    if(ts-last>=15){
-      last=ts;
-      let c=0;while(c<FRAME)c+=this.step();
-      this.ppu.blit(this.imgData);
-      this.ctx.putImageData(this.imgData,0,0);
-      sendFrame();
-    }
-    requestAnimationFrame(loop);
-  };
-  requestAnimationFrame(loop);
-};
 
 // --- ROM picker ---
 function showGame(name){

@@ -11,6 +11,7 @@ import json
 import os
 import socketserver
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -72,6 +73,23 @@ def get_local_ip():
         return socket.gethostbyname(socket.gethostname())
     except Exception:
         return '127.0.0.1'
+
+
+def do_quit(pager=None):
+    if pager:
+        try:
+            pager.clear(pager.BLACK)
+            pager.draw_text_centered(100, 'Goodbye!', pager.GREEN, 2)
+            pager.flip()
+            time.sleep(0.5)
+            pager.cleanup()
+        except Exception:
+            pass
+    try:
+        subprocess.Popen(['/etc/init.d/pineapplepager', 'start'])
+    except Exception:
+        pass
+    os._exit(0)
 
 
 def probe_fb_stride():
@@ -142,15 +160,23 @@ def pager_thread():
             _log(f'fb0 open: {e}')
 
         # Poll buttons continuously
+        ab_held_since = None
         while True:
             time.sleep(0.05)
             current = pager.peek_buttons()
             with _buttons_lock:
                 _buttons = current
-            if current & 0x40:   # BTN_POWER
+            if current & 0x40:   # POWER
                 _log('POWER pressed, exiting')
-                pager.cleanup()
-                os._exit(0)
+                do_quit(pager)
+            if (current & 0x30) == 0x30:  # A+B held
+                if ab_held_since is None:
+                    ab_held_since = time.time()
+                elif time.time() - ab_held_since >= 1.0:
+                    _log('A+B held — exiting')
+                    do_quit(pager)
+            else:
+                ab_held_since = None
 
     except Exception as e:
         _log(f'pager_thread: {e}')
@@ -206,6 +232,8 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_frame()
         elif path == '/upload':
             self._handle_upload()
+        elif path == '/quit':
+            self._handle_quit()
         else:
             self.send_error(404)
 
@@ -275,6 +303,13 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self._cors()
         self.end_headers()
+
+    def _handle_quit(self):
+        self.send_response(200)
+        self._cors()
+        self.end_headers()
+        _log('quit from browser')
+        do_quit()
 
     def _handle_upload(self):
         length = int(self.headers.get('Content-Length', 0))
