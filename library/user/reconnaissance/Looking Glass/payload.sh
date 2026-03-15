@@ -27,7 +27,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LOG cyan "Looking Glass v1.0"
+LOG cyan "Looking_Glass v1.0"
 LOG ""
 
 # --- Install bluez-utils if needed ---
