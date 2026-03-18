@@ -3,7 +3,7 @@
 # Title: Weather
 # Author: spywill
 # Description:  A simple weather app to check local or enter city name 
-# Version: 1.0
+# Version: 1.2
 
 # Check internet connection
 if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
@@ -13,28 +13,33 @@ else
 	exit 1
 fi
 
-my_city=$(curl -s ipinfo.io/city | sed 's/ /+/g')
+my_city=$( (curl -fs https://ipapi.co/city || curl -fs https://ipinfo.io/city || curl -fs http://ip-api.com/line?fields=city) | tr ' ' '+' )
 CITY=$(TEXT_PICKER "Enter cities name" "$my_city")
 DATA=$(curl -s "https://wttr.in/${CITY}?format=j1")
+ROOT=$(echo "$DATA" | jq -r 'if has("data") then ".data.weather" else ".weather" end')
 
 spinnerid=$(START_SPINNER "Weather info")
 
 # Functions
-cond() { echo "$DATA" | jq -r ".weather[$1].hourly[4].weatherDesc[0].value"; }
-max() { echo "$DATA" | jq -r ".weather[$1].maxtempC"; }
-min() { echo "$DATA" | jq -r ".weather[$1].mintempC"; }
-feels_like() { echo "$DATA" | jq -r ".weather[$1].hourly[4].FeelsLikeC"; }
-wind() { speed=$(echo "$DATA" | jq -r ".weather[$1].hourly[4].windspeedKmph"); dir=$(echo "$DATA" | jq -r ".weather[$1].hourly[4].winddir16Point"); echo "${speed}${dir}"; }
-humidity() { echo "$DATA" | jq -r ".weather[$1].hourly[4].humidity"; }
-sunrise() { echo "$DATA" | jq -r ".weather[$1].astronomy[0].sunrise"; }
-sunset() { echo "$DATA" | jq -r ".weather[$1].astronomy[0].sunset"; }
+cond() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].weatherDesc[0].value"; }
+max() { echo "$DATA" | jq -r "$ROOT[$1].maxtempC"; }
+min() { echo "$DATA" | jq -r "$ROOT[$1].mintempC"; }
+feels_like() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].FeelsLikeC"; }
+wind() {
+	speed=$(echo "$DATA" | jq -r "$ROOT[$1].hourly[4].windspeedKmph")
+	dir=$(echo "$DATA" | jq -r "$ROOT[$1].hourly[4].winddir16Point")
+	echo "${speed}${dir}"
+}
+humidity() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].humidity"; }
+sunrise() { echo "$DATA" | jq -r "$ROOT[$1].astronomy[0].sunrise"; }
+sunset() { echo "$DATA" | jq -r "$ROOT[$1].astronomy[0].sunset"; }
 
 # Table header
 LOG ""
 LOG yellow "Weather: $CITY"
 LOG ""
 LOG blue "+------+------+------+------+-------+------+"
-LOG green "Day   | Cond | TEMP | FELL | Wind  | HUM   "
+LOG green "DAY   | COND | TEMP | FELL | WIND  | HUM   "
 LOG blue "+------+------+------+------+-------+------+"
 LOG ""
 
