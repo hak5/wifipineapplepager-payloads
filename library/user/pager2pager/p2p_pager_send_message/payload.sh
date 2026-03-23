@@ -37,5 +37,15 @@ LOG "Selected Network: $selected_network"
 # get message from user
 MESSAGE=$(TEXT_PICKER "Enter the message to send:" "Hi")
 
-python3 /mmc/root/payloads/user/pager2pager/p2p_pager/p2p_pager_send.py --network "$selected_network" --message "$MESSAGE"
-LOG "Message sent to network $selected_network."
+# Debug output
+#LOG "[DEBUG] Current working directory: $(pwd)"
+#LOG "[DEBUG] PATH: $PATH"
+#LOG "[DEBUG] Python version: $(/mmc/usr/bin/python3 --version 2>&1)"
+#LOG "[DEBUG] which python3: $(which python3 2>&1)"
+#LOG "[DEBUG] LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+#LOG "[DEBUG] Selected network: $selected_network"
+#LOG "[DEBUG] Message: $MESSAGE"
+#LOG "[DEBUG] Running: LD_LIBRARY_PATH=/mmc/usr/lib:/mmc/lib /mmc/usr/bin/python3 /mmc/root/payloads/user/pager2pager/p2p_pager/p2p_pager_send.py --network \"$selected_network\" --message \"$MESSAGE\""
+
+LD_LIBRARY_PATH=/mmc/usr/lib:/mmc/lib /mmc/usr/bin/python3 /mmc/root/payloads/user/pager2pager/p2p_pager/p2p_pager_send.py --network "$selected_network" --message "$MESSAGE"
+LOG "Message sent to network $selected_network"

@@ -72,10 +72,10 @@ def send_message_to_beacon(network:str, message:str, channel=None, decay_time=No
         s.connect((IP, PORT))
         # Send message in format: network,message,channel:<channel>,decay_time:<decay_time>
         payload = f"{network},{message},channel:{channel if channel else ''},decay_time:{decay_time if decay_time else ''}"
-        send_log(f"Sending message to beacon sender: {payload}")
+        #send_log(f"Sending message to beacon sender: {payload}")
         s.sendall(payload.encode('utf-8'))
         return_message = s.recv(1024)  # Wait for acknowledgment (not used currently)
-        send_log(f"Received response from beacon sender: {return_message.decode('utf-8')}")
+        #send_log(f"Received response from beacon sender: {return_message.decode('utf-8')}")
         s.close()
 
 # Send log message to system
