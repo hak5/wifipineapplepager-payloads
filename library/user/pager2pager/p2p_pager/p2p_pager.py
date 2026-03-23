@@ -326,14 +326,15 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
     except Exception:
         pass
     
-    # main receive loop
+    # Use asyncio event loop for non-blocking socket reads
+    loop = asyncio.get_running_loop()
     while True:
-        packet = sock.recv(4096)
+        packet = await loop.sock_recv(sock, 4096)
         parsed = parse_beacon_frame(packet)
         if parsed is None:
             continue
         ssid, channel, bssid, vendor_tags = parsed
-        
+
         if len(ssid_prefix) > 0 and not ssid.startswith(ssid_prefix):
             continue
         if ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid not in networks:
@@ -341,19 +342,19 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
         for key, data in vendor_tags.items():
             message = data.decode('utf-8', errors='ignore')
             current_time = time.time()
-            
+
             if message.startswith(message_prefix):
                 full_message = message[len(message_prefix):]
                 message_id = f"{full_message}:{ssid}"
                 detailed_message = f"{full_message}:{ssid}:{channel}"
-                
+
                 if message_id in seen_messages:
                     last_seen = seen_messages[message_id]
                     if current_time - last_seen > decay_time:
                         # Decay time passed, rebroadcast
                         seen_messages[message_id] = current_time
                         print(f"Rebroadcasting message: {full_message} from SSID: {ssid}")
-                        
+
                         # Add to message queue for processing
                         asyncio.create_task(message_queue.put(detailed_message))
                     else:
