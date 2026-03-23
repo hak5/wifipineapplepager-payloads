@@ -2,7 +2,7 @@
 
 START=99
 
-start(){
+start_service(){
     procd_open_instance
     procd_set_param command p2p_pager
     procd_set_param respawn
