@@ -13,6 +13,12 @@ main() {
     LOG "3) List Networks"
     LOG "4) Exit"
     
+
+    LOG " "
+    LOG "Waiting for user input..."
+    
+    WAIT_FOR_INPUT
+
     choice=$(NUMBER_PICKER "Select an option:" 1)
     
     case $choice in
@@ -38,6 +44,11 @@ main() {
                     LOG "$((i + 1)) ) ${networks[i]}"
                 done
                 
+                LOG " "
+                LOG "Waiting for user input..."
+                
+                WAIT_FOR_INPUT
+
                 remove_choice=$(NUMBER_PICKER "Select a network to remove:" 1)
                 if [[ $remove_choice -ge 1 && $remove_choice -le ${#networks[@]} ]]; then
                     sed -i "${remove_choice}d" "$NETWORKS_CONF"
