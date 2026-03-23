@@ -61,7 +61,7 @@ def load_config():
 
 
 
-PORT = 89999
+PORT = 8999
 IP = "127.0.0.1"
 import socket
 
@@ -108,7 +108,8 @@ def main():
     
 
 
-
+if __name__ == "__main__":
+    main()
 
 
 

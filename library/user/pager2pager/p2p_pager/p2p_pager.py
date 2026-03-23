@@ -557,7 +557,7 @@ async def main():
     sock.setblocking(0)
 
     # Start server to listen for new messages to send
-    task1 = asyncio.create_task(listen_for_new_messages(89999))
+    task1 = asyncio.create_task(listen_for_new_messages(8999))
     # Start message queue handler
     task2 = asyncio.create_task(handle_queue())
     # Start receiving messages (runs forever)
