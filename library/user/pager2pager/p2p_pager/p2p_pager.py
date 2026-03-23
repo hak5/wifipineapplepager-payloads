@@ -416,6 +416,9 @@ async def handle_new_message(reader, writer):
     seen_messages[f"{custom_message}:{ssid}"] = time.time() + decay_time
     # Add to message queue for processing with detailed message format
     asyncio.create_task(message_queue.put(f"{custom_message}:{ssid}:{channel}"))
+    response = "Message received and will be broadcast.".encode('utf-8')
+    writer.write(response)
+    await writer.drain()
 
 # Async broadcast function
 async def broadcast_message(interface, message_prefix, channel, interval, uptime, custom_message=None, network=None):
