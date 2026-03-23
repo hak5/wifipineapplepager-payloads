@@ -23,7 +23,8 @@ main() {
     
     case $choice in
         1)
-            network_name=$(TEXT_PICKER "Enter the name of the network to add:")
+            LOG "You chose to add a network."
+            network_name=$(TEXT_PICKER "Enter the name of the network to add:" "")
             if [[ -n "$network_name" ]]; then
                 echo "$network_name" >> "$NETWORKS_CONF"
                 LOG "Network '$network_name' added."
@@ -46,7 +47,7 @@ main() {
                 
                 LOG " "
                 LOG "Waiting for user input..."
-                
+
                 WAIT_FOR_INPUT
 
                 remove_choice=$(NUMBER_PICKER "Select a network to remove:" 1)
