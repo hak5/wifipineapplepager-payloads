@@ -37,3 +37,5 @@ LOG "Selected Network: $selected_network"
 # get message from user
 MESSAGE=$(TEXT_PICKER "Enter the message to send:" "Hi")
 
+python3 /library/user/pager2pager/p2p_pager/p2p_pager_send.py --network "$selected_network" --message "$MESSAGE"
+LOG "Message sent to network $selected_network."
