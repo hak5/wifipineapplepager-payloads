@@ -2,7 +2,7 @@
 # Title: Hashtopolis Handshake Upload
 # Description: Manually uploads all captured handshakes to Hashtopolis server via API
 # Author: Originaly Hunt-Z modified by TheDadNerd
-# Version: 1.0
+# Version: 2.1
 # Category: general
 #
 # Requirements:
@@ -27,10 +27,142 @@ type CONFIRMATION_DIALOG >/dev/null 2>&1 || CONFIRMATION_DIALOG() {
 }
 
 # =============================================================================
+# PAYLOAD CONFIG STORAGE
+# =============================================================================
+
+PAYLOAD_NAME="hashtopolis_manual_upload"
+LOG "Hashtopolis Upload - Starting payload."
+
+get_payload_config() {
+    PAYLOAD_GET_CONFIG "$PAYLOAD_NAME" "$1" 2>/dev/null
+}
+
+load_payload_config() {
+    # Pull the saved payload config into the runtime environment.
+    HASHTOPOLIS_URL="$(get_payload_config hashtopolisurl)"
+    API_KEY="$(get_payload_config apikey)"
+    HASH_TYPE="$(get_payload_config hashtype)"
+    ACCESS_GROUP_ID="$(get_payload_config accessgroupid)"
+    SECRET_HASHLIST="$(get_payload_config secrethashlist)"
+    USE_BRAIN="$(get_payload_config usebrain)"
+    BRAIN_FEATURES="$(get_payload_config brainfeatures)"
+    PRETASK_ID="$(get_payload_config pretaskid)"
+    CRACKER_VERSION_ID="$(get_payload_config crackerversionid)"
+
+    if [[ -z "$HASHTOPOLIS_URL" \
+        || -z "$API_KEY" \
+        || -z "$HASH_TYPE" \
+        || -z "$ACCESS_GROUP_ID" \
+        || -z "$SECRET_HASHLIST" \
+        || -z "$USE_BRAIN" \
+        || -z "$BRAIN_FEATURES" \
+        || -z "$PRETASK_ID" \
+        || -z "$CRACKER_VERSION_ID" ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+read_saved_config() {
+    # Load saved payload config into SAVED_* variables for comparison.
+    SAVED_HASHTOPOLIS_URL="$(get_payload_config hashtopolisurl)"
+    SAVED_API_KEY="$(get_payload_config apikey)"
+    SAVED_HASH_TYPE="$(get_payload_config hashtype)"
+    SAVED_ACCESS_GROUP_ID="$(get_payload_config accessgroupid)"
+    SAVED_SECRET_HASHLIST="$(get_payload_config secrethashlist)"
+    SAVED_USE_BRAIN="$(get_payload_config usebrain)"
+    SAVED_BRAIN_FEATURES="$(get_payload_config brainfeatures)"
+    SAVED_PRETASK_ID="$(get_payload_config pretaskid)"
+    SAVED_CRACKER_VERSION_ID="$(get_payload_config crackerversionid)"
+
+    if [[ -z "$SAVED_HASHTOPOLIS_URL" \
+        || -z "$SAVED_API_KEY" \
+        || -z "$SAVED_HASH_TYPE" \
+        || -z "$SAVED_ACCESS_GROUP_ID" \
+        || -z "$SAVED_SECRET_HASHLIST" \
+        || -z "$SAVED_USE_BRAIN" \
+        || -z "$SAVED_BRAIN_FEATURES" \
+        || -z "$SAVED_PRETASK_ID" \
+        || -z "$SAVED_CRACKER_VERSION_ID" ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+config_is_sample() {
+    # Returns success if the provided config values match sample placeholders.
+    local cfg_url="$1"
+    local cfg_key="$2"
+    if [[ "$cfg_url" == *"example.com"* ]] || [[ "$cfg_key" == "YOUR_API_KEY_HERE" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+populate_config_from_saved() {
+    # Overwrite export lines in config.sh with saved payload config values.
+    local tmp_file
+    local url_escaped
+    local key_escaped
+
+    url_escaped="${SAVED_HASHTOPOLIS_URL//\\/\\\\}"
+    url_escaped="${url_escaped//\"/\\\"}"
+    key_escaped="${SAVED_API_KEY//\\/\\\\}"
+    key_escaped="${key_escaped//\"/\\\"}"
+
+    tmp_file="$(mktemp)"
+    awk -v url="$url_escaped" \
+        -v key="$key_escaped" \
+        -v hash_type="$SAVED_HASH_TYPE" \
+        -v access_group_id="$SAVED_ACCESS_GROUP_ID" \
+        -v secret_hashlist="$SAVED_SECRET_HASHLIST" \
+        -v use_brain="$SAVED_USE_BRAIN" \
+        -v brain_features="$SAVED_BRAIN_FEATURES" \
+        -v pretask_id="$SAVED_PRETASK_ID" \
+        -v cracker_version_id="$SAVED_CRACKER_VERSION_ID" '
+        /^export HASHTOPOLIS_URL=/ { print "export HASHTOPOLIS_URL=\"" url "\""; next }
+        /^export API_KEY=/ { print "export API_KEY=\"" key "\""; next }
+        /^export HASH_TYPE=/ { print "export HASH_TYPE=" hash_type; next }
+        /^export ACCESS_GROUP_ID=/ { print "export ACCESS_GROUP_ID=" access_group_id; next }
+        /^export SECRET_HASHLIST=/ { print "export SECRET_HASHLIST=" secret_hashlist; next }
+        /^export USE_BRAIN=/ { print "export USE_BRAIN=" use_brain; next }
+        /^export BRAIN_FEATURES=/ { print "export BRAIN_FEATURES=" brain_features; next }
+        /^export PRETASK_ID=/ { print "export PRETASK_ID=" pretask_id; next }
+        /^export CRACKER_VERSION_ID=/ { print "export CRACKER_VERSION_ID=" cracker_version_id; next }
+        { print }
+    ' "$CONFIG_FILE" > "$tmp_file" && mv "$tmp_file" "$CONFIG_FILE"
+}
+
+warn_if_sample_config() {
+    # Block saving when config.sh still has the sample placeholders.
+    if [[ "$HASHTOPOLIS_URL" == *"example.com"* ]] || [[ "$API_KEY" == "YOUR_API_KEY_HERE" ]]; then
+        ERROR_DIALOG "Hashtopolis Upload - Can't save from sample config, please populate config.sh."
+        return 1
+    fi
+    return 0
+}
+
+# =============================================================================
 # LOAD CONFIGURATION
 # =============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.sh"
+FORCE_CONFIG_UPDATE=false
+
+while [[ "$1" == --* ]]; do
+    case "$1" in
+        --update-config)
+            FORCE_CONFIG_UPDATE=true
+            shift
+            ;;
+        *)
+            ERROR_DIALOG "Hashtopolis Upload - Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
     ERROR_DIALOG "Hashtopolis Upload - Configuration file not found. Please create config.sh file."
@@ -38,28 +170,133 @@ if [[ ! -f "$CONFIG_FILE" ]]; then
 fi
 
 source "$CONFIG_FILE"
+LOG "Hashtopolis Upload - Loaded config.sh."
+
+# Capture config.sh values for comparison without overwriting saved runtime config.
+CFG_HASHTOPOLIS_URL="$HASHTOPOLIS_URL"
+CFG_API_KEY="$API_KEY"
+CFG_HASH_TYPE="$HASH_TYPE"
+CFG_ACCESS_GROUP_ID="$ACCESS_GROUP_ID"
+CFG_SECRET_HASHLIST="$SECRET_HASHLIST"
+CFG_USE_BRAIN="$USE_BRAIN"
+CFG_BRAIN_FEATURES="$BRAIN_FEATURES"
+CFG_PRETASK_ID="$PRETASK_ID"
+CFG_CRACKER_VERSION_ID="$CRACKER_VERSION_ID"
+HAS_SAVED_CONFIG=false
+
+if read_saved_config; then
+    HAS_SAVED_CONFIG=true
+    LOG "Hashtopolis Upload - Found saved config."
+    if config_is_sample "$CFG_HASHTOPOLIS_URL" "$CFG_API_KEY"; then
+        # Offer to restore config.sh from saved config if the file looks reset.
+        if CONFIRMATION_DIALOG "config.sh looks reset to sample values. Populate it from saved config?"; then
+            LOG "Hashtopolis Upload - Restoring config.sh from saved config."
+            populate_config_from_saved
+            CFG_HASHTOPOLIS_URL="$SAVED_HASHTOPOLIS_URL"
+            CFG_API_KEY="$SAVED_API_KEY"
+            CFG_HASH_TYPE="$SAVED_HASH_TYPE"
+            CFG_ACCESS_GROUP_ID="$SAVED_ACCESS_GROUP_ID"
+            CFG_SECRET_HASHLIST="$SAVED_SECRET_HASHLIST"
+            CFG_USE_BRAIN="$SAVED_USE_BRAIN"
+            CFG_BRAIN_FEATURES="$SAVED_BRAIN_FEATURES"
+            CFG_PRETASK_ID="$SAVED_PRETASK_ID"
+            CFG_CRACKER_VERSION_ID="$SAVED_CRACKER_VERSION_ID"
+        fi
+    fi
+fi
+
+# =============================================================================
+# CONFIGURATION STORAGE (OPTIONAL UPDATE)
+# =============================================================================
+
+if [[ "$FORCE_CONFIG_UPDATE" == true ]]; then
+    # Force an update from config.sh (still warn on sample placeholders).
+    LOG "Hashtopolis Upload - Forced config update enabled."
+    if ! warn_if_sample_config; then
+        exit 1
+    fi
+    LOG "Hashtopolis Upload - Saving config.sh values to persistent config."
+    if ! push_payload_config; then
+        ERROR_DIALOG "Hashtopolis Upload - Failed to store config from config.sh. Check values."
+        exit 1
+    fi
+elif [[ "$HAS_SAVED_CONFIG" == true ]]; then
+    # Only prompt to update when config.sh differs from saved config and is not sample data.
+    if ! config_is_sample "$CFG_HASHTOPOLIS_URL" "$CFG_API_KEY" \
+        && { [[ "$CFG_HASHTOPOLIS_URL" != "$SAVED_HASHTOPOLIS_URL" ]] \
+            || [[ "$CFG_API_KEY" != "$SAVED_API_KEY" ]] \
+            || [[ "$CFG_HASH_TYPE" != "$SAVED_HASH_TYPE" ]] \
+            || [[ "$CFG_ACCESS_GROUP_ID" != "$SAVED_ACCESS_GROUP_ID" ]] \
+            || [[ "$CFG_SECRET_HASHLIST" != "$SAVED_SECRET_HASHLIST" ]] \
+            || [[ "$CFG_USE_BRAIN" != "$SAVED_USE_BRAIN" ]] \
+            || [[ "$CFG_BRAIN_FEATURES" != "$SAVED_BRAIN_FEATURES" ]] \
+            || [[ "$CFG_PRETASK_ID" != "$SAVED_PRETASK_ID" ]] \
+    || [[ "$CFG_CRACKER_VERSION_ID" != "$SAVED_CRACKER_VERSION_ID" ]]; }; then
+        if CONFIRMATION_DIALOG "config.sh differs from saved config. Update saved config now?"; then
+            if ! warn_if_sample_config; then
+                exit 1
+            fi
+            LOG "Hashtopolis Upload - Updating saved config from config.sh."
+            if ! push_payload_config; then
+                ERROR_DIALOG "Hashtopolis Upload - Failed to store config from config.sh. Check values."
+                exit 1
+            fi
+        fi
+    fi
+fi
+
+if ! load_payload_config; then
+    LOG "Hashtopolis Upload - No saved config available."
+    if CONFIRMATION_DIALOG "Hashtopolis config has not yet been saved. Pull and save from config.sh now?"; then
+        if ! warn_if_sample_config; then
+            exit 1
+        fi
+        HASHTOPOLIS_URL="$CFG_HASHTOPOLIS_URL"
+        API_KEY="$CFG_API_KEY"
+        HASH_TYPE="$CFG_HASH_TYPE"
+        ACCESS_GROUP_ID="$CFG_ACCESS_GROUP_ID"
+        SECRET_HASHLIST="$CFG_SECRET_HASHLIST"
+        USE_BRAIN="$CFG_USE_BRAIN"
+        BRAIN_FEATURES="$CFG_BRAIN_FEATURES"
+        PRETASK_ID="$CFG_PRETASK_ID"
+        CRACKER_VERSION_ID="$CFG_CRACKER_VERSION_ID"
+        LOG "Hashtopolis Upload - Saving config.sh values to persistent config."
+        if ! push_payload_config; then
+            ERROR_DIALOG "Hashtopolis Upload - Failed to store config from config.sh. Check values."
+            exit 1
+        fi
+        if ! load_payload_config; then
+            ERROR_DIALOG "Hashtopolis Upload - Could not load saved config after update."
+            exit 1
+        fi
+    else
+        ERROR_DIALOG "Hashtopolis Upload - No saved config. Update from config.sh to continue."
+        exit 1
+    fi
+fi
+LOG "Hashtopolis Upload - Loaded saved config."
 
 # =============================================================================
 # VALIDATE CONFIGURATION
 # =============================================================================
 
 if [[ "$HASHTOPOLIS_URL" == *"example.com"* ]]; then
-    ERROR_DIALOG "Hashtopolis Upload - Server URL not configured. Edit config.sh to set HASHTOPOLIS_URL."
+    ERROR_DIALOG "Hashtopolis Upload - Server URL not configured. Update saved config from config.sh."
     exit 1
 fi
 
 if [[ "$API_KEY" == "YOUR_API_KEY_HERE" ]] || [[ -z "$API_KEY" ]]; then
-    ERROR_DIALOG "Hashtopolis Upload - API key not configured. Edit config.sh to set API_KEY."
+    ERROR_DIALOG "Hashtopolis Upload - API key not configured. Update saved config from config.sh."
     exit 1
 fi
 
 if [[ -z "$PRETASK_ID" ]]; then
-    ERROR_DIALOG "Hashtopolis Upload - Pretask ID not configured. Edit config.sh to set PRETASK_ID."
+    ERROR_DIALOG "Hashtopolis Upload - Pretask ID not configured. Update saved config from config.sh."
     exit 1
 fi
 
 if [[ -z "$CRACKER_VERSION_ID" ]]; then
-    ERROR_DIALOG "Hashtopolis Upload - Cracker Version ID not configured. Edit config.sh to set CRACKER_VERSION_ID."
+    ERROR_DIALOG "Hashtopolis Upload - Cracker Version ID not configured. Update saved config from config.sh."
     exit 1
 fi
 
@@ -67,6 +304,7 @@ fi
 # TEST SERVER CONNECTION
 # =============================================================================
 
+LOG "Hashtopolis Upload - Testing server connection."
 CONNECTION_TEST=$(curl -s -m 10 -X POST "$HASHTOPOLIS_URL" \
     -H "Content-Type: application/json" \
     -d '{"section":"test","request":"connection"}' 2>&1)
@@ -80,11 +318,13 @@ if ! echo "$CONNECTION_TEST" | jq -e '.response == "SUCCESS"' >/dev/null 2>&1; t
     ERROR_DIALOG "Hashtopolis Upload - Invalid API endpoint. Check HASHTOPOLIS_URL in config.sh."
     exit 1
 fi
+LOG "Hashtopolis Upload - Server connection OK."
 
 # =============================================================================
 # TEST API KEY AUTHENTICATION
 # =============================================================================
 
+LOG "Hashtopolis Upload - Testing API key authentication."
 AUTH_TEST=$(curl -s -m 10 -X POST "$HASHTOPOLIS_URL" \
     -H "Content-Type: application/json" \
     -d "{\"section\":\"test\",\"request\":\"access\",\"accessKey\":\"$API_KEY\"}" 2>&1)
@@ -99,6 +339,7 @@ if ! echo "$AUTH_TEST" | jq -e '.response == "OK"' >/dev/null 2>&1; then
     ERROR_DIALOG "Hashtopolis Upload - Invalid API key. Error: $AUTH_ERROR. Generate key in Users > API Management."
     exit 1
 fi
+LOG "Hashtopolis Upload - API key OK."
 
 # =============================================================================
 # PROCESS ALL HANDSHAKES IN DIRECTORY
@@ -110,6 +351,7 @@ if [[ ! -d "$HANDSHAKE_DIR" ]]; then
     ERROR_DIALOG "Hashtopolis Upload - Handshake directory not found: $HANDSHAKE_DIR"
     exit 1
 fi
+LOG "Hashtopolis Upload - Scanning handshakes in $HANDSHAKE_DIR."
 
 process_handshake_file() {
     local hashcat_path="$1"

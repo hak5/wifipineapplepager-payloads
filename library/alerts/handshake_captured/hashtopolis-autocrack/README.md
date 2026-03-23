@@ -9,11 +9,12 @@ This payload integrates your WiFi Pineapple with Hashtopolis to create a seamles
 
 ### The Flow
 
-1. **WiFi Pineapple captures a WPA handshake** → Pager module detects the capture
-2. **Payload validates** → Tests server connection and API authentication
-3. **Uploads handshake** → Converts .22000 file to base64 and uploads via API
-4. **Creates cracking task** → Launches your preconfigured task against the new hashlist
-5. **Notifies you** → Shows success alert with hashlist ID and network details
+1. **WiFi Pineapple captures a WPA handshake** → Pager module detects the capture.
+2. **Deduplication Check** → Payload queries the server to see if this MAC address has already been uploaded.
+3. **Payload validates** → Tests server connection and API authentication.
+4. **Uploads handshake** → Converts .22000 file to base64 and uploads via API.
+5. **Creates cracking task** → Launches your preconfigured task against the new hashlist.
+6. **Notifies you** → Shows success alert or a "SKIPPED" alert if the handshake is a duplicate.
 
 ### Why This Is Useful
 
@@ -25,6 +26,7 @@ This payload integrates your WiFi Pineapple with Hashtopolis to create a seamles
 
 **With this payload:**
 - Fully automated - capture → upload → crack
+- Smart Deduplication - Prevents "Task Storms" by checking if the handshake already exists before uploading, saving bandwidth and GPU cycles.
 - Works remotely (Pineapple just needs internet)
 - Instant cracking starts (agents begin work immediately)
 - No manual intervention needed
@@ -36,10 +38,10 @@ Deploy a WiFi Pineapple in a target area. As it captures handshakes throughout t
 
 ## Requirements
 
-- WiFi Pineapple with internet connectivity
+- WiFi Pineapple with internet connectivity.
 - Hashtopolis server (v0.5.0+) with API access
-- Active Hashtopolis agents ready to crack
-- Basic knowledge of Hashcat and wordlists
+- Active Hashtopolis agents ready to crack.
+- Basic knowledge of Hashcat and wordlists.
 
 ## Installation
 
@@ -318,6 +320,7 @@ Found a bug or have a feature request? Contributions welcome!
 - **Hashtopolis**: https://github.com/hashtopolis/server
 - **WiFi Pineapple**: https://www.hak5.org/
 - **Hashcat**: https://hashcat.net/
+- **PanicAcid**: Contributed the Hash deduplication check logic to prevent redundant uploads and save server resources.
 
 ## License
 

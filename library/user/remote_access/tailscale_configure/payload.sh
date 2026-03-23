@@ -10,11 +10,21 @@ LOG "=== Tailscale Configuration ==="
 # CONFIGURATION
 # ============================================
 
-INSTALL_DIR="/usr/sbin"
+INSTALL_DIR="/mmc/tailscale/bin"
 INIT_SCRIPT="/etc/init.d/tailscaled"
 CONFIG_DIR="/etc/tailscale"
 CONFIG_FILE="$CONFIG_DIR/config"
 STATE_DIR="/root/.tailscale"
+
+# Prefer symlinked binaries in /usr/sbin when present
+TAILSCALE_BIN="/usr/sbin/tailscale"
+TAILSCALED_BIN="/usr/sbin/tailscaled"
+if [ ! -x "$TAILSCALE_BIN" ]; then
+    TAILSCALE_BIN="$INSTALL_DIR/tailscale"
+fi
+if [ ! -x "$TAILSCALED_BIN" ]; then
+    TAILSCALED_BIN="$INSTALL_DIR/tailscaled"
+fi
 
 # ============================================
 # HELPER FUNCTIONS
@@ -68,14 +78,14 @@ authenticate_interactive() {
 
     # Run tailscale login in background and capture output
     LOG "Running: tailscale login"
-    "$INSTALL_DIR/tailscale" login > "$tmp_output" 2>&1 &
+    "$TAILSCALE_BIN" login > "$tmp_output" 2>&1 &
     local tailscale_pid=$!
 
     LOG "Waiting for authentication URL..."
 
     # Wait for the auth URL to appear in output (no spinner - quick operation)
     local auth_url=""
-    local max_wait=30
+    local max_wait=60
     local waited=0
 
     while [ $waited -lt $max_wait ]; do
@@ -147,7 +157,7 @@ authenticate_interactive() {
         # Check if tailscale login process completed
         if ! kill -0 $tailscale_pid 2>/dev/null; then
             # Process finished, check if successful
-            if "$INSTALL_DIR/tailscale" status >/dev/null 2>&1; then
+            if "$TAILSCALE_BIN" status >/dev/null 2>&1; then
                 auth_success=true
                 break
             else
@@ -173,7 +183,7 @@ authenticate_interactive() {
 
         # Now bring up the Tailscale connection
         LOG "Starting Tailscale connection..."
-        if ! "$INSTALL_DIR/tailscale" up 2>&1 | while read line; do LOG "$line"; done; then
+        if ! "$TAILSCALE_BIN" up 2>&1 | while read line; do LOG "$line"; done; then
             ERROR_DIALOG "Failed to start Tailscale"
             LOG red "ERROR: tailscale up failed after authentication"
             return 1
@@ -198,8 +208,8 @@ authenticate_interactive() {
 show_status() {
     LOG "Getting Tailscale status..."
 
-    local status=$("$INSTALL_DIR/tailscale" status 2>&1)
-    local ip=$("$INSTALL_DIR/tailscale" ip -4 2>/dev/null | head -n 1)
+    local status=$("$TAILSCALE_BIN" status 2>&1)
+    local ip=$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n 1)
 
     if [ -n "$ip" ]; then
         LOG ""
@@ -233,7 +243,7 @@ main_configure() {
         LOG "Tailscale is already configured"
 
         # Try to get current IP address
-        local current_ip=$("$INSTALL_DIR/tailscale" ip -4 2>/dev/null | head -n 1)
+        local current_ip=$("$TAILSCALE_BIN" ip -4 2>/dev/null | head -n 1)
 
         if [ -n "$current_ip" ]; then
             LOG "Current Tailscale IP: $current_ip"
@@ -312,4 +322,3 @@ main_configure() {
 
 # Execute configuration
 main_configure
-
