@@ -60,15 +60,21 @@ verify_auth() {
         exit 1
     fi
 
+    if [ ${#encrypted_hex} -gt 256 ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Password too long"}'
+        exit 1
+    fi
+
     local password=""
     local i=0
     local len=${#encrypted_hex}
+    local key_len=${#key_hex}
     while [ $i -lt $len ]; do
-        local enc_byte=$(echo "$encrypted_hex" | cut -c$((i+1))-$((i+2)))
-        local key_byte=$(echo "$key_hex" | cut -c$((i+1))-$((i+2)))
-        if [ -z "$key_byte" ]; then
-            key_byte="00"
-        fi
+        local enc_byte=$(expr substr "$encrypted_hex" $((i + 1)) 2)
+        local key_pos=$(( (i % key_len) + 1 ))
+        local key_byte=$(expr substr "$key_hex" $key_pos 2)
         local dec_byte=$(printf '%02x' $((0x$enc_byte ^ 0x$key_byte)))
         password="${password}$(printf "\\x${dec_byte}")"
         i=$((i + 2))
@@ -84,10 +90,23 @@ verify_auth() {
         local session=$(head -c 32 /dev/urandom 2>/dev/null | md5sum | cut -d' ' -f1)
         local session_time=$(date +%s)
         echo "${session}:${session_time}" > "$AUTH_SESSION_FILE"
+        
+        # Proxy authentication to Pineapple API (port 1471) to get token for Pager
+        # Escaping password for JSON
+        local json_pw=$(echo "$password" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\//\\\//g')
+        local pine_resp=$(curl -s -X POST http://127.0.0.1:1471/api/login -d "{\"username\":\"root\",\"password\":\"$json_pw\"}")
+        local pine_token=$(echo "$pine_resp" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+        
         echo "Content-Type: application/json"
         echo "Set-Cookie: nautilus_session=$session; Path=/; HttpOnly; SameSite=Strict"
         echo ""
-        echo '{"success":true}'
+        
+        # If we got a valid token (simple check if it looks like a token)
+        if [ "${#pine_token}" -gt 20 ]; then
+             echo "{\"success\":true,\"pineapple_token\":\"$pine_token\"}"
+        else
+             echo '{"success":true}'
+        fi
     else
         echo "Content-Type: application/json"
         echo ""
@@ -222,6 +241,121 @@ list_payloads() {
     fi
 }
 
+delete_payload() {
+    local payload_path="$1"
+
+    case "$payload_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Security: Path traversal not allowed"}'
+            exit 1
+            ;;
+    esac
+
+    local target_to_delete=""
+
+    case "$payload_path" in
+        /root/payloads/*)
+            if [ "${payload_path##*/}" = "payload.sh" ]; then
+                target_to_delete=$(dirname "$payload_path")
+            fi
+            ;;
+        /root/themes/*)
+            if [ -d "$payload_path" ]; then
+                target_to_delete="$payload_path"
+            elif [ "${payload_path##*/}" = "theme.json" ]; then
+                target_to_delete=$(dirname "$payload_path")
+            fi
+            
+            # Prevent deleting the themes root itself
+            if [ "$target_to_delete" = "/root/themes" ]; then
+                target_to_delete=""
+            fi
+            ;;
+        /root/ringtones/*)
+            if [ "${payload_path##*.}" = "rtttl" ]; then
+                target_to_delete="$payload_path"
+            fi
+            ;;
+    esac
+
+    if [ -z "$target_to_delete" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Invalid path or file type"}'
+        exit 1
+    fi
+
+    if [ "$target_to_delete" = "/root/payloads/user/remote_access/nautilus" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Cannot delete Nautilus"}'
+        exit 1
+    fi
+
+    if [ -e "$target_to_delete" ]; then
+        rm -rf "$target_to_delete"
+        /root/payloads/user/remote_access/nautilus/build_cache.sh >/dev/null 2>&1
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"status":"deleted","path":"'"$target_to_delete"'"}'
+    else
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Target not found"}'
+        exit 1
+    fi
+}
+
+view_source() {
+    local payload_path="$1"
+
+    case "$payload_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Security: Path traversal not allowed"}'
+            exit 1
+            ;;
+    esac
+
+    case "$payload_path" in
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*|/root/loot/*) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid path"}'
+            exit 1
+            ;;
+    esac
+
+    # Loot files can be any type, others must match specific patterns
+    case "$payload_path" in
+        /root/loot/*) ;;
+        */payload.sh|*/theme.json|*.rtttl) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid file type"}'
+            exit 1
+            ;;
+    esac
+
+    if [ ! -f "$payload_path" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Payload not found"}'
+        exit 1
+    fi
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    local content=$(cat "$payload_path" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g' | awk '{printf "%s\\n", $0}')
+    echo "{\"content\":\"$content\",\"path\":\"$payload_path\"}"
+}
+
 run_payload() {
     rpath="$1"
     token="$2"
@@ -243,13 +377,13 @@ run_payload() {
     esac
 
     case "$rpath" in
-        /root/payloads/user/*) ;;
+        /root/payloads/user/*|/root/payloads/alerts/*|/root/payloads/recon/*|/root/themes/*|/root/ringtones/*) ;;
         *) echo "Content-Type: text/plain"; echo ""; echo "Invalid path"; exit 1 ;;
     esac
 
     case "$rpath" in
-        */payload.sh) ;;
-        *) echo "Content-Type: text/plain"; echo ""; echo "Invalid payload file"; exit 1 ;;
+        */payload.sh|*/theme.json|*.rtttl) ;;
+        *) echo "Content-Type: text/plain"; echo ""; echo "Invalid file type"; exit 1 ;;
     esac
 
     [ ! -f "$rpath" ] && { echo "Content-Type: text/plain"; echo ""; echo "Not found"; exit 1; }
@@ -267,7 +401,6 @@ _nautilus_emit() {
     local color="$1"
     shift
     local text="$*"
-    # Output for web console
     if [ -n "$color" ]; then
         echo "[${color}] ${text}"
     else
@@ -286,14 +419,12 @@ LOG() {
 }
 
 ALERT() {
-    # Display in Nautilus only - don't pop up on pager
     echo "[PROMPT:alert] $*" >&2
     sleep 0.1
     _wait_response ""
 }
 
 ERROR_DIALOG() {
-    # Display in Nautilus only - don't pop up on pager
     echo "[PROMPT:error] $*" >&2
     sleep 0.1
     _wait_response ""
@@ -335,7 +466,7 @@ CONFIRMATION_DIALOG() {
 
 PROMPT() {
     local msg="$*"
-    echo "[PROMPT:text] $msg" >&2
+    echo "[PROMPT:prompt] $msg" >&2
     _wait_response ""
 }
 
@@ -367,7 +498,6 @@ MAC_PICKER() {
     _wait_response "$default"
 }
 
-# Spinner functions - intercept and show in Nautilus UI instead of pager
 SPINNER() {
     echo "[SPINNER:start] $*" >&2
 }
@@ -388,10 +518,36 @@ STOP_SPINNER() {
     echo "[SPINNER:stop:$id]" >&2
 }
 
-export -f LOG ALERT ERROR_DIALOG LED CONFIRMATION_DIALOG PROMPT TEXT_PICKER NUMBER_PICKER IP_PICKER MAC_PICKER SPINNER SPINNER_STOP START_SPINNER STOP_SPINNER _nautilus_emit _wait_response
+WAIT_FOR_INPUT() {
+    echo "[BUTTON_WAIT:ANY]" >&2
+    sleep 0.1
+    local btn=$(_wait_response "A")
+    echo -n "$btn"
+}
+
+WAIT_FOR_BUTTON_PRESS() {
+    local expected="$*"
+    echo "[BUTTON_WAIT:$expected]" >&2
+    sleep 0.1
+    local btn=$(_wait_response "${1:-A}")
+    echo -n "$btn"
+}
+
+export -f LOG ALERT ERROR_DIALOG LED CONFIRMATION_DIALOG PROMPT TEXT_PICKER NUMBER_PICKER IP_PICKER MAC_PICKER SPINNER SPINNER_STOP START_SPINNER STOP_SPINNER WAIT_FOR_INPUT WAIT_FOR_BUTTON_PRESS _nautilus_emit _wait_response
 
 cd "$(dirname "$1")"
-source "$1"
+
+# Handle different file types
+case "$1" in
+    *.rtttl)
+        LOG "cyan" "Playing ringtone: $(basename "$1" .rtttl)"
+        RINGTONE "$1"
+        LOG "green" "Ringtone finished"
+        ;;
+    *)
+        source "$1"
+        ;;
+esac
 WRAPPER_EOF
     chmod +x "$WRAPPER"
 
@@ -445,6 +601,11 @@ WRAPPER_EOF
                         spinner_id=""
                     fi
                     printf 'event: spinner\ndata: {"action":"stop","id":"%s"}\n\n' "$spinner_id"
+                    continue ;;
+                "[BUTTON_WAIT:"*)
+                    inner="${line#\[BUTTON_WAIT:}"
+                    expected="${inner%%\]*}"
+                    printf 'event: button_wait\ndata: {"expected":"%s"}\n\n' "$expected"
                     continue ;;
             esac
             color=""
@@ -505,10 +666,1127 @@ stop_payload() {
     rm -f /tmp/nautilus_wrapper_* 2>/dev/null
     rm -f /tmp/nautilus_github_log_* 2>/dev/null
 
+    if [ -f /tmp/nautilus_install_target ]; then
+        target=$(cat /tmp/nautilus_install_target)
+        rm -rf "$target" 2>/dev/null
+        rm -f /tmp/nautilus_install_target
+    fi
+    rm -rf /tmp/nautilus_install_* 2>/dev/null
+
     pkill -f "curl.*nautilus_github" 2>/dev/null
     pkill -f "wget.*nautilus_github" 2>/dev/null
+    pkill -f "curl.*nautilus_install" 2>/dev/null
+    pkill -f "wget.*nautilus_install" 2>/dev/null
+    
+    # Kill orphaned git processes from theme installs
+    pkill -f "git.*wifipineapplepager-themes" 2>/dev/null
+    pkill -f "git.*wifipineapplepager-ringtones" 2>/dev/null
+    rm -f /tmp/nautilus_git_pid_* /tmp/nautilus_git_status_* 2>/dev/null
+    
+    # Stop any heartbeat processes
+    rm -f /tmp/nautilus_heartbeat_* 2>/dev/null
 
     echo '{"status":"stopped"}'
+}
+
+wifi_status() {
+    echo "Content-Type: application/json"
+    echo ""
+
+    local disabled=$(uci -q get wireless.wlan0cli.disabled 2>/dev/null)
+    local client_mode_enabled="false"
+    [ "$disabled" != "1" ] && client_mode_enabled="true"
+
+    local connected="false"
+    local ssid=""
+    local signal=""
+    local quality=""
+    local bssid=""
+    local channel=""
+    local mode=""
+    local interface_exists="false"
+
+    if ip link show wlan0cli >/dev/null 2>&1; then
+        interface_exists="true"
+
+        local info=$(iwinfo wlan0cli info 2>/dev/null)
+
+        if [ -n "$info" ]; then
+            local essid_line=$(echo "$info" | grep "ESSID:")
+            if echo "$essid_line" | grep -q '"'; then
+                ssid=$(echo "$essid_line" | sed 's/.*ESSID: "\([^"]*\)".*/\1/')
+                if [ -n "$ssid" ]; then
+                    connected="true"
+                    signal=$(echo "$info" | grep "Signal:" | sed 's/.*Signal: \([^ ]*\).*/\1/')
+                    quality=$(echo "$info" | grep "Link Quality:" | sed 's/.*Link Quality: \([^ ]*\).*/\1/')
+                    bssid=$(echo "$info" | grep "Access Point:" | sed 's/.*Access Point: \([^ ]*\).*/\1/')
+                    channel=$(echo "$info" | grep "Channel:" | sed 's/.*Channel: \([0-9]*\).*/\1/')
+                    mode=$(echo "$info" | grep "Mode:" | sed 's/.*Mode: \([^ ]*\).*/\1/')
+                fi
+            fi
+        fi
+    fi
+
+    ssid=$(printf '%s' "$ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+    cat << EOF
+{
+    "client_mode_enabled": $client_mode_enabled,
+    "interface_exists": $interface_exists,
+    "connected": $connected,
+    "ssid": "$ssid",
+    "signal": "$signal",
+    "quality": "$quality",
+    "bssid": "$bssid",
+    "channel": "$channel",
+    "mode": "$mode"
+}
+EOF
+}
+
+wifi_scan() {
+    echo "Content-Type: text/event-stream"
+    echo "Cache-Control: no-cache"
+    echo ""
+
+    sse_msg() {
+        local type="$1"
+        local data="$2"
+        printf 'data: {"type":"%s",%s}\n\n' "$type" "$data"
+    }
+
+    sse_msg "status" '"message":"Starting WiFi scan..."'
+
+    local scan_file="/tmp/nautilus_wifi_scan_$$"
+    local iface=""
+
+    if ip link show wlan0cli >/dev/null 2>&1; then
+        iface="wlan0cli"
+        sse_msg "status" '"message":"Scanning on client interface..."'
+        iwinfo "$iface" scan 2>/dev/null > "$scan_file"
+    fi
+
+    if [ ! -s "$scan_file" ]; then
+        iface="wlan0mon"
+        sse_msg "status" '"message":"Scanning on 2.4GHz radio..."'
+        iwinfo "$iface" scan 2>/dev/null > "$scan_file"
+    fi
+
+    if [ ! -s "$scan_file" ]; then
+        iface="wlan1mon"
+        sse_msg "status" '"message":"Scanning on 5GHz radio..."'
+        iwinfo "$iface" scan 2>/dev/null > "$scan_file"
+    fi
+
+    if [ ! -s "$scan_file" ]; then
+        sse_msg "error" '"message":"No scan results. Check WiFi interfaces."'
+        rm -f "$scan_file"
+        printf 'event: done\ndata: {"networks":[]}\n\n'
+        return
+    fi
+
+    sse_msg "status" '"message":"Processing scan results..."'
+
+    local networks="["
+    local first=1
+    local current_bssid=""
+    local current_ssid=""
+    local current_channel=""
+    local current_signal=""
+    local current_quality=""
+    local current_encryption=""
+    local current_mode=""
+
+    while IFS= read -r line; do
+        case "$line" in
+            *"Cell "*" - Address: "*)
+                if [ -n "$current_bssid" ] && [ -n "$current_ssid" ]; then
+                    [ "$first" = "0" ] && networks="$networks,"
+                    first=0
+                    current_ssid=$(printf '%s' "$current_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')
+                    networks="$networks{\"bssid\":\"$current_bssid\",\"ssid\":\"$current_ssid\",\"channel\":\"$current_channel\",\"signal\":\"$current_signal\",\"quality\":\"$current_quality\",\"encryption\":\"$current_encryption\",\"mode\":\"$current_mode\"}"
+                fi
+                current_bssid=$(echo "$line" | sed 's/.*Address: \([^ ]*\).*/\1/')
+                current_ssid=""
+                current_channel=""
+                current_signal=""
+                current_quality=""
+                current_encryption="Open"
+                current_mode=""
+                ;;
+            *"ESSID: "*)
+                current_ssid=$(echo "$line" | sed 's/.*ESSID: "\([^"]*\)".*/\1/')
+                ;;
+            *"Channel: "*)
+                current_channel=$(echo "$line" | sed 's/.*Channel: \([0-9]*\).*/\1/')
+                current_mode=$(echo "$line" | sed 's/.*Mode: \([^ ]*\).*/\1/')
+                ;;
+            *"Signal: "*)
+                current_signal=$(echo "$line" | sed 's/.*Signal: \([^ ]*\).*/\1/')
+                current_quality=$(echo "$line" | sed 's/.*Quality: \([^ ]*\).*/\1/')
+                ;;
+            *"Encryption: "*)
+                current_encryption=$(echo "$line" | sed 's/.*Encryption: \(.*\)/\1/' | sed 's/[[:space:]]*$//')
+                ;;
+        esac
+    done < "$scan_file"
+
+    if [ -n "$current_bssid" ] && [ -n "$current_ssid" ]; then
+        [ "$first" = "0" ] && networks="$networks,"
+        current_ssid=$(printf '%s' "$current_ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')
+        networks="$networks{\"bssid\":\"$current_bssid\",\"ssid\":\"$current_ssid\",\"channel\":\"$current_channel\",\"signal\":\"$current_signal\",\"quality\":\"$current_quality\",\"encryption\":\"$current_encryption\",\"mode\":\"$current_mode\"}"
+    fi
+
+    networks="$networks]"
+
+    rm -f "$scan_file"
+
+    sse_msg "status" '"message":"Scan complete"'
+    printf 'event: done\ndata: {"networks":%s}\n\n' "$networks"
+}
+
+wifi_connect() {
+    local ssid="$1"
+    local password="$2"
+    local encryption="$3"
+    local bssid="$4"
+
+    echo "Content-Type: text/event-stream"
+    echo "Cache-Control: no-cache"
+    echo ""
+
+    sse_msg() {
+        local type="$1"
+        local msg="$2"
+        printf 'data: {"type":"%s","message":"%s"}\n\n' "$type" "$msg"
+    }
+
+    if [ -z "$ssid" ]; then
+        sse_msg "error" "SSID is required"
+        printf 'event: done\ndata: {"success":false,"error":"SSID required"}\n\n'
+        return
+    fi
+
+    local enc_type="psk2"
+    case "$encryption" in
+        *"WPA3"*|*"SAE"*)
+            enc_type="sae"
+            ;;
+        *"WPA2"*|*"WPA "*|*"PSK"*)
+            enc_type="psk2"
+            ;;
+        *"WEP"*)
+            enc_type="wep"
+            ;;
+        *"Open"*|*"none"*|"")
+            enc_type="open"
+            password=""
+            ;;
+    esac
+
+    sse_msg "status" "Connecting to $ssid..."
+
+    sse_msg "status" "Enabling client interface..."
+    uci -q set wireless.wlan0cli.disabled=0 2>/dev/null
+    uci commit wireless 2>/dev/null
+
+    sse_msg "status" "Configuring network..."
+    uci -q set wireless.wlan0cli.ssid="$ssid" 2>/dev/null
+
+    if [ "$enc_type" = "open" ] || [ -z "$password" ]; then
+        uci -q set wireless.wlan0cli.encryption='none' 2>/dev/null
+        uci -q delete wireless.wlan0cli.key 2>/dev/null
+    else
+        uci -q set wireless.wlan0cli.encryption="$enc_type" 2>/dev/null
+        uci -q set wireless.wlan0cli.key="$password" 2>/dev/null
+    fi
+
+    if [ -n "$bssid" ] && [ "$bssid" != "ANY" ]; then
+        uci -q set wireless.wlan0cli.bssid="$bssid" 2>/dev/null
+    else
+        uci -q delete wireless.wlan0cli.bssid 2>/dev/null
+    fi
+
+    uci commit wireless 2>/dev/null
+
+    sse_msg "status" "Reloading WiFi..."
+    wifi reload 2>/dev/null
+    sleep 2
+
+    sse_msg "status" "Waiting for interface..."
+
+    local iface_attempts=0
+    while [ $iface_attempts -lt 10 ]; do
+        if ip link show wlan0cli >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+        iface_attempts=$((iface_attempts + 1))
+        sse_msg "status" "Waiting for interface... ($iface_attempts/10)"
+    done
+
+    if ! ip link show wlan0cli >/dev/null 2>&1; then
+        sse_msg "error" "Interface failed to come up"
+        printf 'event: done\ndata: {"success":false,"error":"Interface failed"}\n\n'
+        return
+    fi
+
+    sse_msg "status" "Interface up, waiting for connection..."
+
+    local attempts=0
+    local connected=0
+    while [ $attempts -lt 20 ]; do
+        sleep 1
+        attempts=$((attempts + 1))
+
+        local info=$(iwinfo wlan0cli info 2>/dev/null)
+        if echo "$info" | grep -q '"'; then
+            local cur_ssid=$(echo "$info" | grep "ESSID:" | sed 's/.*ESSID: "\([^"]*\)".*/\1/')
+            if [ "$cur_ssid" = "$ssid" ]; then
+                connected=1
+                break
+            fi
+        fi
+        sse_msg "status" "Waiting for connection... ($attempts/20)"
+    done
+
+    if [ "$connected" = "1" ]; then
+        local signal=$(iwinfo wlan0cli info 2>/dev/null | grep "Signal:" | sed 's/.*Signal: \([^ ]*\).*/\1/')
+        sse_msg "success" "Connected to $ssid ($signal)"
+        printf 'event: done\ndata: {"success":true,"ssid":"%s","signal":"%s"}\n\n' "$ssid" "$signal"
+    else
+        sse_msg "status" "Connection failed, cleaning up..."
+        uci -q delete wireless.wlan0cli.ssid 2>/dev/null
+        uci -q delete wireless.wlan0cli.key 2>/dev/null
+        uci -q delete wireless.wlan0cli.bssid 2>/dev/null
+        uci -q set wireless.wlan0cli.disabled=1 2>/dev/null
+        uci commit wireless 2>/dev/null
+        wifi reload 2>/dev/null
+        sleep 1
+        sse_msg "error" "Connection timeout - check password"
+        printf 'event: done\ndata: {"success":false,"error":"Connection timeout"}\n\n'
+    fi
+}
+
+wifi_disconnect() {
+    echo "Content-Type: application/json"
+    echo ""
+
+    if WIFI_CLEAR wlan0cli 2>&1 >/dev/null; then
+        echo '{"success":true,"message":"Disconnected from WiFi"}'
+    else
+        uci -q delete wireless.wlan0cli.ssid 2>/dev/null
+        uci -q delete wireless.wlan0cli.key 2>/dev/null
+        uci -q set wireless.wlan0cli.disabled=1 2>/dev/null
+        uci commit wireless 2>/dev/null
+        wifi reload 2>/dev/null
+        echo '{"success":true,"message":"Disconnected from WiFi"}'
+    fi
+}
+
+wifi_toggle_client_mode() {
+    local enable="$1"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ "$enable" = "1" ]; then
+        uci -q set wireless.wlan0cli.disabled=0 2>/dev/null
+        uci commit wireless 2>/dev/null
+        wifi reload 2>/dev/null
+        sleep 2
+        echo '{"success":true,"enabled":true,"message":"Client mode enabled"}'
+    else
+        uci -q set wireless.wlan0cli.disabled=1 2>/dev/null
+        uci commit wireless 2>/dev/null
+        wifi reload 2>/dev/null
+        sleep 1
+        echo '{"success":true,"enabled":false,"message":"Client mode disabled"}'
+    fi
+}
+
+check_local_exists() {
+    local github_path="$1"
+
+    local rel_path="${github_path#library/}"
+    local local_path="/root/payloads/${rel_path}"
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ -d "$local_path" ]; then
+        echo "{\"exists\":true,\"path\":\"$local_path\"}"
+    else
+        echo "{\"exists\":false,\"path\":\"$local_path\"}"
+    fi
+}
+
+install_github() {
+    github_url="$1"
+    token="$2"
+    force="$3"
+
+    if ! validate_token "$token"; then
+        echo "Content-Type: text/plain"
+        echo ""
+        echo "CSRF protection: Invalid or missing token. Refresh and try again."
+        exit 1
+    fi
+
+    case "$github_url" in
+        https://raw.githubusercontent.com/*/wifipineapplepager-payloads/*/payload.sh)
+            install_type="payload"
+            ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-themes/*/theme.json)
+            install_type="theme"
+            ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-ringtones/*.rtttl)
+            install_type="ringtone"
+            ;;
+        *)
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Security: Only wifipineapplepager-payloads, wifipineapplepager-themes, and wifipineapplepager-ringtones repos allowed"
+            exit 1
+            ;;
+    esac
+
+    case "$github_url" in
+        *..* | *%2e%2e* | *%2E%2E* | *%2e%2E* | *%2E%2e*)
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Security: Path traversal not allowed"
+            exit 1
+            ;;
+    esac
+
+    [ -f "$PID_FILE" ] && { kill $(cat "$PID_FILE") 2>/dev/null; rm -f "$PID_FILE"; }
+
+    url_path="${github_url#https://raw.githubusercontent.com/}"
+    repo_owner="${url_path%%/*}"
+
+    if [ "$install_type" = "theme" ]; then
+        url_path="${url_path#*/wifipineapplepager-themes/}"
+        branch="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/theme.json}"
+        full_repo="${repo_owner}/wifipineapplepager-themes"
+        local rel_path="${folder_path#themes/}"
+        local target_path="/root/themes/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    elif [ "$install_type" = "ringtone" ]; then
+        url_path="${url_path#*/wifipineapplepager-ringtones/}"
+        branch="${url_path%%/*}"
+        file_path="${url_path#*/}"
+        full_repo="${repo_owner}/wifipineapplepager-ringtones"
+        local ringtone_file="${file_path##*/}"
+        local target_path="/root/ringtones/${ringtone_file}"
+        local payload_name="${ringtone_file%.rtttl}"
+    else
+        url_path="${url_path#*/wifipineapplepager-payloads/}"
+        branch="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/payload.sh}"
+        full_repo="${repo_owner}/wifipineapplepager-payloads"
+        local rel_path="${folder_path#library/}"
+        local target_path="/root/payloads/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    fi
+
+    INSTALL_DIR="/tmp/nautilus_install_$$"
+    mkdir -p "$INSTALL_DIR"
+
+    echo "$target_path" > /tmp/nautilus_install_target
+
+    echo "Content-Type: text/event-stream"
+    echo "Cache-Control: no-cache"
+    echo ""
+
+    sse_msg() {
+        local color="$1"
+        local text="$2"
+        local escaped=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
+        printf 'data: {"text":"[%s] %s","color":"%s"}\n\n' "$color" "$escaped" "$color"
+    }
+
+    if [ "$install_type" = "ringtone" ]; then
+        # Ringtones are single files, check file existence
+        if [ -f "$target_path" ] && [ "$force" != "1" ]; then
+            sse_msg "yellow" "[Install] Ringtone already exists at $target_path"
+            printf 'event: exists\ndata: {"path":"%s"}\n\n' "$target_path"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            return
+        fi
+        if [ -f "$target_path" ] && [ "$force" = "1" ]; then
+            sse_msg "yellow" "[Install] Removing existing ringtone..."
+            rm -f "$target_path"
+        fi
+        sse_msg "cyan" "[Install] Downloading ringtone: $payload_name"
+        mkdir -p "/root/ringtones"
+        dl_ok=0
+        if command -v curl >/dev/null 2>&1; then
+            curl -sf -o "$target_path" "$github_url" 2>/dev/null && dl_ok=1
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "$target_path" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" = "1" ]; then
+            sse_msg "green" "[Install] Successfully installed $payload_name!"
+            sse_msg "cyan" "[Install] Location: $target_path"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            /root/payloads/user/remote_access/nautilus/build_cache.sh >/dev/null 2>&1
+            printf 'event: done\ndata: {"status":"success","path":"%s","name":"%s"}\n\n' "$target_path" "$payload_name"
+        else
+            sse_msg "red" "[Install] Failed to download ringtone"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            printf 'event: done\ndata: {"status":"error","message":"Download failed"}\n\n'
+            exit 1
+        fi
+        return
+    fi
+
+    if [ -d "$target_path" ] && [ "$force" != "1" ]; then
+        sse_msg "yellow" "[Install] Payload already exists at $target_path"
+        printf 'event: exists\ndata: {"path":"%s"}\n\n' "$target_path"
+        rm -rf "$INSTALL_DIR"
+        rm -f /tmp/nautilus_install_target
+        return
+    fi
+
+    if [ -d "$target_path" ] && [ "$force" = "1" ]; then
+        sse_msg "yellow" "[Install] Removing existing payload..."
+        rm -rf "$target_path"
+    fi
+
+    download_folder="$folder_path"
+
+    if [ "$install_type" = "theme" ]; then
+        sse_msg "cyan" "[Install] Cloning theme via Git (Sparse)..."
+        
+        if command -v git >/dev/null 2>&1; then
+            rm -rf "$INSTALL_DIR"
+            mkdir -p "$INSTALL_DIR/repo"
+            
+            export GIT_TERMINAL_PROMPT=0
+            git_ok=0
+            download_errors=0
+            
+            # Run git clone in background with heartbeat to prevent connection timeout
+            GIT_PID_FILE="/tmp/nautilus_git_pid_$$"
+            GIT_STATUS_FILE="/tmp/nautilus_git_status_$$"
+            (
+                git clone --depth 1 --filter=blob:none --sparse --branch "$branch" "https://github.com/${full_repo}" "$INSTALL_DIR/repo" >/dev/null 2>&1
+                echo $? > "$GIT_STATUS_FILE"
+            ) &
+            echo $! > "$GIT_PID_FILE"
+            
+            # Send heartbeat while git is running
+            heartbeat_count=0
+            while kill -0 $(cat "$GIT_PID_FILE") 2>/dev/null; do
+                sleep 10
+                heartbeat_count=$((heartbeat_count + 1))
+                printf 'data: {"text":"[cyan] [Install] Git cloning... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 10))
+            done
+            
+            git_exit=$(cat "$GIT_STATUS_FILE" 2>/dev/null || echo "1")
+            rm -f "$GIT_PID_FILE" "$GIT_STATUS_FILE"
+            
+            if [ "$git_exit" = "0" ]; then
+                sse_msg "cyan" "[Install] Running sparse checkout..."
+                (
+                    cd "$INSTALL_DIR/repo" || exit 1
+                    git sparse-checkout set "$folder_path" >/dev/null 2>&1
+                )
+                
+                if [ -d "$INSTALL_DIR/repo/$folder_path" ]; then
+                    # Move specific theme folder out to temporary spot
+                    mv "$INSTALL_DIR/repo/$folder_path" "$INSTALL_DIR/content"
+                    # Clean up the git repo to free space
+                    rm -rf "$INSTALL_DIR/repo"
+                    
+                    # Move all content to INSTALL_DIR root
+                    find "$INSTALL_DIR/content" -mindepth 1 -maxdepth 1 -exec mv {} "$INSTALL_DIR/" \;
+                    rmdir "$INSTALL_DIR/content"
+                    
+                    download_count=$(find "$INSTALL_DIR" -type f | wc -l)
+                    sse_msg "green" "[Install] Retrieved $download_count files"
+                    git_ok=1
+                fi
+            fi
+            
+            if [ "$git_ok" != "1" ]; then
+                 sse_msg "red" "[Install] Git operation failed"
+                 rm -rf "$INSTALL_DIR"
+                 pkill -f "git.*${full_repo}" 2>/dev/null
+                 printf 'event: done\ndata: {"status":"error","message":"Git install failed"}\n\n'
+                 rm -f /tmp/nautilus_install_target
+                 exit 1
+            fi
+        else
+            sse_msg "red" "[Install] Git not found on device"
+            rm -rf "$INSTALL_DIR"
+            printf 'event: done\ndata: {"status":"error","message":"Git required for themes"}\n\n'
+            rm -f /tmp/nautilus_install_target
+            exit 1
+        fi
+    else
+        sse_msg "cyan" "[Install] Downloading: $payload_name"
+    
+        queue_file="/tmp/nautilus_install_queue_$$"
+        download_count=0
+        download_errors=0
+        api_failed=0
+        
+        # Start background heartbeat to prevent connection timeout during long downloads
+        HEARTBEAT_FILE="/tmp/nautilus_heartbeat_$$"
+        echo "1" > "$HEARTBEAT_FILE"
+        (
+            hb_count=0
+            while [ -f "$HEARTBEAT_FILE" ]; do
+                sleep 5
+                hb_count=$((hb_count + 1))
+                [ -f "$HEARTBEAT_FILE" ] && printf 'data: {"text":"[cyan] [Install] Working... (%ds)","color":"cyan"}\n\n' $((hb_count * 5))
+            done
+        ) &
+        HEARTBEAT_PID=$!
+    
+        echo "$download_folder|" > "$queue_file"
+    
+        while [ -s "$queue_file" ]; do
+            read -r queue_entry < "$queue_file"
+            sed -i '1d' "$queue_file" 2>/dev/null || { tail -n +2 "$queue_file" > "$queue_file.tmp" && mv "$queue_file.tmp" "$queue_file"; }
+    
+            api_path="${queue_entry%%|*}"
+            rel_path="${queue_entry#*|}"
+    
+            [ -z "$api_path" ] && continue
+    
+            local_dir="$INSTALL_DIR"
+            [ -n "$rel_path" ] && local_dir="$INSTALL_DIR/$rel_path"
+            mkdir -p "$local_dir"
+    
+            api_url="https://api.github.com/repos/${full_repo}/contents/${api_path}?ref=${branch}"
+            json=""
+            if command -v curl >/dev/null 2>&1; then
+                json=$(curl -sf "$api_url" 2>/dev/null)
+            elif command -v wget >/dev/null 2>&1; then
+                json=$(wget -qO- "$api_url" 2>/dev/null)
+            fi
+    
+            if [ -z "$json" ]; then
+                api_failed=1
+                break
+            fi
+    
+            entries_file="/tmp/nautilus_install_entries_$$"
+    
+            echo "$json" | sed 's/},/}\n/g' | while IFS= read -r obj; do
+                n=$(echo "$obj" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                t=$(echo "$obj" | sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                [ -n "$n" ] && echo "$n|$t"
+            done > "$entries_file"
+    
+            while IFS='|' read -r name type; do
+                [ -z "$name" ] && continue
+    
+                if [ "$type" = "dir" ]; then
+                    if [ -n "$rel_path" ]; then
+                        echo "$api_path/$name|$rel_path/$name" >> "$queue_file"
+                    else
+                        echo "$api_path/$name|$name" >> "$queue_file"
+                    fi
+                    sse_msg "cyan" "[Install] Scanning: $name/"
+                elif [ "$type" = "file" ]; then
+                    file_url="https://raw.githubusercontent.com/${full_repo}/${branch}/${api_path}/${name}"
+                    dl_ok=0
+                    if command -v curl >/dev/null 2>&1; then
+                        curl -sf -o "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    elif command -v wget >/dev/null 2>&1; then
+                        wget -q -O "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    fi
+                    if [ "$dl_ok" = "1" ]; then
+                        download_count=$((download_count + 1))
+                        disp_name="$name"
+                        [ -n "$rel_path" ] && disp_name="$rel_path/$name"
+                        sse_msg "green" "[Install] Downloaded: $disp_name"
+                    else
+                        download_errors=$((download_errors + 1))
+                        sse_msg "red" "[Install] Failed: $name"
+                    fi
+                else
+                    file_url="https://raw.githubusercontent.com/${full_repo}/${branch}/${api_path}/${name}"
+                    dl_ok=0
+                    if command -v curl >/dev/null 2>&1; then
+                        curl -sf -o "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    elif command -v wget >/dev/null 2>&1; then
+                        wget -q -O "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    fi
+                    if [ "$dl_ok" = "1" ]; then
+                        download_count=$((download_count + 1))
+                        sse_msg "green" "[Install] Downloaded: $name"
+                    else
+                        if [ -n "$rel_path" ]; then
+                            echo "$api_path/$name|$rel_path/$name" >> "$queue_file"
+                        else
+                            echo "$api_path/$name|$name" >> "$queue_file"
+                        fi
+                        sse_msg "cyan" "[Install] Scanning: $name/"
+                    fi
+                fi
+            done < "$entries_file"
+            rm -f "$entries_file"
+        done
+        rm -f "$queue_file"
+        
+        # Stop heartbeat
+        rm -f "$HEARTBEAT_FILE"
+        kill $HEARTBEAT_PID 2>/dev/null
+    fi
+
+    # Determine main file based on install type
+    if [ "$install_type" = "theme" ]; then
+        main_file="theme.json"
+    else
+        main_file="payload.sh"
+    fi
+
+    if [ "$api_failed" = "1" ] && [ "$download_count" = "0" ]; then
+        sse_msg "yellow" "[Install] API unavailable, downloading $main_file only..."
+        dl_ok=0
+        if command -v wget >/dev/null 2>&1; then
+            wget -q -O "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" != "1" ] && command -v curl >/dev/null 2>&1; then
+            curl -sf -o "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" = "1" ]; then
+            download_count=1
+            sse_msg "green" "[Install] Downloaded: $main_file"
+        else
+            sse_msg "red" "[Install] Failed to download $main_file"
+            printf 'event: done\ndata: {"status":"error","message":"Download failed"}\n\n'
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            exit 1
+        fi
+    fi
+
+    if [ ! -f "$INSTALL_DIR/$main_file" ]; then
+        sse_msg "red" "[Install] $main_file not found in downloaded files"
+        printf 'event: done\ndata: {"status":"error","message":"Main file not found"}\n\n'
+        rm -rf "$INSTALL_DIR"
+        rm -f /tmp/nautilus_install_target
+        exit 1
+    fi
+
+    sse_msg "cyan" "[Install] Installing to $target_path..."
+    mkdir -p "$(dirname "$target_path")"
+    mv "$INSTALL_DIR" "$target_path"
+    [ "$install_type" != "theme" ] && chmod +x "$target_path/payload.sh"
+
+    rm -f /tmp/nautilus_install_target
+
+    sse_msg "green" "[Install] Successfully installed $payload_name!"
+    sse_msg "cyan" "[Install] Location: $target_path"
+    sse_msg "cyan" "[Install] Files: $download_count downloaded, $download_errors errors"
+
+    /root/payloads/user/remote_access/nautilus/build_cache.sh >/dev/null 2>&1
+
+    printf 'event: done\ndata: {"status":"success","path":"%s","name":"%s"}\n\n' "$target_path" "$payload_name"
+}
+
+install_pr() {
+    github_url="$1"
+    token="$2"
+    force="$3"
+    pr_path="$4"
+
+    if ! validate_token "$token"; then
+        echo "Content-Type: text/plain"
+        echo ""
+        echo "CSRF protection: Invalid or missing token. Refresh and try again."
+        exit 1
+    fi
+
+    case "$github_url" in
+        https://raw.githubusercontent.com/*/wifipineapplepager-payloads/*/payload.sh)
+            install_type="payload"
+            ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-themes/*/theme.json)
+            install_type="theme"
+            ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-ringtones/*.rtttl)
+            install_type="ringtone"
+            ;;
+        *)
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Security: Only wifipineapplepager-payloads, wifipineapplepager-themes, and wifipineapplepager-ringtones repos allowed"
+            exit 1
+            ;;
+    esac
+
+    case "$github_url" in
+        *..* | *%2e%2e* | *%2E%2E* | *%2e%2E* | *%2E%2e*)
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Security: Path traversal not allowed"
+            exit 1
+            ;;
+    esac
+
+    [ -f "$PID_FILE" ] && { kill $(cat "$PID_FILE") 2>/dev/null; rm -f "$PID_FILE"; }
+
+    url_path="${github_url#https://raw.githubusercontent.com/}"
+    repo_owner="${url_path%%/*}"
+
+    if [ "$install_type" = "theme" ]; then
+        url_path="${url_path#*/wifipineapplepager-themes/}"
+        commit_sha="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/theme.json}"
+        full_repo="${repo_owner}/wifipineapplepager-themes"
+        
+        # pr_path for themes comes as "themes/ThemeName/theme.json"
+        local rel_path="${pr_path#themes/}"
+        rel_path="${rel_path%/theme.json}"
+        local target_path="/root/themes/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    elif [ "$install_type" = "ringtone" ]; then
+        url_path="${url_path#*/wifipineapplepager-ringtones/}"
+        commit_sha="${url_path%%/*}"
+        file_path="${url_path#*/}"
+        full_repo="${repo_owner}/wifipineapplepager-ringtones"
+        
+        # pr_path for ringtones comes as "ringtones/name.rtttl"
+        local ringtone_file="${pr_path#ringtones/}"
+        local target_path="/root/ringtones/${ringtone_file}"
+        local payload_name="${ringtone_file%.rtttl}"
+    else
+        url_path="${url_path#*/wifipineapplepager-payloads/}"
+        commit_sha="${url_path%%/*}"
+        folder_path="${url_path#*/}"
+        folder_path="${folder_path%/payload.sh}"
+        full_repo="${repo_owner}/wifipineapplepager-payloads"
+        
+        local rel_path="${pr_path#library/}"
+        local target_path="/root/payloads/${rel_path}"
+        local payload_name="${rel_path##*/}"
+    fi
+
+    INSTALL_DIR="/tmp/nautilus_install_$$"
+    mkdir -p "$INSTALL_DIR"
+
+    echo "$target_path" > /tmp/nautilus_install_target
+
+    echo "Content-Type: text/event-stream"
+    echo "Cache-Control: no-cache"
+    echo ""
+
+    sse_msg() {
+        local color="$1"
+        local text="$2"
+        local escaped=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
+        printf 'data: {"text":"[%s] %s","color":"%s"}\n\n' "$color" "$escaped" "$color"
+    }
+
+    if [ "$install_type" = "ringtone" ]; then
+        # Ringtones are single files, check file existence
+        if [ -f "$target_path" ] && [ "$force" != "1" ]; then
+            sse_msg "yellow" "[Install] Ringtone already exists at $target_path"
+            printf 'event: exists\ndata: {"path":"%s"}\n\n' "$target_path"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            return
+        fi
+        if [ -f "$target_path" ] && [ "$force" = "1" ]; then
+            sse_msg "yellow" "[Install] Removing existing ringtone..."
+            rm -f "$target_path"
+        fi
+        sse_msg "cyan" "[Install] Downloading PR ringtone: $payload_name"
+        mkdir -p "/root/ringtones"
+        dl_ok=0
+        if command -v curl >/dev/null 2>&1; then
+            curl -sf -o "$target_path" "$github_url" 2>/dev/null && dl_ok=1
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "$target_path" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" = "1" ]; then
+            sse_msg "green" "[Install] Successfully installed $payload_name from PR!"
+            sse_msg "cyan" "[Install] Location: $target_path"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            /root/payloads/user/remote_access/nautilus/build_cache.sh >/dev/null 2>&1
+            printf 'event: done\ndata: {"status":"success","path":"%s","name":"%s"}\n\n' "$target_path" "$payload_name"
+        else
+            sse_msg "red" "[Install] Failed to download ringtone"
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            printf 'event: done\ndata: {"status":"error","message":"Download failed"}\n\n'
+            exit 1
+        fi
+        return
+    fi
+
+    if [ -d "$target_path" ] && [ "$force" != "1" ]; then
+        sse_msg "yellow" "[Install] Payload already exists at $target_path"
+        printf 'event: exists\ndata: {"path":"%s"}\n\n' "$target_path"
+        rm -rf "$INSTALL_DIR"
+        rm -f /tmp/nautilus_install_target
+        return
+    fi
+
+    if [ -d "$target_path" ] && [ "$force" = "1" ]; then
+        sse_msg "yellow" "[Install] Removing existing payload..."
+        rm -rf "$target_path"
+    fi
+
+    download_folder="$folder_path"
+
+    if [ "$install_type" = "theme" ]; then
+        sse_msg "cyan" "[Install] Cloning PR theme via Git (Sparse)..."
+        
+        if command -v git >/dev/null 2>&1; then
+            rm -rf "$INSTALL_DIR"
+            mkdir -p "$INSTALL_DIR/repo"
+            
+            export GIT_TERMINAL_PROMPT=0
+            git_ok=0
+            download_errors=0
+            
+            # Run git operations in background with heartbeat to prevent connection timeout
+            GIT_PID_FILE="/tmp/nautilus_git_pid_$$"
+            GIT_STATUS_FILE="/tmp/nautilus_git_status_$$"
+            
+            # Use init+fetch to get specific commit without full history
+            if git init "$INSTALL_DIR/repo" >/dev/null 2>&1; then
+                (
+                    cd "$INSTALL_DIR/repo" || exit 1
+                    git remote add origin "https://github.com/${full_repo}"
+                    git config core.sparseCheckout true
+                    
+                    # Setup sparse checkout
+                    git sparse-checkout init --cone >/dev/null 2>&1
+                    git sparse-checkout set "$folder_path" >/dev/null 2>&1
+                    
+                    # Fetch only the specific commit
+                    if git fetch --depth 1 origin "$commit_sha" >/dev/null 2>&1; then
+                        git checkout FETCH_HEAD >/dev/null 2>&1
+                        echo "0" > "$GIT_STATUS_FILE"
+                    else
+                        echo "1" > "$GIT_STATUS_FILE"
+                    fi
+                ) &
+                echo $! > "$GIT_PID_FILE"
+                
+                # Send heartbeat while git is running
+                heartbeat_count=0
+                while kill -0 $(cat "$GIT_PID_FILE") 2>/dev/null; do
+                    sleep 10
+                    heartbeat_count=$((heartbeat_count + 1))
+                    printf 'data: {"text":"[cyan] [Install] Git fetching PR... (%ds)","color":"cyan"}\n\n' $((heartbeat_count * 10))
+                done
+                
+                git_exit=$(cat "$GIT_STATUS_FILE" 2>/dev/null || echo "1")
+                rm -f "$GIT_PID_FILE" "$GIT_STATUS_FILE"
+                
+                if [ "$git_exit" = "0" ] && [ -d "$INSTALL_DIR/repo/$folder_path" ]; then
+                    # Move specific theme folder out
+                    mv "$INSTALL_DIR/repo/$folder_path" "$INSTALL_DIR/content"
+                    # Clean repo
+                    rm -rf "$INSTALL_DIR/repo"
+                    
+                    # Move content to INSTALL_DIR root
+                    find "$INSTALL_DIR/content" -mindepth 1 -maxdepth 1 -exec mv {} "$INSTALL_DIR/" \;
+                    rmdir "$INSTALL_DIR/content"
+                    
+                    download_count=$(find "$INSTALL_DIR" -type f | wc -l)
+                    sse_msg "green" "[Install] Retrieved $download_count files"
+                    git_ok=1
+                fi
+            fi
+            
+            if [ "$git_ok" != "1" ]; then
+                 sse_msg "red" "[Install] Git operation failed"
+                 rm -rf "$INSTALL_DIR"
+                 pkill -f "git.*${full_repo}" 2>/dev/null
+                 printf 'event: done\ndata: {"status":"error","message":"Git install failed"}\n\n'
+                 rm -f /tmp/nautilus_install_target
+                 exit 1
+            fi
+        else
+            sse_msg "red" "[Install] Git not found on device"
+            rm -rf "$INSTALL_DIR"
+            printf 'event: done\ndata: {"status":"error","message":"Git required for themes"}\n\n'
+            rm -f /tmp/nautilus_install_target
+            exit 1
+        fi
+    else
+        sse_msg "cyan" "[Install] Downloading PR payload: $payload_name"
+    
+        queue_file="/tmp/nautilus_install_queue_$$"
+        download_count=0
+        download_errors=0
+        api_failed=0
+        
+        # Start background heartbeat to prevent connection timeout during long downloads
+        HEARTBEAT_FILE="/tmp/nautilus_heartbeat_$$"
+        echo "1" > "$HEARTBEAT_FILE"
+        (
+            hb_count=0
+            while [ -f "$HEARTBEAT_FILE" ]; do
+                sleep 5
+                hb_count=$((hb_count + 1))
+                [ -f "$HEARTBEAT_FILE" ] && printf 'data: {"text":"[cyan] [Install] Working... (%ds)","color":"cyan"}\n\n' $((hb_count * 5))
+            done
+        ) &
+        HEARTBEAT_PID=$!
+    
+        echo "$download_folder|" > "$queue_file"
+    
+        while [ -s "$queue_file" ]; do
+            read -r queue_entry < "$queue_file"
+            sed -i '1d' "$queue_file" 2>/dev/null || { tail -n +2 "$queue_file" > "$queue_file.tmp" && mv "$queue_file.tmp" "$queue_file"; }
+    
+            api_path="${queue_entry%%|*}"
+            rel_path="${queue_entry#*|}"
+    
+            [ -z "$api_path" ] && continue
+    
+            local_dir="$INSTALL_DIR"
+            [ -n "$rel_path" ] && local_dir="$INSTALL_DIR/$rel_path"
+            mkdir -p "$local_dir"
+    
+            api_url="https://api.github.com/repos/${full_repo}/contents/${api_path}?ref=${commit_sha}"
+            json=""
+            if command -v curl >/dev/null 2>&1; then
+                json=$(curl -sf "$api_url" 2>/dev/null)
+            elif command -v wget >/dev/null 2>&1; then
+                json=$(wget -qO- "$api_url" 2>/dev/null)
+            fi
+    
+            if [ -z "$json" ]; then
+                api_failed=1
+                break
+            fi
+    
+            entries_file="/tmp/nautilus_install_entries_$$"
+    
+            echo "$json" | sed 's/},/}\n/g' | while IFS= read -r obj; do
+                n=$(echo "$obj" | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                t=$(echo "$obj" | sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+                [ -n "$n" ] && echo "$n|$t"
+            done > "$entries_file"
+    
+            while IFS='|' read -r name type; do
+                [ -z "$name" ] && continue
+    
+                if [ "$type" = "dir" ]; then
+                    if [ -n "$rel_path" ]; then
+                        echo "$api_path/$name|$rel_path/$name" >> "$queue_file"
+                    else
+                        echo "$api_path/$name|$name" >> "$queue_file"
+                    fi
+                    sse_msg "cyan" "[Install] Scanning: $name/"
+                elif [ "$type" = "file" ]; then
+                    file_url="https://raw.githubusercontent.com/${full_repo}/${commit_sha}/${api_path}/${name}"
+                    dl_ok=0
+                    if command -v curl >/dev/null 2>&1; then
+                        curl -sf -o "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    elif command -v wget >/dev/null 2>&1; then
+                        wget -q -O "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    fi
+                    if [ "$dl_ok" = "1" ]; then
+                        download_count=$((download_count + 1))
+                        disp_name="$name"
+                        [ -n "$rel_path" ] && disp_name="$rel_path/$name"
+                        sse_msg "green" "[Install] Downloaded: $disp_name"
+                    else
+                        download_errors=$((download_errors + 1))
+                        sse_msg "red" "[Install] Failed: $name"
+                    fi
+                else
+                    file_url="https://raw.githubusercontent.com/${full_repo}/${commit_sha}/${api_path}/${name}"
+                    dl_ok=0
+                    if command -v curl >/dev/null 2>&1; then
+                        curl -sf -o "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    elif command -v wget >/dev/null 2>&1; then
+                        wget -q -O "$local_dir/$name" "$file_url" 2>/dev/null && dl_ok=1
+                    fi
+                    if [ "$dl_ok" = "1" ]; then
+                        download_count=$((download_count + 1))
+                        sse_msg "green" "[Install] Downloaded: $name"
+                    else
+                        if [ -n "$rel_path" ]; then
+                            echo "$api_path/$name|$rel_path/$name" >> "$queue_file"
+                        else
+                            echo "$api_path/$name|$name" >> "$queue_file"
+                        fi
+                        sse_msg "cyan" "[Install] Scanning: $name/"
+                    fi
+                fi
+            done < "$entries_file"
+            rm -f "$entries_file"
+        done
+        rm -f "$queue_file"
+        
+        # Stop heartbeat
+        rm -f "$HEARTBEAT_FILE"
+        kill $HEARTBEAT_PID 2>/dev/null
+    fi
+
+    # Determine main file based on install type
+    if [ "$install_type" = "theme" ]; then
+        main_file="theme.json"
+    else
+        main_file="payload.sh"
+    fi
+
+    if [ "$api_failed" = "1" ] && [ "$download_count" = "0" ]; then
+        sse_msg "yellow" "[Install] API unavailable, downloading $main_file only..."
+        dl_ok=0
+        if command -v wget >/dev/null 2>&1; then
+            wget -q -O "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" != "1" ] && command -v curl >/dev/null 2>&1; then
+            curl -sf -o "$INSTALL_DIR/$main_file" "$github_url" 2>/dev/null && dl_ok=1
+        fi
+        if [ "$dl_ok" = "1" ]; then
+            download_count=1
+            sse_msg "green" "[Install] Downloaded: $main_file"
+        else
+            sse_msg "red" "[Install] Failed to download $main_file"
+            printf 'event: done\ndata: {"status":"error","message":"Download failed"}\n\n'
+            rm -rf "$INSTALL_DIR"
+            rm -f /tmp/nautilus_install_target
+            exit 1
+        fi
+    fi
+
+    if [ ! -f "$INSTALL_DIR/$main_file" ]; then
+        sse_msg "red" "[Install] $main_file not found in downloaded files"
+        printf 'event: done\ndata: {"status":"error","message":"Main file not found"}\n\n'
+        rm -rf "$INSTALL_DIR"
+        rm -f /tmp/nautilus_install_target
+        exit 1
+    fi
+
+    sse_msg "cyan" "[Install] Installing to $target_path..."
+    mkdir -p "$(dirname "$target_path")"
+    mv "$INSTALL_DIR" "$target_path"
+    [ "$install_type" != "theme" ] && chmod +x "$target_path/payload.sh"
+
+    rm -f /tmp/nautilus_install_target
+
+    sse_msg "green" "[Install] Successfully installed $payload_name from PR!"
+    sse_msg "cyan" "[Install] Location: $target_path"
+    sse_msg "cyan" "[Install] Files: $download_count downloaded, $download_errors errors"
+
+    /root/payloads/user/remote_access/nautilus/build_cache.sh >/dev/null 2>&1
+
+    printf 'event: done\ndata: {"status":"success","path":"%s","name":"%s"}\n\n' "$target_path" "$payload_name"
 }
 
 run_github() {
@@ -525,25 +1803,26 @@ run_github() {
     case "$github_url" in
         https://raw.githubusercontent.com/*/wifipineapplepager-payloads/*/payload.sh)
             ;;
+        https://raw.githubusercontent.com/*/wifipineapplepager-ringtones/*/*.rtttl)
+            ;;
         *)
             echo "Content-Type: text/plain"
             echo ""
-            echo "Security: Only wifipineapplepager-payloads repos allowed"
+            echo "Security: Only allowed repos: wifipineapplepager-payloads, wifipineapplepager-ringtones"
+            exit 1
+            ;;
+    esac
+
+    case "$github_url" in
+        *..* | *%2e%2e* | *%2E%2E* | *%2e%2E* | *%2E%2e*)
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Security: Path traversal not allowed"
             exit 1
             ;;
     esac
 
     [ -f "$PID_FILE" ] && { kill $(cat "$PID_FILE") 2>/dev/null; rm -f "$PID_FILE"; }
-
-    url_path="${github_url#https://raw.githubusercontent.com/}"
-    repo_owner="${url_path%%/*}"
-    url_path="${url_path#*/wifipineapplepager-payloads/}"
-    branch="${url_path%%/*}"
-    folder_path="${url_path#*/}"
-    folder_path="${folder_path%/payload.sh}"
-    full_repo="${repo_owner}/wifipineapplepager-payloads"
-
-    payload_folder_name="${folder_path##*/}"
 
     GITHUB_DIR="/tmp/nautilus_github_$$"
     mkdir -p "$GITHUB_DIR"
@@ -559,10 +1838,44 @@ run_github() {
         printf 'data: {"text":"[%s] %s","color":"%s"}\n\n' "$color" "$escaped" "$color"
     }
 
-    download_folder="$folder_path"
-    sse_msg "cyan" "[GitHub] Fetching payload: $download_folder/"
+    # Handle ringtones as single file download
+    case "$github_url" in
+        *.rtttl)
+            rtttl_filename=$(basename "$github_url")
+            sse_msg "cyan" "[GitHub] Downloading ringtone: $rtttl_filename"
+            dl_ok=0
+            if command -v curl >/dev/null 2>&1; then
+                curl -sf -o "$GITHUB_DIR/$rtttl_filename" "$github_url" 2>/dev/null && dl_ok=1
+            elif command -v wget >/dev/null 2>&1; then
+                wget -q -O "$GITHUB_DIR/$rtttl_filename" "$github_url" 2>/dev/null && dl_ok=1
+            fi
+            if [ "$dl_ok" = "1" ]; then
+                sse_msg "green" "[GitHub] Downloaded: $rtttl_filename"
+                GITHUB_TARGET="$GITHUB_DIR/$rtttl_filename"
+                target_type="ringtone"
+            else
+                sse_msg "red" "[GitHub] Failed to download ringtone"
+                printf 'event: done\ndata: {"status":"error"}\n\n'
+                rm -rf "$GITHUB_DIR"
+                exit 1
+            fi
+            ;;
+        *)
+            # Payloads: download folder structure
+            url_path="${github_url#https://raw.githubusercontent.com/}"
+            repo_owner="${url_path%%/*}"
+            url_path="${url_path#*/wifipineapplepager-payloads/}"
+            branch="${url_path%%/*}"
+            folder_path="${url_path#*/}"
+            folder_path="${folder_path%/payload.sh}"
+            full_repo="${repo_owner}/wifipineapplepager-payloads"
 
-    queue_file="/tmp/nautilus_queue_$$"
+            payload_folder_name="${folder_path##*/}"
+
+            download_folder="$folder_path"
+            sse_msg "cyan" "[GitHub] Fetching payload: $download_folder/"
+
+            queue_file="/tmp/nautilus_queue_$$"
     download_count=0
     download_errors=0
     api_failed=0
@@ -677,17 +1990,20 @@ run_github() {
 
     sse_msg "cyan" "[GitHub] Download complete: $download_count files, $download_errors errors"
 
-    GITHUB_PAYLOAD="$GITHUB_DIR/payload.sh"
+    GITHUB_TARGET="$GITHUB_DIR/payload.sh"
+    target_type="payload"
+            ;;
+    esac
 
-    if [ ! -f "$GITHUB_PAYLOAD" ]; then
-        sse_msg "red" "[GitHub] payload.sh not found in downloaded files"
+    if [ ! -f "$GITHUB_TARGET" ]; then
+        sse_msg "red" "[GitHub] $target_type file not found in downloaded files"
         printf 'event: done\ndata: {"status":"error"}\n\n'
         rm -rf "$GITHUB_DIR"
         exit 1
     fi
-    chmod +x "$GITHUB_PAYLOAD"
+    [ "$target_type" = "payload" ] && chmod +x "$GITHUB_TARGET"
 
-    sse_msg "cyan" "[GitHub] Starting payload execution..."
+    sse_msg "cyan" "[GitHub] Starting $target_type execution..."
 
     WRAPPER="/tmp/nautilus_wrapper_$$.sh"
     cat > "$WRAPPER" << 'WRAPPER_EOF'
@@ -726,7 +2042,6 @@ ERROR_DIALOG() {
     _wait_response ""
 }
 
-# Spinner functions - intercept and show in Nautilus UI
 SPINNER() {
     echo "[SPINNER:start] $*" >&2
 }
@@ -807,19 +2122,46 @@ MAC_PICKER() {
 }
 
 PROMPT() {
-    echo "[PROMPT:text:] $1" >&2
+    echo "[PROMPT:prompt] $1" >&2
     sleep 0.1
     _wait_response ""
 }
 
+WAIT_FOR_INPUT() {
+    echo "[BUTTON_WAIT:ANY]" >&2
+    sleep 0.1
+    local btn=$(_wait_response "A")
+    echo -n "$btn"
+}
+
+WAIT_FOR_BUTTON_PRESS() {
+    local expected="$*"
+    echo "[BUTTON_WAIT:$expected]" >&2
+    sleep 0.1
+    local btn=$(_wait_response "${1:-A}")
+    echo -n "$btn"
+}
+
 export -f LOG LED ALERT ERROR_DIALOG SPINNER SPINNER_STOP START_SPINNER STOP_SPINNER
 export -f CONFIRMATION_DIALOG TEXT_PICKER NUMBER_PICKER IP_PICKER MAC_PICKER PROMPT
+export -f WAIT_FOR_INPUT WAIT_FOR_BUTTON_PRESS
 export -f _nautilus_emit _wait_response
 
-echo "[cyan] [GitHub] Running payload..."
 cd "$(dirname "$1")"
-source "$1"
-echo "[green] [GitHub] Payload complete"
+
+# Handle different file types
+case "$1" in
+    *.rtttl)
+        echo "[cyan] [GitHub] Playing ringtone: $(basename "$1" .rtttl)"
+        RINGTONE "$1"
+        echo "[green] [GitHub] Ringtone finished"
+        ;;
+    *)
+        echo "[cyan] [GitHub] Running payload..."
+        source "$1"
+        echo "[green] [GitHub] Payload complete"
+        ;;
+esac
 WRAPPER_EOF
 
     chmod +x "$WRAPPER"
@@ -828,7 +2170,7 @@ WRAPPER_EOF
     rm -f "$LOG_FILE"
     touch "$LOG_FILE"
 
-    /bin/bash "$WRAPPER" "$GITHUB_PAYLOAD" >> "$LOG_FILE" 2>&1 &
+    /bin/bash "$WRAPPER" "$GITHUB_TARGET" >> "$LOG_FILE" 2>&1 &
 
     echo $! > "$PID_FILE"
 
@@ -875,6 +2217,11 @@ WRAPPER_EOF
                         fi
                         printf 'event: spinner\ndata: {"action":"stop","id":"%s"}\n\n' "$spinner_id"
                         continue ;;
+                    "[BUTTON_WAIT:"*)
+                        inner="${line#\[BUTTON_WAIT:}"
+                        expected="${inner%%\]*}"
+                        printf 'event: button_wait\ndata: {"expected":"%s"}\n\n' "$expected"
+                        continue ;;
                 esac
                 color=""
                 case "$line" in
@@ -909,6 +2256,460 @@ WRAPPER_EOF
     rm -rf "$GITHUB_DIR"
 }
 
+get_config() {
+    local key="$1"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    local value=$(PAYLOAD_GET_CONFIG nautilus "$key" 2>/dev/null)
+    echo "Content-Type: application/json"
+    echo ""
+    if [ -n "$value" ]; then
+        printf '{"key":"%s","value":"%s"}\n' "$key" "$value"
+    else
+        printf '{"key":"%s","value":null}\n' "$key"
+    fi
+}
+
+set_config() {
+    local key="$1"
+    local value="$2"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    PAYLOAD_SET_CONFIG nautilus "$key" "$value" 2>/dev/null
+    local rc=$?
+    echo "Content-Type: application/json"
+    echo ""
+    if [ $rc -eq 0 ]; then
+        printf '{"success":true,"key":"%s","value":"%s"}\n' "$key" "$value"
+    else
+        echo '{"error":"Failed to save config"}'
+    fi
+}
+
+get_favourites() {
+    local value=$(PAYLOAD_GET_CONFIG nautilus "favourites" 2>/dev/null)
+    echo "Content-Type: application/json"
+    echo ""
+    if [ -n "$value" ]; then
+        printf '{"success":true,"favourites":%s}\n' "$value"
+    else
+        echo '{"success":true,"favourites":[]}'
+    fi
+}
+
+set_favourites() {
+    local json_data
+    if [ "$REQUEST_METHOD" = "POST" ]; then
+        json_data=$(cat)
+    fi
+    local favourites=$(echo "$json_data" | jsonfilter -e '@.favourites' 2>/dev/null)
+    if [ -z "$favourites" ]; then
+        favourites="[]"
+    fi
+    PAYLOAD_SET_CONFIG nautilus "favourites" "$favourites" 2>/dev/null
+    local rc=$?
+    echo "Content-Type: application/json"
+    echo ""
+    if [ $rc -eq 0 ]; then
+        echo '{"success":true}'
+    else
+        echo '{"error":"Failed to save favourites"}'
+    fi
+}
+
+del_config() {
+    local key="$1"
+    if [ -z "$key" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Missing key parameter"}'
+        return
+    fi
+    PAYLOAD_DEL_CONFIG nautilus "$key" 2>/dev/null
+    echo "Content-Type: application/json"
+    echo ""
+    printf '{"success":true,"key":"%s"}\n' "$key"
+}
+
+#Not working, some unknown issues...same for download_loot_all 
+download_loot() {
+    local loot_path="$1"
+    
+    # Validate path is in /root/loot
+    case "$loot_path" in
+        /root/loot/*) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid path: must be in /root/loot/"}'
+            return
+            ;;
+    esac
+    
+    # Security: no path traversal
+    case "$loot_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Path traversal not allowed"}'
+            return
+            ;;
+    esac
+    
+    if [ ! -f "$loot_path" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"File not found"}'
+        return
+    fi
+    
+    local filename=$(basename "$loot_path")
+    local mimetype=$(file -b --mime-type "$loot_path" 2>/dev/null || echo "application/octet-stream")
+    local filesize=$(stat -c %s "$loot_path" 2>/dev/null || stat -f %z "$loot_path" 2>/dev/null || echo "0")
+    
+    echo "Content-Type: $mimetype"
+    echo "Content-Disposition: attachment; filename=\"$filename\""
+    echo "Content-Length: $filesize"
+    echo ""
+    cat "$loot_path"
+}
+#Not working, some unknown issues
+download_loot_all() {
+    local loot_dir="/root/loot"
+    
+    if [ ! -d "$loot_dir" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Loot directory not found"}'
+        return
+    fi
+    
+    # Check if there are any files
+    local file_count=$(find "$loot_dir" -type f 2>/dev/null | wc -l)
+    if [ "$file_count" -eq 0 ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"No loot files found"}'
+        return
+    fi
+    
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local zipname="loot_${timestamp}.zip"
+    local tmpzip="/tmp/$zipname"
+    
+    # Create zip of loot directory
+    cd /root && zip -rq "$tmpzip" loot 2>/dev/null
+    
+    if [ ! -f "$tmpzip" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"Failed to create archive"}'
+        return
+    fi
+    
+    local filesize=$(stat -c %s "$tmpzip" 2>/dev/null || stat -f %z "$tmpzip" 2>/dev/null || echo "0")
+    
+    echo "Content-Type: application/zip"
+    echo "Content-Disposition: attachment; filename=\"$zipname\""
+    echo "Content-Length: $filesize"
+    echo ""
+    cat "$tmpzip"
+    rm -f "$tmpzip"
+}
+
+delete_loot() {
+    local loot_path="$1"
+    
+    # Validate path is in /root/loot
+    case "$loot_path" in
+        /root/loot/*) ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid path: must be in /root/loot/"}'
+            return
+            ;;
+    esac
+    
+    # Security: no path traversal
+    case "$loot_path" in
+        *..*)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Path traversal not allowed"}'
+            return
+            ;;
+    esac
+    
+    if [ ! -f "$loot_path" ]; then
+        echo "Content-Type: application/json"
+        echo ""
+        echo '{"error":"File not found"}'
+        return
+    fi
+    
+    rm -f "$loot_path"
+    echo "Content-Type: application/json"
+    echo ""
+    echo '{"success":true}'
+}
+
+scan_local_resource() {
+    local type="$1"
+    local root=""
+    local scan_mode=""
+
+    case "$type" in
+        payloads) root="/root/payloads/user"; scan_mode="payload" ;;
+        alerts) root="/root/payloads/alerts"; scan_mode="payload" ;;
+        recon) root="/root/payloads/recon"; scan_mode="payload" ;;
+        themes) root="/root/themes"; scan_mode="theme" ;;
+        ringtones) root="/root/ringtones"; scan_mode="ringtone" ;;
+        *)
+            echo "Content-Type: application/json"
+            echo ""
+            echo '{"error":"Invalid resource type"}'
+            return
+            ;;
+    esac
+
+    echo "Content-Type: application/json"
+    echo ""
+
+    if [ ! -d "$root" ]; then
+        echo '{}'
+        return
+    fi
+
+    if [ "$scan_mode" = "payload" ]; then
+        find "$root" -path "*/.git" -prune -o \
+             -path "*/nautilus/*" -prune -o \
+             -name "payload.sh" -print 2>/dev/null | \
+        awk '
+        BEGIN { ORS="" }
+        {
+            file = $0
+            n = split(file, parts, "/")
+            if (n < 3) next
+            category = parts[n-2]
+            pname = parts[n-1]
+
+            if (pname == "PLACEHOLDER" || pname == "nautilus") next
+
+            disabled = "false"
+            displayName = pname
+            if (category ~ /^DISABLED\./) {
+                disabled = "true"
+                sub(/^DISABLED\./, "", category)
+            }
+            if (pname ~ /^DISABLED\./) {
+                disabled = "true"
+                sub(/^DISABLED\./, "", displayName)
+            }
+
+            title = ""; desc = ""; author = ""
+            linenum = 0
+            while ((getline line < file) > 0 && linenum < 20) {
+                linenum++
+                if (line ~ /^# *Title:/) {
+                    sub(/^# *Title: */, "", line)
+                    title = line
+                } else if (line ~ /^# *Description:/) {
+                    sub(/^# *Description: */, "", line)
+                    desc = line
+                } else if (line ~ /^# *Author:/) {
+                    sub(/^# *Author: */, "", line)
+                    author = line
+                }
+                if (title && desc && author) break
+            }
+            close(file)
+
+            if (title == "") title = displayName
+
+            gsub(/[\t\r\n]/, " ", title); gsub(/\\/, "\\\\", title); gsub(/"/, "\\\"", title)
+            gsub(/[\t\r\n]/, " ", desc); gsub(/\\/, "\\\\", desc); gsub(/"/, "\\\"", desc)
+            gsub(/[\t\r\n]/, " ", author); gsub(/\\/, "\\\\", author); gsub(/"/, "\\\"", author)
+
+            entry = "{\"name\":\"" title "\",\"desc\":\"" desc "\",\"author\":\"" author "\",\"path\":\"" file "\",\"disabled\":" disabled "}"
+            if (category in cats) {
+                cats[category] = cats[category] "," entry
+            } else {
+                cats[category] = entry
+                catorder[++catcount] = category
+            }
+        }
+        END {
+            printf "{"
+            for (i = 1; i <= catcount; i++) {
+                if (i > 1) printf ","
+                printf "\"%s\":[%s]", catorder[i], cats[catorder[i]]
+            }
+            printf "}"
+        }
+        '
+    elif [ "$scan_mode" = "theme" ]; then
+        find "$root" -maxdepth 2 -name "theme.json" -print 2>/dev/null | \
+        awk '
+        BEGIN { ORS="" }
+        {
+            file = $0
+            n = split(file, parts, "/")
+            if (n < 2) next
+            tname = parts[n-1]
+
+            if (tname ~ /^DISABLED\./) next
+
+            title = tname; desc = ""; author = ""
+            while ((getline line < file) > 0) {
+                if (line ~ /"name"[ ]*:/) {
+                    gsub(/.*"name"[ ]*:[ ]*"/, "", line)
+                    gsub(/".*/, "", line)
+                    if (line != "") title = line
+                } else if (line ~ /"description"[ ]*:/) {
+                    gsub(/.*"description"[ ]*:[ ]*"/, "", line)
+                    gsub(/".*/, "", line)
+                    desc = line
+                } else if (line ~ /"author"[ ]*:/) {
+                    gsub(/.*"author"[ ]*:[ ]*"/, "", line)
+                    gsub(/".*/, "", line)
+                    author = line
+                }
+            }
+            close(file)
+
+            gsub(/[\t\r\n]/, " ", title); gsub(/\\/, "\\\\", title); gsub(/"/, "\\\"", title)
+            gsub(/[\t\r\n]/, " ", desc); gsub(/\\/, "\\\\", desc); gsub(/"/, "\\\"", desc)
+            gsub(/[\t\r\n]/, " ", author); gsub(/\\/, "\\\\", author); gsub(/"/, "\\\"", author)
+
+            category = "themes"
+            dirpath = file
+            sub(/\/theme\.json$/, "", dirpath)
+            entry = "{\"name\":\"" title "\",\"desc\":\"" desc "\",\"author\":\"" author "\",\"path\":\"" dirpath "\"}"
+            if (category in cats) {
+                cats[category] = cats[category] "," entry
+            } else {
+                cats[category] = entry
+                catorder[++catcount] = category
+            }
+        }
+        END {
+            printf "{"
+            for (i = 1; i <= catcount; i++) {
+                if (i > 1) printf ","
+                printf "\"%s\":[%s]", catorder[i], cats[catorder[i]]
+            }
+            printf "}"
+        }
+        '
+    elif [ "$scan_mode" = "ringtone" ]; then
+        find "$root" -maxdepth 1 -name "*.rtttl" -print 2>/dev/null | \
+        awk '
+        BEGIN { ORS="" }
+        {
+            file = $0
+            n = split(file, parts, "/")
+            fname = parts[n]
+            tname = fname
+            sub(/\.rtttl$/, "", tname)
+
+            if (tname ~ /^DISABLED\./) next
+
+            title = tname; desc = ""
+            if ((getline line < file) > 0) {
+                idx = index(line, ":")
+                if (idx > 0) {
+                    title = substr(line, 1, idx-1)
+                }
+            }
+            close(file)
+
+            gsub(/[\t\r\n]/, " ", title); gsub(/\\/, "\\\\", title); gsub(/"/, "\\\"", title)
+
+            category = "ringtones"
+            entry = "{\"name\":\"" title "\",\"desc\":\"\",\"author\":\"\",\"path\":\"" file "\"}"
+            if (category in cats) {
+                cats[category] = cats[category] "," entry
+            } else {
+                cats[category] = entry
+                catorder[++catcount] = category
+            }
+        }
+        END {
+            printf "{"
+            for (i = 1; i <= catcount; i++) {
+                if (i > 1) printf ","
+                printf "\"%s\":[%s]", catorder[i], cats[catorder[i]]
+            }
+            printf "}"
+        }
+        '
+    fi
+}
+
+scan_loot_live() {
+    local loot_dir="/root/loot"
+    echo "Content-Type: application/json"
+    echo ""
+    
+    if [ ! -d "$loot_dir" ]; then
+        echo '{}'
+        return
+    fi
+    
+    find "$loot_dir" -type f -print 2>/dev/null | \
+    awk -v root="$loot_dir" '
+    BEGIN { ORS="" }
+    {
+        file = $0
+        relpath = file
+        sub("^" root "/?", "", relpath)
+        
+        n = split(file, parts, "/")
+        fname = parts[n]
+        
+        if (index(relpath, "/") > 0) {
+            category = relpath
+            sub("/[^/]*$", "", category)
+        } else {
+            category = "files"
+        }
+        
+        cmd = "stat -c %s \"" file "\" 2>/dev/null || stat -f %z \"" file "\" 2>/dev/null"
+        cmd | getline fsize
+        close(cmd)
+        if (fsize == "") fsize = "0"
+        
+        gsub(/[\t\r\n]/, " ", fname); gsub(/\\/, "\\\\", fname); gsub(/"/, "\\\"", fname)
+        gsub(/[\t\r\n]/, " ", relpath); gsub(/\\/, "\\\\", relpath); gsub(/"/, "\\\"", relpath)
+        
+        entry = "{\"name\":\"" fname "\",\"desc\":\"" relpath "\",\"author\":\"\",\"path\":\"" file "\",\"size\":" fsize "}"
+        if (category in cats) {
+            cats[category] = cats[category] "," entry
+        } else {
+            cats[category] = entry
+            catorder[++catcount] = category
+        }
+    }
+    END {
+        printf "{"
+        for (i = 1; i <= catcount; i++) {
+            if (i > 1) printf ","
+            printf "\"%s\":[%s]", catorder[i], cats[catorder[i]]
+        }
+        printf "}"
+    }
+    '
+}
+
 action=""
 rpath=""
 response=""
@@ -916,6 +2717,16 @@ token=""
 nonce=""
 data=""
 github_url=""
+github_path=""
+force=""
+pr_path=""
+wifi_ssid=""
+wifi_password=""
+wifi_encryption=""
+wifi_bssid=""
+wifi_enable=""
+config_key=""
+config_value=""
 IFS='&'
 for param in $QUERY_STRING; do
     key="${param%%=*}"
@@ -928,13 +2739,23 @@ for param in $QUERY_STRING; do
         nonce) nonce=$(urldecode "$val") ;;
         data) data=$(urldecode "$val") ;;
         github_url) github_url=$(urldecode "$val") ;;
+        github_path) github_path=$(urldecode "$val") ;;
+        force) force=$(urldecode "$val") ;;
+        pr_path) pr_path=$(urldecode "$val") ;;
+        ssid) wifi_ssid=$(urldecode "$val") ;;
+        password) wifi_password=$(urldecode "$val") ;;
+        encryption) wifi_encryption=$(urldecode "$val") ;;
+        bssid) wifi_bssid=$(urldecode "$val") ;;
+        enable) wifi_enable=$(urldecode "$val") ;;
+        key) config_key=$(urldecode "$val") ;;
+        value) config_value=$(urldecode "$val") ;;
     esac
 done
 unset IFS
 
 case "$action" in
     challenge|auth|check_session) ;;
-    run|run_github) ;;
+    run|run_github|install_github|install_pr|wifi_scan|wifi_connect) ;;
     *)
         csrf_check "$action"
         require_auth
@@ -959,9 +2780,29 @@ case "$action" in
     token) require_auth; generate_token ;;
     run) require_auth; run_payload "$rpath" "$token" ;;
     run_github) require_auth; run_github "$github_url" "$token" ;;
+    install_github) require_auth; install_github "$github_url" "$token" "$force" ;;
+    install_pr) require_auth; install_pr "$github_url" "$token" "$force" "$pr_path" ;;
+    check_local) require_auth; check_local_exists "$github_path" ;;
     stop) require_auth; stop_payload ;;
+    delete_payload) require_auth; delete_payload "$rpath" ;;
+    view_source) require_auth; view_source "$rpath" ;;
     respond) require_auth; respond "$response" ;;
-    refresh) require_auth; /root/payloads/user/general/nautilus/build_cache.sh; echo "Content-Type: application/json"; echo ""; echo '{"status":"refreshed"}' ;;
+    refresh) require_auth; /root/payloads/user/remote_access/nautilus/build_cache.sh; echo "Content-Type: application/json"; echo ""; echo '{"status":"refreshed"}' ;;
+    wifi_status) require_auth; wifi_status ;;
+    wifi_scan) require_auth; wifi_scan ;;
+    wifi_connect) require_auth; wifi_connect "$wifi_ssid" "$wifi_password" "$wifi_encryption" "$wifi_bssid" ;;
+    wifi_disconnect) require_auth; wifi_disconnect ;;
+    wifi_toggle) require_auth; wifi_toggle_client_mode "$wifi_enable" ;;
+    get_config) require_auth; get_config "$config_key" ;;
+    set_config) require_auth; set_config "$config_key" "$config_value" ;;
+    del_config) require_auth; del_config "$config_key" ;;
+    get_favourites) require_auth; get_favourites ;;
+    set_favourites) require_auth; set_favourites ;;
+    download_loot) require_auth; download_loot "$rpath" ;;
+    download_loot_all) require_auth; download_loot_all ;;
+    delete_loot) require_auth; delete_loot "$rpath" ;;
+    scan_loot) require_auth; scan_loot_live ;;
+    scan_local) require_auth; scan_local_resource "$rpath" ;;
     *) echo "Content-Type: application/json"; echo ""; echo '{"error":"Unknown action"}' ;;
 esac
 

@@ -3,7 +3,7 @@
 # Description: Configure and start captive portal on lan interfaces
 # Purpose: Display educational captive portal page with no additional configuration
 # Author: spencershepard (GRIMM)
-# Version: 1.2
+# Version: 1.3
 
 # IMPORTANT!  As of Pager Firware 1.0.4 the opkg source list is broken with a missing repository.  
 # To fix, comment out or remove the offending line (Hak5) in /etc/opkg/distfeeds.conf before installing packages.
@@ -41,7 +41,10 @@
 #       - Added installation option for pre-built Evil Portals collection (github.com/kleo/evilportals)
 #       - Redirect page after credential capture now waits for internet access instead of fixed delay (with fake progress bar)
 #       - Whitelist now uses IP addresses instead of MAC addresses
-
+#    1.3 - Fixed captive portal auto-detection race condition on WiFi Pineapple Pager
+#	- Improved Android captive portal reliability (prevents ERR_SSL_PROTOCOL_ERROR)
+#	- Restart GoodPortal DNS hijack safely without affecting system dnsmasq
+#	- Replaced deprecated ALERT_RINGTONE with ALERT in whitelist monitor
 # Todo:
 #   - add portal directory name to credentials log for easier identification
 #   - improve time delay after whitelisting and before client can access internet (currently 60+ seconds as of v1.2)
@@ -735,5 +738,31 @@ LOG yellow "'Connection refused' errors may be due to client DNS caching https."
 LOG " Run goodportal Configure again to restart after reboot or change portals. "
 LOG " Run goodportal Clear Whitelist to reset client whitelist." 
 LOG purple "Installed packages will persist, so running goodportal Configure again will be much faster after initial setup!"
+
+
+LOG "Forcing captive portal re-detection..."
+
+sleep 2
+
+# Reset TCP state without breaking DNS
+/etc/init.d/firewall restart
+
+# Restart GoodPortal DNS hijack ONLY (do NOT touch system dnsmasq)
+if [ -f /tmp/goodportal-dns.pid ]; then
+    kill "$(cat /tmp/goodportal-dns.pid)" 2>/dev/null
+fi
+
+dnsmasq --no-hosts --no-resolv \
+    --address=/#/${PORTAL_IP} \
+    --dns-forward-max=1 \
+    --cache-size=0 \
+    -p 1053 \
+    --listen-address=0.0.0.0,::1 \
+    --bind-interfaces &
+
+echo $! > /tmp/goodportal-dns.pid
+
+LOG green "SUCCESS: Captive portal re-detection triggered"
+
 
 exit 0

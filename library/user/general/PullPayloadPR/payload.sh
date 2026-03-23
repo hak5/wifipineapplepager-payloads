@@ -2,7 +2,7 @@
 # Title: Pull Payload PR
 # Author: Austin (git@austin.dev)
 # Description: Downloads and overwrites payloads from a specific GitHub Pull Request
-# Version: 1.1
+# Version: 1.2 (pagination fix by Hackazillarex)
 
 GH_ORG="hak5"
 GH_REPO="wifipineapplepager-payloads"
@@ -49,7 +49,6 @@ check_and_install_packages() {
     LED SETUP
     LOG "Checking required packages..."
     
-    local need_update=true
     local packages=""
     
     ! which curl > /dev/null && ! which wget > /dev/null && packages="curl"
@@ -104,18 +103,35 @@ fetch_pr_info() {
     return 0
 }
 
+# Updated fetch_pr_files with pagination
 fetch_pr_files() {
+    local page=1
     local temp_json="/tmp/pr_files_$$.json"
-    
-    if ! fetch_url "https://api.github.com/repos/$GH_ORG/$GH_REPO/pulls/$1/files" "$temp_json"; then
-        rm -f "$temp_json"
-        return 1
-    fi
-    
-    grep -o '"filename"[[:space:]]*:[[:space:]]*"[^"]*"' "$temp_json" | \
-        sed 's/"filename"[[:space:]]*:[[:space:]]*"\(.*\)"/\1/' > "$CHANGED_FILES"
+
+    : > "$CHANGED_FILES"
+
+    while true; do
+        if ! fetch_url \
+            "https://api.github.com/repos/$GH_ORG/$GH_REPO/pulls/$1/files?per_page=100&page=$page" \
+            "$temp_json"; then
+            rm -f "$temp_json"
+            return 1
+        fi
+
+        # Extract filenames
+        grep -o '"filename"[[:space:]]*:[[:space:]]*"[^"]*"' "$temp_json" | \
+            sed 's/"filename"[[:space:]]*:[[:space:]]*"\(.*\)"/\1/' >> "$CHANGED_FILES"
+
+        # Stop if no files returned
+        if ! grep -q '"filename"' "$temp_json"; then
+            break
+        fi
+
+        page=$((page + 1))
+    done
+
     rm -f "$temp_json"
-    
+
     [ -s "$CHANGED_FILES" ] || return 1
     return 0
 }

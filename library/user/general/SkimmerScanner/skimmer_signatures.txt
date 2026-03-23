@@ -1,0 +1,48 @@
+# Skimmer Signature Database
+#
+# This file contains patterns to identify known credit card skimmer devices.
+# Each line is a regex pattern that will be matched against:
+# - Device MAC address
+# - Device name
+# - Vendor/Manufacturer name
+#
+# Lines starting with # are comments and will be ignored.
+# Empty lines are also ignored.
+#
+# USAGE: Add one pattern per line. Patterns are case-insensitive.
+#
+# === KNOWN SKIMMER MODULE NAMES ===
+HC-05
+HC-06
+BT04
+BT05
+JDY-08
+JDY-09
+JDY-10
+JDY-16
+JDY-17
+MLT-BT
+SPP-C
+linvor
+RNBT-
+
+# === GENERIC BLUETOOTH SERIAL MODULES ===
+^BT[0-9]{2}$
+^HC-[0-9]{2}$
+
+# === SUSPICIOUS MAC PREFIXES (OUI) ===
+# Add specific MAC prefixes of known skimmer hardware here
+# Example: 00:11:22
+# These are left empty by default - add as you discover them
+
+# === SUSPICIOUS VENDORS ===
+# These will be matched against the OUI vendor lookup
+# Uncomment if you want to flag these as suspicious
+# Note: These are legitimate manufacturers but commonly used in DIY skimmers
+# Bluegiga
+# Laird Technologies
+# Silicon Labs
+# CSR
+
+# === CUSTOM SIGNATURES ===
+# Add your own patterns below based on local discoveries

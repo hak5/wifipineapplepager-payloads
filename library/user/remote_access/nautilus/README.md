@@ -8,14 +8,17 @@
 
 <p align="center">
 <img src="https://img.shields.io/badge/Platform-WiFi%20Pineapple%20Pager-00d4aa?style=flat-square" />
-<img src="https://img.shields.io/badge/Version-1.3.0-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.6.1-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Author-JustSomeTrout-purple?style=flat-square" />
+</p>
+<p align="center">
+<a href="https://trello.com/b/AjPFVdmc/nautilus"><img src="https://img.shields.io/badge/Trello-Roadmap-0052CC?style=flat-square&logo=trello&logoColor=white" /></a>
 </p>
 
 ```
     Title: Nautilus
     Author: JustSomeTrout (Trout / troot.)
-    Developed for Firmware version 1.0.4
+    Developed for Firmware version 1.0.6
     Category: Remote Access / Utility
     Web-based payload launcher with GitHub integration.
     Control your Pager from any device on the network.
@@ -24,25 +27,18 @@
 ```
 
 <p align="center">
-<img width="1675" height="1098" alt="Nautilus Dashboard" src="https://github.com/user-attachments/assets/b8538b40-b585-4828-9819-cf73c137980b" />
+<img width="3100" height="1359" alt="Nautilus Dashboard" src="https://github.com/user-attachments/assets/06e6860e-fd6f-4f24-beb9-1c6d09914403" />
 </p>
 
 <p align="center">
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
 </p>
 
+---
+
 ## Overview
 
 **Nautilus** transforms your WiFi Pineapple Pager into a web-accessible payload command center. Launch, monitor, and interact with payloads from your phone, laptop, tablet, or any device with a browser.
-
-### 🚀 NEW in v1.3: GitHub Integration
-
-**Run payloads directly from GitHub without installing them!** Nautilus now connects to the official [wifipineapplepager-payloads](https://github.com/hak5/wifipineapplepager-payloads) repository, letting you:
-
-- **Browse Merged Payloads**: Access the entire official payload library instantly
-- **Test Pull Requests**: Run payloads from open PRs before they're merged
-- **Zero Installation**: Payloads download to temp storage, execute, and clean up automatically
-- **Stay Current**: Always run the latest version without manual updates
 
 **Nautilus answers the question:**
 
@@ -54,17 +50,104 @@ No more fumbling with D-pad navigation or manual file transfers. Just point, cli
 <img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
 </p>
 
+## New in 1.8.0
+
+### Added
+
+- **Themes Support**: New resource type for browsing and managing pager themes
+  - Scans `/root/themes/` for local themes (looks for `theme.json`)
+  - Fetches from `hak5/wifipineapplepager-themes` GitHub repo for Merged/PRs
+  - Parses theme metadata (name, description, author) from `theme.json`
+- **Ringtones Support**: New resource type for browsing RTTTL ringtones
+  - Scans `/root/ringtones/` for local `.rtttl` files
+  - Fetches from `hak5/wifipineapplepager-ringtones` GitHub repo for Merged/PRs
+  - Extracts ringtone name from RTTTL format
+- **Dynamic Repository Selection**: Each resource type now fetches from its own GitHub repository
+- **Per-resource Caching**: Separate localStorage cache for each resource type's Merged and PR data
+
+### Changed
+
+- `build_cache.sh`: Added `scan_themes()` and `scan_ringtones()` functions for new resource types
+- `api.sh`: Updated path validation to allow `/root/themes/` and `/root/ringtones/`
+- `index.html`: Added Themes and Ringtones tabs in resource selector row
+- Resource paths updated: `RESOURCE_REPOS` and `RESOURCE_PATHS` now include themes and ringtones
+
+## New in 1.7.1
+
+### Added
+
+- **Origin Proxy (`proxy.py`)**: Python TCP proxy on port 8890 that rewrites WebSocket `Origin` header to bypass Cross-Origin restrictions when connecting to the Pineapple API (port 1471).
+- **Auth Token Passthrough**: `api.sh` now proxies login to port 1471 and returns auth token, allowing Nautilus to set the required cookie.
+- **Python 3 Requirement**: Nautilus now requires Python 3 to run. Payloads will prompt to install python3 if not found.
+
+### Fixed
+
+- **Error Overlay**: Fixed "Lost connection" message appearing on top of working pager. Switched from `hidden` attribute to `display: none/flex` for consistent visibility control.
+- **Layout Gaps**: Fixed sliced-image table layout gaps by resetting padding/font-size on cells.
+
+## New in 1.7.0
+
+### Added
+
+- **Virtual Pager Integration**: Integrated the Virtual Pager UI into Nautilus.
+  - Adds a "Toggle Pager" button in the shell header.
+  - Displays the live pager screen above the terminal.
+  - Supports virtual button inputs (D-pad, A, B).
+- **Responsive Pager Dashboard**: The Virtual Pager automatically scales to fit available width while maintaining pixel-perfect layout.
+
+## New in 1.6.x
+
+| Feature | Description |
+|---------|-------------|
+| **Resource Type Selector** | Switch between Payloads, Alerts, and Recon from a new top-level navigation bar |
+| **Multi-Resource Support** | Browse and run payloads from `/root/payloads/user/`, `/root/payloads/alerts/`, and `/root/payloads/recon/` |
+| **Resizable Panels** | Drag-to-resize handles between sidebar, detail panel, console, and shell |
+| **Persistent Layout** | Panel sizes saved to localStorage and restored on reload |
+| **Dynamic GitHub Paths** | Merged tab fetches from corresponding GitHub paths for each resource type |
+
+<p align="center">
+<img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
+</p>
+
+## New in 1.5.x
+
+| Feature | Description |
+|---------|-------------|
+| **Background Service Mode** | Run Nautilus as a persistent background service that survives payload exit |
+| **Foreground Mode** | Classic mode - payload stays running until you press B to exit |
+| **Service Management** | Re-run payload to stop the service when running in background mode |
+| **Virtual Button Panel** | Web-based D-pad and A/B buttons for payloads using `WAIT_FOR_INPUT` or `WAIT_FOR_BUTTON_PRESS` |
+| **Smart Button Filtering** | Only allowed buttons are clickable - others are dimmed and disabled |
+| **Shell on Any Interface** | ttyd shell now accessible from any network interface, not just br-lan |
+| **Syntax Highlighting Fix** | Fixed View Source display for comments containing quotes |
+| **Settings Panel** | Configure Nautilus preferences via the web UI settings button |
+| **Auto Run Mode** | Skip the background/foreground prompt and auto-start with your preferred mode |
+| **Favourites** | Star your most-used payloads from Local or Merged tabs for quick access |
+
+<p align="center">
+<img width="600" height="4" alt="" src="https://github.com/user-attachments/assets/8560a6c9-b1f1-4eed-ac94-bd9e14d36ac5" />
+</p>
+
 ## Features
+
+### Run Modes
+- **Background Service**: Run Nautilus as a persistent service that survives payload exit (select Yes at startup)
+- **Foreground Mode**: Classic mode where payload stays running until you press B to exit (select No at startup)
+- **Service Management**: Re-run the payload to stop the service when running in background mode
 
 ### Core Functionality
 - **Browse All Payloads**: Organized by category with collapsible sections
 - **Search**: Find payloads instantly with live filtering
 - **Payload Details**: View title, description, author, and version
+- **View Source**: Inspect payload.sh content before running
 - **One-Click Execution**: Run any payload with a single tap
 - **Live Console**: Watch output stream in real-time with color support
 - **Stop Control**: Abort running payloads at any time
+- **Delete Payloads**: Remove local payloads directly from the web interface
+- **Shell Terminal**: Full interactive shell access with PTY support
+- **Virtual Button Panel**: D-pad and A/B buttons for payloads using `WAIT_FOR_INPUT`
 
-### 🌐 GitHub Integration (NEW in v1.3)
+### 🌐 GitHub Integration
 
 Nautilus now has three payload sources accessible via tabs:
 
@@ -80,6 +163,28 @@ Nautilus now has three payload sources accessible via tabs:
 - **Test New Payloads**: PRs tab lets you try community contributions before they're approved
 - **Automatic Cleanup**: Downloaded payloads are removed after execution
 - **Cached for Speed**: GitHub payload list is cached locally for fast browsing
+- **Install to Local**: Save GitHub payloads permanently to your Pager with one click
+
+### ⭐ Favourites
+
+Star your most-used payloads for quick access:
+
+- **Favourites Tab**: Dedicated tab above Local/Merged/PRs for your starred payloads
+- **Star from Anywhere**: Click the star icon when viewing any Local or Merged payload
+- **Source Tracking**: Each favourite shows whether it came from Local or Merged
+- **Dual Favouriting**: The same payload can be favourited from both Local and Merged separately
+- **Quick Unfavourite**: Click the star in the favourites list to remove instantly
+- **Persistent Storage**: Favourites are saved to config and persist across sessions
+- **Stale Detection**: If a favourited payload is removed, you'll see a "Not Found" message with option to remove it
+
+### 📶 WiFi Client Mode
+
+Configure your Pager's WiFi client connection directly from Nautilus:
+
+- **Scan Networks**: Browse available WiFi networks with signal strength indicators
+- **Connect**: Enter credentials and connect to any network
+- **Disconnect**: Drop the current connection with one click
+- **Toggle Client Mode**: Enable/disable the client interface
 
 ### Interactive Prompts
 Nautilus intercepts and displays DuckyScript prompts in the web UI:
@@ -108,7 +213,8 @@ Nautilus includes multiple layers of protection against web-based attacks:
 | **Session Management** | Authenticated sessions with secure cookies |
 | **Origin/Referer Validation** | Blocks cross-origin requests from malicious websites |
 | **One-Time Tokens** | CSRF tokens required for payload execution |
-| **Path Traversal Protection** | Prevents `/../` directory escape attacks |
+| **Path Traversal Protection** | Prevents `/../` directory escape attacks in local and GitHub URLs |
+| **GitHub URL Validation** | Only allows payloads from `wifipineapplepager-payloads` repositories |
 | **Response Injection Protection** | Blocks shell metacharacters in user input |
 | **Payload Path Validation** | Only executes files matching `/root/payloads/user/*/payload.sh` |
 | **XSS Protection** | HTML escaping on all dynamic content including category names |
@@ -184,7 +290,9 @@ Nautilus includes multiple layers of protection against web-based attacks:
 │  │  ├── TEXT_PICKER        → Prompt via SSE              │  │
 │  │  ├── NUMBER_PICKER      → Prompt via SSE              │  │
 │  │  ├── IP_PICKER          → Prompt via SSE              │  │
-│  │  └── MAC_PICKER         → Prompt via SSE              │  │
+│  │  ├── MAC_PICKER         → Prompt via SSE              │  │
+│  │  ├── WAIT_FOR_INPUT     → Button panel via SSE        │  │
+│  │  └── WAIT_FOR_BUTTON_PRESS → Button panel via SSE     │  │
 │  └───────────────────────────────────────────────────────┘  │
 │                              │                              │
 │                              ▼                              │
@@ -209,7 +317,7 @@ When you run a payload from the **Merged** or **PRs** tab:
 When you run a payload through Nautilus, it doesn't run directly. Instead:
 
 1. **Wrapper Created**: A temporary script defines wrapper functions for all DuckyScript commands
-2. **Functions Exported**: `LOG`, `LED`, `CONFIRMATION_DIALOG`, etc. are exported to subshells
+2. **Functions Exported**: `LOG`, `LED`, `CONFIRMATION_DIALOG`, `WAIT_FOR_INPUT`, etc. are exported to subshells
 3. **Payload Sourced**: Your payload runs with wrapper functions taking precedence
 4. **Output Captured**: All stdout/stderr streams to `/tmp/nautilus_output.log`
 5. **SSE Polling**: The CGI backend polls the log file every 200ms for new lines
@@ -363,6 +471,16 @@ The spinner overlay includes a kill button (X) to abort the payload if needed.
 | `IP_PICKER "title" "192.168.1.1"` | IP input | IP address |
 | `MAC_PICKER "title" "00:11:22:33:44:55"` | MAC input | MAC address |
 | `PROMPT "message"` | Text input | User's text |
+
+### Button Input Commands (Virtual D-Pad)
+
+| Command | Behavior | Returns |
+|---------|----------|---------|
+| `WAIT_FOR_INPUT` | Shows all buttons, waits for any press | `UP`, `DOWN`, `LEFT`, `RIGHT`, `A`, or `B` |
+| `WAIT_FOR_BUTTON_PRESS UP` | Shows only UP button enabled | `UP` |
+| `WAIT_FOR_BUTTON_PRESS A B` | Shows A and B buttons enabled | `A` or `B` |
+
+The virtual button panel appears at the bottom of the console when a payload requests button input. Only allowed buttons are clickable - others are dimmed and disabled.
 
 ### Passthrough Commands
 

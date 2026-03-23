@@ -69,26 +69,20 @@ export PRETASK_ID=1
 export CRACKER_VERSION_ID=1
 
 # =============================================================================
-# CONFIGURATION VALIDATION
+# CONFIGURATION STORAGE HELPER
 # =============================================================================
-# These checks run when the payload executes to catch common config errors
+# Call push_payload_config from the payload when you want to persist settings.
 
-if [[ -z "$HASHTOPOLIS_URL" ]]; then
-    echo "ERROR: HASHTOPOLIS_URL is not set in config.sh"
-    exit 1
-fi
+push_payload_config() {
+    : "${PAYLOAD_NAME:=hashtopolis_manual_upload}"
 
-if [[ -z "$API_KEY" ]]; then
-    echo "ERROR: API_KEY is not set in config.sh"
-    exit 1
-fi
-
-if [[ -z "$PRETASK_ID" ]]; then
-    echo "ERROR: PRETASK_ID is not set in config.sh"
-    exit 1
-fi
-
-if [[ -z "$CRACKER_VERSION_ID" ]]; then
-    echo "ERROR: CRACKER_VERSION_ID is not set in config.sh"
-    exit 1
-fi
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" hashtopolisurl "$HASHTOPOLIS_URL"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" apikey "$API_KEY"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" hashtype "$HASH_TYPE"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" accessgroupid "$ACCESS_GROUP_ID"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" secrethashlist "$SECRET_HASHLIST"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" usebrain "$USE_BRAIN"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" brainfeatures "$BRAIN_FEATURES"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" pretaskid "$PRETASK_ID"
+    PAYLOAD_SET_CONFIG "$PAYLOAD_NAME" crackerversionid "$CRACKER_VERSION_ID"
+}

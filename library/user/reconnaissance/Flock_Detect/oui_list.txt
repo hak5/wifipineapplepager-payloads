@@ -1,0 +1,69 @@
+70:C9:4E|FLOCK_VERIFIED|Flock Falcon WiFi (WiGLE verified)
+3C:91:80|FLOCK_VERIFIED|Flock Falcon WiFi (WiGLE verified)
+D8:F3:BC|FLOCK_VERIFIED|Flock Falcon WiFi (WiGLE verified)
+08:3A:88|FLOCK_VERIFIED|Flock Falcon WiFi (WiGLE verified)
+14:5A:FC|FLOCK_VERIFIED|Flock Falcon WiFi (WiGLE verified)
+58:8E:81|FLOCK_BATTERY|Flock FS Ext Battery (WiGLE verified)
+EC:1B:BD|FLOCK_BATTERY|Flock FS Ext Battery (WiGLE verified)
+90:35:EA|FLOCK_BATTERY|Flock FS Ext Battery (WiGLE verified)
+94:34:69|FLOCK_BATTERY|Flock FS Ext Battery (WiGLE verified)
+F0:82:C0|FLOCK_BATTERY|Flock FS Ext Battery (WiGLE verified)
+74:4C:A1|LITEON|Lite-On (Flock WCBN3510A chipset)
+80:30:49|LITEON|Lite-On (Flock WCBN3510A chipset)
+00:22:5F|LITEON|Lite-On Technology
+08:ED:B9|LITEON|Lite-On Technology
+0C:54:15|LITEON|Lite-On Technology
+18:CF:5E|LITEON|Lite-On Technology
+1C:65:9D|LITEON|Lite-On Technology
+20:68:9D|LITEON|Lite-On Technology
+28:E3:1F|LITEON|Lite-On Technology
+2C:D0:5A|LITEON|Lite-On Technology
+30:52:CB|LITEON|Lite-On Technology
+34:02:86|LITEON|Lite-On Technology
+3C:A0:67|LITEON|Lite-On Technology
+40:A3:CC|LITEON|Lite-On Technology
+44:6D:57|LITEON|Lite-On Technology
+48:A4:72|LITEON|Lite-On Technology
+4C:80:93|LITEON|Lite-On Technology
+54:27:1E|LITEON|Lite-On Technology
+58:00:E3|LITEON|Lite-On Technology
+5C:93:A2|LITEON|Lite-On Technology
+60:36:DD|LITEON|Lite-On Technology
+60:D8:19|LITEON|Lite-On Technology
+64:5A:04|LITEON|Lite-On Technology
+68:14:01|LITEON|Lite-On Technology
+6C:71:D9|LITEON|Lite-On Technology
+70:1A:04|LITEON|Lite-On Technology
+78:92:9C|LITEON|Lite-On Technology
+7C:B2:7D|LITEON|Lite-On Technology
+84:EF:18|LITEON|Lite-On Technology
+88:78:73|LITEON|Lite-On Technology
+8C:88:2B|LITEON|Lite-On Technology
+94:08:53|LITEON|Lite-On Technology
+98:54:1B|LITEON|Lite-On Technology
+9C:2F:9D|LITEON|Lite-On Technology
+A0:C5:89|LITEON|Lite-On Technology
+A4:34:D9|LITEON|Lite-On Technology
+A8:6B:AD|LITEON|Lite-On Technology
+AC:7B:A1|LITEON|Lite-On Technology
+B0:72:BF|LITEON|Lite-On Technology
+B4:8B:19|LITEON|Lite-On Technology
+B8:EE:65|LITEON|Lite-On Technology
+BC:85:56|LITEON|Lite-On Technology
+C0:18:50|LITEON|Lite-On Technology
+CC:B0:DA|LITEON|Lite-On Technology
+D0:39:57|LITEON|Lite-On Technology
+D4:6A:6A|LITEON|Lite-On Technology
+DC:85:DE|LITEON|Lite-On Technology
+E0:06:E6|LITEON|Lite-On Technology
+E4:70:B8|LITEON|Lite-On Technology
+E8:61:7E|LITEON|Lite-On Technology
+E8:2A:44|LITEON|Lite-On Technology
+EC:62:60|LITEON|Lite-On Technology
+F0:03:8C|LITEON|Lite-On Technology
+F8:63:3F|LITEON|Lite-On Technology
+00:14:3E|SIERRA|Sierra Wireless LTE modem
+00:A0:D5|SIERRA|Sierra Wireless LTE modem
+74:58:F3|SIERRA|Sierra Wireless LTE modem
+00:20:4A|LANTRONIX|Lantronix SOM
+00:80:A3|LANTRONIX|Lantronix SOM
