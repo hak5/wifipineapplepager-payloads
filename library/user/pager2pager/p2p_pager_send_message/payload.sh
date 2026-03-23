@@ -25,6 +25,10 @@ for network in $NETWORKS; do
     i=$((i + 1))
 done
 
+LOG " "
+LOG "Waiting for user input..."
+WAIT_FOR_INPUT
+
 # pick a network using a number
 network_choice=$(NUMBER_PICKER "Select a network to send the message on:" 1)
 selected_network=$(echo $NETWORKS | awk -v choice=$network_choice '{print $choice}')
