@@ -64,7 +64,13 @@ main() {
         3)
             if [ -f "$NETWORKS_CONF" ]; then
                 LOG "Configured Networks:"
-                cat "$NETWORKS_CONF"
+                networks=()
+                while IFS= read -r line; do
+                    networks+=("$line")
+                done < "$NETWORKS_CONF"
+                for network in "${networks[@]}"; do
+                    LOG " - $network"
+                done
             else
                 LOG "No networks configured."
             fi
