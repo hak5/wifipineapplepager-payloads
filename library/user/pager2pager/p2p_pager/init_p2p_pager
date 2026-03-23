@@ -4,7 +4,7 @@ START=99
 
 start(){
     procd_open_instance
-    procd_set_param command /bin/bash /usr/local/bin/p2p_pager/p2p_pager.sh
+    procd_set_param command p2p_pager
     procd_set_param respawn
     procd_close_instance
 }

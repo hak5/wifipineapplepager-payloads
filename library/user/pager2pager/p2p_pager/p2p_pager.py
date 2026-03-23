@@ -18,6 +18,11 @@ NETWORKS_CONFIG_FILE = os.path.join(CONFIG_DIR, "networks.conf")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "p2p_pager.conf")
 SEEN_MESSAGES_FILE = os.path.join("/var", "seen_messages.db")
 
+message_queue = asyncio.Queue()
+seen_messages = {}
+
+
+
 # Load configuration
 def load_config():
     """
@@ -55,7 +60,7 @@ def load_config():
             for line in f:
                 key, value = line.strip().split('=')
                 if key in config:
-                    if key in ["beacon_interval", "rebroadcast_duration", "decay_time"]:
+                    if key in ["beacon_interval", "broadcast_duration", "decay_time"]:
                         config[key] = float(value)
                     elif key == "max_message_length":
                         config[key] = int(value)
@@ -283,7 +288,7 @@ def create_beacon_frame(ssid, bssid, channel, custom_vendor_data):
 
     return beacon
 
-def receive_messages(sock, decay_time, message_prefix, decay_prefix):
+async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
     """
     Receive beacon frames from a socket and process embedded messages with decay logic.
     Listens for WiFi beacon frames, extracts SSID and vendor tag data, and manages
@@ -311,7 +316,7 @@ def receive_messages(sock, decay_time, message_prefix, decay_prefix):
         - Prints messages to console for new, rebroadcast, and decay events
         - Executes asynchronous rebroadcast operations via asyncio
     """
-    global seen_messages, networks
+    global seen_messages, networks, message_queue
     """Receive beacon frames and extract messages then starts a rebroadcast if new asynchronously"""
     
     # Set receive buffer size
@@ -330,7 +335,7 @@ def receive_messages(sock, decay_time, message_prefix, decay_prefix):
         
         if len(ssid_prefix) > 0 and not ssid.startswith(ssid_prefix):
             continue
-        if ssid not in networks:
+        if ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid not in networks:
             continue
         for key, data in vendor_tags.items():
             message = data.decode('utf-8', errors='ignore')
@@ -339,6 +344,7 @@ def receive_messages(sock, decay_time, message_prefix, decay_prefix):
             if message.startswith(message_prefix):
                 full_message = message[len(message_prefix):]
                 message_id = f"{full_message}:{ssid}"
+                detailed_message = f"{full_message}:{ssid}:{channel}"
                 
                 if message_id in seen_messages:
                     last_seen = seen_messages[message_id]
@@ -346,8 +352,9 @@ def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                         # Decay time passed, rebroadcast
                         seen_messages[message_id] = current_time
                         print(f"Rebroadcasting message: {full_message} from SSID: {ssid}")
-                        # Start rebroadcast in a separate thread/process
-                        # (Implementation of rebroadcasting not shown here)
+                        
+                        # Add to message queue for processing
+                        asyncio.create_task(message_queue.put(detailed_message))
                     else:
                         # Recently seen, ignore but update timestamp
                         seen_messages[message_id] = current_time
@@ -355,23 +362,60 @@ def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                     # New message, rebroadcast
                     seen_messages[message_id] = current_time
                     print(f"New message received: {full_message} from SSID: {ssid}")
-                    # Start rebroadcast in a separate thread/process
-                    # (Implementation of rebroadcasting not shown here)
-            
+                    # Add to message queue for processing
+                    asyncio.create_task(message_queue.put(detailed_message))
+
             elif message.startswith(decay_prefix):
                 decay_message = message[len(decay_prefix):]
                 decay_id = f"{decay_message}:{ssid}"
                 if decay_id in seen_messages:
                     del seen_messages[decay_id]
                     print(f"Decay message received, removing: {decay_message} from SSID: {ssid}")
-        
-        # Send messages asynchronously
-        asyncio.run(rebroadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, REBROADCAST_DURATION, custom_message=full_message, network=networks[ssid]))
-        
 
 
-# Async rebroadcast function
-async def rebroadcast_message(interface, ssid, channel, interval, uptime, custom_message=None, network=None):
+async def handle_queue():
+    while True:
+        message = await message_queue.get()
+        # Process the message (broadcast, alert, etc.)
+        asyncio.create_task(send_alert(message))
+        # Extract ssid and channel from detailed message
+        parts = message.split(':', 2)
+        if len(parts) == 3:
+            full_message, ssid, channel = parts[0], parts[1], int(parts[2])
+            await broadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, REBROADCAST_DURATION, custom_message=full_message)
+        else:
+            print(f"Invalid message format: {message}")
+        
+        message_queue.task_done()
+
+# Listen on a local port for new messages to send, and add them to the queue at the start and add them to seen messages to avoid rebroadcasting them immediately
+async def listen_for_new_messages(port):
+    global seen_messages, message_queue
+    server = await asyncio.start_server(lambda r, w: handle_new_message(r, w), 'localhost', port)
+    print(f"Listening for new messages on port {port}...")
+    # the server will run indefinitely until the program is stopped
+    # the data received from clients will include the message to send and the SSID to send it on, separated by a comma and optionally a decay time in seconds to override the default decay time for this message
+    async with server:
+        await server.serve_forever()
+
+async def handle_new_message(reader, writer):
+    global seen_messages, networks, channel, max_message_length
+    data = await reader.read(1024)
+    message = data.decode('utf-8').strip()
+    parts = message.split(',', 2)
+    if len(parts) < 2:
+        print(f"Invalid message format: {message}")
+        return
+    ssid, custom_message = parts[0], parts[1]
+    decay_time = networks.get(ssid, {}).get("decay_time", decay_time)
+    channel = networks.get(ssid, {}).get("channel", channel)
+    # Add to seen messages with decay time
+    seen_messages[f"{custom_message}:{ssid}"] = time.time() + decay_time
+    # Add to message queue for processing with detailed message format
+    asyncio.create_task(message_queue.put(f"{custom_message}:{ssid}:{channel}"))
+
+# Async broadcast function
+async def broadcast_message(interface, message_prefix, channel, interval, uptime, custom_message=None, network=None):
     """
     Asynchronously broadcast beacon frames with custom vendor data at specified intervals.
     This function creates and sends IEEE 802.11 beacon frames over a specified wireless
@@ -379,15 +423,14 @@ async def rebroadcast_message(interface, ssid, channel, interval, uptime, custom
     regular intervals for a specified duration.
     Args:
         interface (str): Network interface name (e.g., 'wlan0') to send beacons on.
-        ssid (str): Service Set Identifier (network name) to broadcast in beacon frames.
+        message_prefix (str): Prefix to be added to the custom message.
         channel (int): WiFi channel number (1-14 for 2.4GHz, 36+ for 5GHz) to transmit on.
         interval (float): Time in seconds between consecutive beacon transmissions.
         uptime (float): Duration in seconds to send beacons. If <= 0, beacons are sent indefinitely.
         custom_message (str, optional): Custom message to include in vendor data tag 221.
             Defaults to None, which uses a standard message. Maximum length is 251 bytes
             (255 - 4 bytes for OUI and type).
-        network (dict, optional): Network configuration dictionary. Currently unused but
-            reserved for future extensions. Defaults to None.
+        network (str): On what network to send the message, used for custom configurations. Defaults to None.
     Raises:
         OSError: If socket creation, binding, or sending fails.
         Exception: Various socket operation exceptions are caught and silently ignored.
@@ -410,6 +453,9 @@ async def rebroadcast_message(interface, ssid, channel, interval, uptime, custom
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 262144)
     except Exception:
         pass
+    
+    # Combine message prefix with network to the ssid for broadcasting
+    ssid = f"{message_prefix}{network}" if network else message_prefix
 
     # Non-blocking socket for faster loop control
     sock.setblocking(False)
@@ -425,9 +471,9 @@ async def rebroadcast_message(interface, ssid, channel, interval, uptime, custom
     message_bytes = custom_message.encode('utf-8') if custom_message else message.encode('utf-8')
 
     # Validate vendor data length (221 tag uses 1-byte length)
-    if len(message_bytes) + 4 > 255:
+    if len(message_bytes) + 4 > max_message_length:
         # 3-byte OUI + 1-byte type + message
-        message_bytes = message_bytes[:255-4]
+        message_bytes = message_bytes[:max_message_length-4]
 
     beacon_frame = create_beacon_frame(ssid, bssid, channel, message_bytes)
     mv = memoryview(beacon_frame)
@@ -464,10 +510,15 @@ async def rebroadcast_message(interface, ssid, channel, interval, uptime, custom
         sock.close()
         print(f"Stopped sending beacons on {interface} (SSID: {ssid}) at {time.ctime()}")
 
+# Send alert command to system
+async def send_alert(message):
+    # Uses the "ALERT" command to send a message to the system (e.g., for Pineapple Pager)
+    os.system(f"ALERT '{message}'")
+
 
 
 def main():
-    global seen_messages, networks, ssid_prefix
+    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length
     # Load configuration
     config = load_config()
     decay_time = config["decay_time"]
@@ -487,8 +538,13 @@ def main():
     sock.bind((INTERFACE, 0))
     sock.setblocking(0)
     
+    # Start server to listen for new messages to send
+    asyncio.create_task(listen_for_new_messages(89999))
+    # Start message queue handler
+    asyncio.create_task(handle_queue())
     # Start receiving messages
-    receive_messages(sock, decay_time, message_prefix, decay_prefix)
+    asyncio.run(receive_messages(sock, decay_time, message_prefix, decay_prefix))
+    
 
 if __name__ == '__main__':
     main()

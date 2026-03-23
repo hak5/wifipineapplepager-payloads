@@ -5,7 +5,7 @@
 # Version: 1.4
 
 # === CONFIGURATION ===
-GH_ORG="hak5"
+GH_ORG="ERR0RW0LF"
 GH_REPO="wifipineapplepager-payloads"
 GH_BRANCH="master"
 

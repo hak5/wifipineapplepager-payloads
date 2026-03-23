@@ -1,6 +1,6 @@
 #!/bin/bash
-# Title: Manege P2P Pager Service
-# Description: This script installs the AP Pager service.
+# Title: Manage P2P Pager Service
+# Description: This script installs the P2P Pager service and manages its state (start, stop, restart, enable, disable).
 # Author: ERR0RW0LF
 # Inspiration: Darren Kitchen
 
@@ -9,7 +9,7 @@ SERVICE_LOCATION="/etc/init.d/p2p_pager"
 BIN_LOCATION="/usr/bin/p2p_pager"
 
 
-P2P_CONFIG_DIR="$HOME/.p2p_pager"
+P2P_CONFIG_DIR="/root/.p2p_pager"
 
 
 start_pager_service() {
@@ -28,7 +28,11 @@ enable_pager_service() {
 configure_networks() {
     # Configure necessary network settings
     LOG "Configuring network settings for P2P Pager..."
-    # Add any necessary network configuration commands here
+    NETWORK_CONFIG_FILE="$P2P_CONFIG_DIR/networks.conf"
+    if [ ! -f "$NETWORK_CONFIG_FILE" ]; then
+        touch "$NETWORK_CONFIG_FILE"
+    fi
+    
 }
 
 restart_pager_service() {
@@ -55,11 +59,17 @@ disable_pager_service() {
 install_pager_service() {
     LOG "Installing P2P Pager service..."
 
-
+    # Copy service file to init.d
     LOG "Copying service files..."
     cp init_p2p_pager "$SERVICE_LOCATION"
     chmod +x "$SERVICE_LOCATION"
     LOG GREEN "Service file copied to $SERVICE_LOCATION."
+
+    # Copy pager python script to bin location
+    LOG "Copying pager script..."
+    cp p2p_pager.py "$BIN_LOCATION"
+    chmod +x "$BIN_LOCATION"
+    LOG GREEN "Pager script copied to $BIN_LOCATION."
 
     # Add Network file if needed
     # cp network_file_location /etc/config/networks
@@ -67,16 +77,22 @@ install_pager_service() {
     touch "$P2P_CONFIG_DIR/networks.conf"
     touch "$P2P_CONFIG_DIR/pager.conf"
 
-    echo """
-    decay_time=300
-    beacon_interval=102
-    beacon_uptime=10
-    ssid_prefix=P2PAGER
-    channel=6
-    max_message_length=50
-    message_prefix=MSG:
-    decay_prefix=DECAY:
-    """ > "$P2P_CONFIG_DIR/pager.conf"
+    # If pager.conf is empty, add default values
+    if [ ! -s "$P2P_CONFIG_DIR/pager.conf" ]; then
+        LOG "Creating default pager configuration..."
+        echo """
+        decay_time=300
+        beacon_interval=102
+        beacon_uptime=10
+        ssid_prefix=P2PAGER
+        channel=6
+        max_message_length=50
+        message_prefix=MSG:
+        decay_prefix=DECAY:
+        """ > "$P2P_CONFIG_DIR/pager.conf"
+        LOG "Default pager configuration created at $P2P_CONFIG_DIR/pager.conf"
+    fi
+    
 
 
     # Default network
