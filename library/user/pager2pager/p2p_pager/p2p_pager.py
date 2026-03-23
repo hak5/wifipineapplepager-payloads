@@ -386,6 +386,7 @@ async def handle_queue():
         if len(parts) == 3:
             full_message, ssid, channel = parts[0], parts[1], int(parts[2])
             seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
+            print(f"Queue processing: Broadcasting message '{full_message}' on SSID '{ssid}' and channel {channel}")
             await broadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, REBROADCAST_DURATION, custom_message=full_message)
         else:
             print(f"Invalid message format: {message}")

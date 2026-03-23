@@ -15,19 +15,19 @@ P2P_CONFIG_DIR="/root/.p2p_pager"
 start_pager_service() {
     # Start the pager service in the background
     /etc/init.d/p2p_pager start &
-    LOG "P2P Pager service started."
+    LOG green "P2P Pager service started."
 }
 
 enable_pager_service() {
     # Enable the pager service to start on boot
     /etc/init.d/p2p_pager enable &
-    LOG "P2P Pager service enabled to start on boot."
+    LOG green "P2P Pager service enabled to start on boot."
 }
 
 
 configure_networks() {
     # Configure necessary network settings
-    LOG "Configuring network settings for P2P Pager..."
+    LOG green "Configuring network settings for P2P Pager..."
     NETWORK_CONFIG_FILE="$P2P_CONFIG_DIR/networks.conf"
     if [ ! -f "$NETWORK_CONFIG_FILE" ]; then
         touch "$NETWORK_CONFIG_FILE"
@@ -39,19 +39,19 @@ restart_pager_service() {
     LOG "Restarting P2P Pager service..."
     stop_pager_service
     start_pager_service
-    LOG "P2P Pager service restarted."
+    LOG green "P2P Pager service restarted."
 }
 
 stop_pager_service() {
     LOG "Stopping P2P Pager service..."
     /etc/init.d/p2p_pager stop
-    LOG "P2P Pager service stopped."
+    LOG green "P2P Pager service stopped."
 }
 
 disable_pager_service() {
     LOG "Disabling P2P Pager service from starting on boot..."
     /etc/init.d/p2p_pager disable
-    LOG "P2P Pager service disabled from starting on boot."
+    LOG green "P2P Pager service disabled from starting on boot."
 }
 
 
@@ -63,13 +63,13 @@ install_pager_service() {
     LOG "Copying service files..."
     cp init_p2p_pager "$SERVICE_LOCATION"
     chmod +x "$SERVICE_LOCATION"
-    LOG GREEN "Service file copied to $SERVICE_LOCATION."
+    LOG green "Service file copied to $SERVICE_LOCATION."
 
     # Copy pager python script to bin location
     LOG "Copying pager script..."
     cp p2p_pager.py "$BIN_LOCATION"
     chmod +x "$BIN_LOCATION"
-    LOG GREEN "Pager script copied to $BIN_LOCATION."
+    LOG green "Pager script copied to $BIN_LOCATION."
 
     # Add Network file if needed
     # cp network_file_location /etc/config/networks
@@ -104,10 +104,12 @@ install_pager_service() {
     start_pager_service
     enable_pager_service
     configure_networks
-    LOG "P2P Pager service installation complete."
+    LOG green "P2P Pager service installation complete."
 }
 
 uninstall_pager_service() {
+    
+
     LOG "Uninstalling P2P Pager service..."
     # Stop the pager service
     stop_pager_service
@@ -120,27 +122,30 @@ uninstall_pager_service() {
 
 
     # Add any additional cleanup commands here
-    LOG "P2P Pager service uninstallation complete."
+    LOG green "P2P Pager service uninstallation complete."
 }
 
 reinstall_pager_service() {
-    LOG "Reinstalling P2P Pager service..."
+    LOG yellow "Reinstalling P2P Pager service..."
+    LOG " "
     uninstall_pager_service
     install_pager_service
-    LOG "P2P Pager service reinstallation complete."
+    LOG " "
+    LOG green "P2P Pager service reinstallation complete."
 }
 
 
 # Menu
 main() {
+    LOG " "
     LOG "===== P2P Pager Service Management ====="
-    LOG
+    LOG ""
     LOG "U) Install / Uninstall / Reinstall P2P Pager Service"
     LOG "D) Start / Stop P2P Pager Service"
     LOG "R) Restart P2P Pager Service"
     LOG "L) Exit"
-    LOG
-    LOG
+    LOG " "
+    LOG " "
     choice=$(WAIT_FOR_INPUT)
 
     case $choice in
@@ -149,6 +154,7 @@ main() {
             LOG "U) Install P2P Pager Service"
             LOG "D) Uninstall P2P Pager Service"
             LOG "R) Reinstall P2P Pager Service"
+            LOG " "
             sub_choice=$(WAIT_FOR_INPUT)
             case $sub_choice in
                 UP)
@@ -169,6 +175,7 @@ main() {
             LOG "You chose to Start / Stop P2P Pager Service."
             LOG "U) Start P2P Pager Service"
             LOG "D) Stop P2P Pager Service"
+            LOG " "
             sub_choice=$(WAIT_FOR_INPUT)
             case $sub_choice in
                 UP)

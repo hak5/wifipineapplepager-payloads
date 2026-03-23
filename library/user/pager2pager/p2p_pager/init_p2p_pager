@@ -4,7 +4,7 @@ START=99
 
 start_service(){
     procd_open_instance
-    procd_set_param command p2p_pager
+    procd_set_param command python3 /usr/bin/p2p_pager
     procd_set_param respawn
     procd_close_instance
 }
