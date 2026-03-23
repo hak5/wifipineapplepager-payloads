@@ -529,22 +529,22 @@ async def main():
     max_message_length = config["max_message_length"]
     message_prefix = config["message_prefix"]
     decay_prefix = config["decay_prefix"]
-    
+
     # Load networks
     networks = load_networks()
-    
+
     # Socket setup
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
     sock.bind((INTERFACE, 0))
     sock.setblocking(0)
-    
+
     # Start server to listen for new messages to send
-    asyncio.create_task(listen_for_new_messages(89999))
+    task1 = asyncio.create_task(listen_for_new_messages(89999))
     # Start message queue handler
-    asyncio.create_task(handle_queue())
-    # Start receiving messages
-    asyncio.run(receive_messages(sock, decay_time, message_prefix, decay_prefix))
-    
+    task2 = asyncio.create_task(handle_queue())
+    # Start receiving messages (runs forever)
+    await receive_messages(sock, decay_time, message_prefix, decay_prefix)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
