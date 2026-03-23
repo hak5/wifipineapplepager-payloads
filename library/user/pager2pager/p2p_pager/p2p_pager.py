@@ -399,7 +399,7 @@ async def listen_for_new_messages(port):
         await server.serve_forever()
 
 async def handle_new_message(reader, writer):
-    global seen_messages, networks, channel, max_message_length
+    global seen_messages, networks, channel, max_message_length, ssid_prefix, decay_time, message_queue
     data = await reader.read(1024)
     message = data.decode('utf-8').strip()
     parts = message.split(',', 2)
@@ -407,6 +407,7 @@ async def handle_new_message(reader, writer):
         print(f"Invalid message format: {message}")
         return
     ssid, custom_message = parts[0], parts[1]
+    ssid = f"{ssid_prefix}{ssid}" if ssid_prefix else ssid
     decay_time = networks.get(ssid, {}).get("decay_time", decay_time)
     channel = networks.get(ssid, {}).get("channel", channel)
     # Add to seen messages with decay time

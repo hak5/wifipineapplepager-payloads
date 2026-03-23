@@ -18,6 +18,8 @@ fi
 # give user a list of available networks to choose from counting from 1 to n
 LOG "Available Networks:"
 i=1
+NETWORKS=$(cat "$NETWORKS_CONF")
+
 for network in $NETWORKS; do
     LOG "$i) $network"
     i=$((i + 1))
