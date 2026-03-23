@@ -3,12 +3,6 @@
 # Description: Send a message to other pagers using the P2P Pager system
 # Author: ERR0RW0LF
 
-# check if needed files are present
-[ ! -f /usr/bin/python3 ] && LOG "Python3 is not installed. Please install Python3 to use this payload." && exit 1
-[ ! -f /library/user/pager2pager/p2p_pager/p2p_pager.py ] && LOG "P2P Pager library is missing. Please reinstall the P2P Pager payload." && exit 1
-[ ! -f /library/user/pager2pager/p2p_pager/p2p_pager_send.py ] && LOG "P2P Pager Send module is missing. Please reinstall the P2P Pager payload." && exit 1
-
-
 CONFIRMATION_DIALOG "Do you want to send a message to other pagers using the P2P Pager system?" || exit 0
 
 P2P_CONFIG_DIR="$HOME/.p2p_pager"
