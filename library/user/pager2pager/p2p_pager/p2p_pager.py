@@ -533,7 +533,9 @@ async def main():
     decay_prefix = config["decay_prefix"]
     
     debug_mode = False
-    argparse.ArgumentParser(description="P2P Pager System").add_argument('--debug', action='store_true', help='Enable debug mode').parse_args()
+    parser = argparse.ArgumentParser(description="P2P Pager System")
+    parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    args = parser.parse_args()
 
     if args.debug:
         debug_mode = True
