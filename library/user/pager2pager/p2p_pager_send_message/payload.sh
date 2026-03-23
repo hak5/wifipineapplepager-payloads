@@ -5,7 +5,7 @@
 
 CONFIRMATION_DIALOG "Do you want to send a message to other pagers using the P2P Pager system?" || exit 0
 
-P2P_CONFIG_DIR="$HOME/.p2p_pager"
+P2P_CONFIG_DIR="/root/.p2p_pager"
 
 # load network list
 NETWORKS_CONF="$P2P_CONFIG_DIR/networks.conf"
