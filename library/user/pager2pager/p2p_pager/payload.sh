@@ -123,61 +123,79 @@ uninstall_pager_service() {
     LOG "P2P Pager service uninstallation complete."
 }
 
+reinstall_pager_service() {
+    LOG "Reinstalling P2P Pager service..."
+    uninstall_pager_service
+    install_pager_service
+    LOG "P2P Pager service reinstallation complete."
+}
+
 
 # Menu
-LOG "===== P2P Pager Service Management ====="
-LOG
-LOG "U) Install / Uninstall P2P Pager Service"
-LOG "D) Start / Stop P2P Pager Service"
-LOG "R) Restart P2P Pager Service"
-LOG "L) Exit"
-LOG
-LOG
-choice=$(WAIT_FOR_INPUT)
+main() {
+    LOG "===== P2P Pager Service Management ====="
+    LOG
+    LOG "U) Install / Uninstall / Reinstall P2P Pager Service"
+    LOG "D) Start / Stop P2P Pager Service"
+    LOG "R) Restart P2P Pager Service"
+    LOG "L) Exit"
+    LOG
+    LOG
+    choice=$(WAIT_FOR_INPUT)
 
-case $choice in
-    UP)
-        LOG "You chose to Install / Uninstall P2P Pager Service."
-        LOG "U) Install P2P Pager Service"
-        LOG "D) Uninstall P2P Pager Service"
-        sub_choice=$(WAIT_FOR_INPUT)
-        case $sub_choice in
-            UP)
-                install_pager_service
-                ;;
-            DOWN)
-                uninstall_pager_service
-                ;;
-            *)
-                LOG "Invalid choice. Exiting."
-                ;;
-        esac
-        ;;
-    DOWN)
-        LOG "You chose to Start / Stop P2P Pager Service."
-        LOG "U) Start P2P Pager Service"
-        LOG "D) Stop P2P Pager Service"
-        sub_choice=$(WAIT_FOR_INPUT)
-        case $sub_choice in
-            UP)
-                start_pager_service
-                ;;
-            DOWN)
-                stop_pager_service
-                ;;
-            *)
-                LOG "Invalid choice. Exiting."
-                ;;
-        esac
-        ;;
-    RIGHT)
-        restart_pager_service
-        ;;
-    LEFT)
-        LOG "Exiting P2P Pager Service Management."
-        exit 0
-        ;;
-    *)
-        LOG "Invalid choice. Exiting."
-        ;;
-esac
+    case $choice in
+        UP)
+            LOG "You chose to Install / Uninstall P2P Pager Service."
+            LOG "U) Install P2P Pager Service"
+            LOG "D) Uninstall P2P Pager Service"
+            LOG "R) Reinstall P2P Pager Service"
+            sub_choice=$(WAIT_FOR_INPUT)
+            case $sub_choice in
+                UP)
+                    install_pager_service
+                    ;;
+                DOWN)
+                    uninstall_pager_service
+                    ;;
+                RIGHT)
+                    reinstall_pager_service
+                    ;;
+                *)
+                    LOG "Invalid choice. Exiting."
+                    ;;
+            esac
+            ;;
+        DOWN)
+            LOG "You chose to Start / Stop P2P Pager Service."
+            LOG "U) Start P2P Pager Service"
+            LOG "D) Stop P2P Pager Service"
+            sub_choice=$(WAIT_FOR_INPUT)
+            case $sub_choice in
+                UP)
+                    start_pager_service
+                    ;;
+                DOWN)
+                    stop_pager_service
+                    ;;
+                *)
+                    LOG "Invalid choice. Exiting."
+                    ;;
+            esac
+            ;;
+        RIGHT)
+            restart_pager_service
+            ;;
+        LEFT)
+            LOG "Exiting P2P Pager Service Management."
+            exit 0
+            ;;
+        *)
+            LOG "Invalid choice. Exiting."
+            ;;
+    esac
+}
+
+
+while true; do
+    main
+done
