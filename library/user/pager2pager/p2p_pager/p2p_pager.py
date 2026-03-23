@@ -517,7 +517,7 @@ async def send_alert(message):
 
 
 
-def main():
+async def main():
     global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length
     # Load configuration
     config = load_config()
@@ -547,5 +547,5 @@ def main():
     
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
     
