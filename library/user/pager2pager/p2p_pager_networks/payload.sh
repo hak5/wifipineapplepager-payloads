@@ -3,7 +3,7 @@
 # Description: Manage the networks available to the P2P Pager system
 # Author: ERR0RW0LF
 
-P2P_CONFIG_DIR="$HOME/.p2p_pager"
+P2P_CONFIG_DIR="/root/.p2p_pager"
 NETWORKS_CONF="$P2P_CONFIG_DIR/networks.conf"
 
 main() {
@@ -76,6 +76,9 @@ main() {
             fi
             ;;
         4)
+            LOG "Restarting P2P Pager service to apply changes..."
+            /etc/init.d/p2p_pager restart
+            LOG ""
             LOG "Exiting P2P Pager Network Management."
             exit 0
             ;;
