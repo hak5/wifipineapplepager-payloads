@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import asyncio
 import socket
 import struct
@@ -519,7 +520,7 @@ async def send_alert(message):
 
 
 async def main():
-    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length
+    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode
     # Load configuration
     config = load_config()
     decay_time = config["decay_time"]
@@ -530,6 +531,16 @@ async def main():
     max_message_length = config["max_message_length"]
     message_prefix = config["message_prefix"]
     decay_prefix = config["decay_prefix"]
+    
+    debug_mode = False
+    argparse.ArgumentParser(description="P2P Pager System").add_argument('--debug', action='store_true', help='Enable debug mode').parse_args()
+
+    if args.debug:
+        debug_mode = True
+        print("Debug mode enabled. Verbose output will be shown.")
+    
+    
+    
 
     # Load networks
     networks = load_networks()
@@ -544,6 +555,8 @@ async def main():
     # Start message queue handler
     task2 = asyncio.create_task(handle_queue())
     # Start receiving messages (runs forever)
+    
+    print("P2P Pager system started. Listening for messages...")
     await receive_messages(sock, decay_time, message_prefix, decay_prefix)
 
 
