@@ -7,6 +7,7 @@
 # Important locations for services
 SERVICE_LOCATION="/etc/init.d/p2p_pager"
 BIN_LOCATION="/usr/bin/p2p_pager"
+START_SCRIPT_LOCATION="/usr/bin/start_p2p_pager.sh"
 
 
 P2P_CONFIG_DIR="/root/.p2p_pager"
@@ -70,6 +71,12 @@ install_pager_service() {
     cp p2p_pager.py "$BIN_LOCATION"
     chmod +x "$BIN_LOCATION"
     LOG green "Pager script copied to $BIN_LOCATION."
+
+    # Copy start script
+    LOG "Copying start script..."
+    cp start_p2p_pager.sh "$START_SCRIPT_LOCATION"
+    chmod +x "$START_SCRIPT_LOCATION"
+    LOG green "Start script copied to $START_SCRIPT_LOCATION."
 
     # Add Network file if needed
     # cp network_file_location /etc/config/networks
