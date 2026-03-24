@@ -425,6 +425,7 @@ async def handle_new_message(reader, writer):
 
 # Async broadcast function
 async def broadcast_message(interface, message_prefix, channel, interval, uptime, custom_message=None, network=None):
+    global max_message_length, ssid_prefix
     """
     Asynchronously broadcast beacon frames with custom vendor data at specified intervals.
     This function creates and sends IEEE 802.11 beacon frames over a specified wireless
@@ -453,6 +454,8 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
         - Socket buffer is set to 262144 bytes; failures are silently ignored.
     """
     """Send beacon frames with custom vendor data at specified intervals for a duration"""
+    print(f"Preparing to broadcast on {interface} with message prefix '{message_prefix}' on channel {channel} for {uptime} seconds...")
+    
     # Create raw socket
     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
     sock.bind((interface, 0))
@@ -461,13 +464,16 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 262144)
     except Exception:
+        print("Warning: Failed to set socket send buffer size. Performance may be degraded.")
         pass
     
     # Combine message prefix with network to the ssid for broadcasting
-    ssid = f"{message_prefix}{network}" if network else message_prefix
+    ssid = f"{ssid_prefix}{network}" if network else ssid_prefix
 
     # Non-blocking socket for faster loop control
     sock.setblocking(False)
+    
+    print(f"Socket created and bound to {interface}. Starting beacon transmission...")
 
     # BSSID (MAC address) - allow some randomness to avoid conflicts
     base_bssid = b'\x02\xca\xfe\xba\xbe\x00'
