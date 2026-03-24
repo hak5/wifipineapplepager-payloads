@@ -12,5 +12,7 @@ start_service(){
 }
 
 stop_service(){
-    procd_killall "python3 /usr/bin/p2p_pager"
+    for pid in $(ps | grep '[p]ython3.*/usr/bin/p2p_pager' | awk '{print $1}'); do
+        kill "$pid"
+    done
 }
