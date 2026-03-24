@@ -1,18 +1,27 @@
 #!/bin/sh /etc/rc.common
 
+
 USE_PROCD=1
 START=99
 STOP=10
+LOGFILE=/tmp/p2p_pager_init_debug.log
 
 start_service(){
+    echo "[$(date)] start_service called" >> "$LOGFILE"
     procd_open_instance
     procd_set_param command /bin/bash "/usr/bin/start_p2p_pager.sh"
     procd_set_param respawn
     procd_close_instance
+    echo "[$(date)] procd instance started" >> "$LOGFILE"
+    sleep 2
+    ps aux | grep p2p_pager | grep -v grep >> "$LOGFILE"
 }
 
 stop_service(){
+    echo "[$(date)] stop_service called" >> "$LOGFILE"
     for pid in $(ps | grep '[p]ython3.*/usr/bin/p2p_pager' | awk '{print $1}'); do
+        echo "Killing p2p_pager pid $pid" >> "$LOGFILE"
         kill "$pid"
     done
+    echo "[$(date)] stop_service finished" >> "$LOGFILE"
 }
