@@ -4,7 +4,7 @@
 USE_PROCD=1
 START=99
 STOP=10
-LOGFILE=/tmp/p2p_pager_init_debug.log
+LOGFILE= "/tmp/p2p_pager_service.log"
 
 start_service(){
     echo "[$(date)] start_service called" >> "$LOGFILE"
