@@ -3,7 +3,11 @@
 # Description: Send a message to other pagers using the P2P Pager system
 # Author: ERR0RW0LF
 
-CONFIRMATION_DIALOG "Do you want to send a message to other pagers using the P2P Pager system?" || exit 0
+CONFIRMATION_DIALOG "Do you want to send a message to other pagers using the P2P Pager system?" || {
+    LOG "User cancelled sending message." 
+    exit 0
+}
+
 
 P2P_CONFIG_DIR="/root/.p2p_pager"
 
@@ -30,12 +34,18 @@ LOG "Waiting for user input..."
 WAIT_FOR_INPUT
 
 # pick a network using a number
-network_choice=$(NUMBER_PICKER "Select a network to send the message on:" 1)
+network_choice=$(NUMBER_PICKER "Select a network to send the message on:" 1 || {
+    LOG "Invalid network choice. Exiting."
+    exit 1
+})
 selected_network=$(echo $NETWORKS | awk -v choice=$network_choice '{print $choice}')
 LOG "Selected Network: $selected_network"
 
 # get message from user
-MESSAGE=$(TEXT_PICKER "Enter the message to send:" "Hi")
+MESSAGE=$(TEXT_PICKER "Enter the message to send:" "Hi" || {
+    LOG "Invalid message. Exiting."
+    exit 1
+})
 
 # Debug output
 #LOG "[DEBUG] Current working directory: $(pwd)"
