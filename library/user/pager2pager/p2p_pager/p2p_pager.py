@@ -234,10 +234,18 @@ def parse_beacon_frame(packet, target_ssid=None, target_channel=None):
                         oui = tag_data[0:3]
                         oui_type = tag_data[3]
                         vendor_data = tag_data[4:]
-                        
+
                         # Cache OUI string formatting
                         key = f"{oui[0]:02x}:{oui[1]:02x}:{oui[2]:02x}:{oui_type:02x}"
                         vendor_tags[key] = vendor_data
+
+            # If debug mode is enabled, show each tag encountered (non-verbose by default)
+            try:
+                if 'debug_mode' in globals() and globals().get('debug_mode'):
+                    data_slice = mv[offset + 2: offset + 2 + min(tag_length, 32)].tobytes().hex() if tag_length > 0 else ''
+                    print(f"[PARSE] tag_number={tag_number}, tag_length={tag_length}, data_hex={data_slice}")
+            except Exception:
+                pass
             
             offset += 2 + tag_length
             
@@ -323,59 +331,103 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
     # Set receive buffer size
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2**21)  # 2MB buffer
-    except Exception:
-        pass
-    
+    except Exception as e:
+        print(f"[DEBUG] Failed to set socket buffer size: {e}")
+
     # Use asyncio event loop for non-blocking socket reads
     loop = asyncio.get_running_loop()
+    print("[DEBUG] Starting receive_messages loop...")
     while True:
-        packet = await loop.sock_recv(sock, 4096)
+        try:
+            packet = await loop.sock_recv(sock, 4096)
+            #print(f"[DEBUG] Packet received, length: {len(packet)} bytes")
+        except Exception as e:
+            print(f"[DEBUG] Error receiving packet: {e}")
+            continue
+
         parsed = parse_beacon_frame(packet)
         if parsed is None:
+            #print("[DEBUG] Packet could not be parsed as beacon frame or did not match filters.")
             continue
         ssid, channel, bssid, vendor_tags = parsed
 
+        print(f"[DEBUG] Parsed beacon: SSID={ssid}, Channel={channel}, BSSID={bssid.hex()}, Vendor Tags={list(vendor_tags.keys())}")
+
+        if ssid is None:
+            print("[DEBUG] Parsed beacon has no SSID, skipping.")
+            continue
+
+        # Determine network key (strip prefix if present)
+        network_key = ssid[len(ssid_prefix):] if ssid_prefix and ssid.startswith(ssid_prefix) else ssid
+
         if len(ssid_prefix) > 0 and not ssid.startswith(ssid_prefix):
+            print(f"[DEBUG] SSID '{ssid}' does not start with prefix '{ssid_prefix}', skipping.")
             continue
-        if ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid not in networks:
+
+        # If networks config is present, require the network_key to be listed there.
+        if networks and network_key not in networks:
+            print(f"[DEBUG] Network key '{network_key}' (SSID '{ssid}') not found in networks config, skipping.")
             continue
-        
-        
-        
+
+        print(f"[DEBUG] Network key resolved: '{network_key}' (SSID '{ssid}')")
+
+        print(f"[DEBUG] Processing vendor tags for SSID: {ssid}")
+
+        if not vendor_tags:
+            # Dump a short packet hex snippet to help troubleshooting
+            try:
+                snippet = packet[:128]
+                print(f"[DEBUG] No vendor tags parsed. Packet hex snippet: {snippet.hex()}")
+            except Exception as e:
+                print(f"[DEBUG] Could not dump packet snippet: {e}")
+
         for key, data in vendor_tags.items():
-            message = data.decode('utf-8', errors='ignore')
+            try:
+                message = data.decode('utf-8', errors='ignore')
+            except Exception as e:
+                print(f"[DEBUG] Failed to decode vendor tag data: {e}")
+                continue
             current_time = time.time()
+
+            print(f"[DEBUG] Vendor tag key={key}, message='{message}'")
 
             if message.startswith(message_prefix):
                 full_message = message[len(message_prefix):]
                 message_id = f"{full_message}:{ssid}"
                 detailed_message = f"{full_message}:{ssid}:{channel}"
 
+                print(f"[DEBUG] Message with prefix detected: full_message='{full_message}', message_id='{message_id}'")
+
                 if message_id in seen_messages:
                     last_seen = seen_messages[message_id]
+                    print(f"[DEBUG] Message ID '{message_id}' seen before, last_seen={last_seen}, current_time={current_time}")
                     if current_time - last_seen > decay_time:
                         # Decay time passed, rebroadcast
                         seen_messages[message_id] = current_time
-                        print(f"Rebroadcasting message: {full_message} from SSID: {ssid}")
+                        print(f"[DEBUG] Decay time passed, rebroadcasting message: {full_message} from SSID: {ssid}")
 
                         # Add to message queue for processing
                         asyncio.create_task(message_queue.put(detailed_message))
                     else:
                         # Recently seen, ignore but update timestamp
                         seen_messages[message_id] = current_time
+                        print(f"[DEBUG] Message ID '{message_id}' seen recently, not rebroadcasting.")
                 else:
                     # New message, rebroadcast
                     seen_messages[message_id] = current_time
-                    print(f"New message received: {full_message} from SSID: {ssid}")
+                    print(f"[DEBUG] New message received: {full_message} from SSID: {ssid}")
                     # Add to message queue for processing
                     asyncio.create_task(message_queue.put(detailed_message))
 
             elif message.startswith(decay_prefix):
                 decay_message = message[len(decay_prefix):]
                 decay_id = f"{decay_message}:{ssid}"
+                print(f"[DEBUG] Decay prefix detected: decay_message='{decay_message}', decay_id='{decay_id}'")
                 if decay_id in seen_messages:
                     del seen_messages[decay_id]
-                    print(f"Decay message received, removing: {decay_message} from SSID: {ssid}")
+                    print(f"[DEBUG] Decay message received, removing: {decay_message} from SSID: {ssid}")
+                else:
+                    print(f"[DEBUG] Decay message received for unknown ID: {decay_id}")
 
 
 async def handle_queue():
@@ -565,11 +617,38 @@ async def main():
 
     # Load networks
     networks = load_networks()
+    if debug_mode:
+        print(f"[DEBUG] Loaded networks config: {networks}")
 
-    # Socket setup
-    sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW)
-    sock.bind((INTERFACE, 0))
-    sock.setblocking(0)
+    # Show available interfaces and confirm configured interface exists
+    available_ifaces = []
+    try:
+        available_ifaces = os.listdir('/sys/class/net')
+    except Exception:
+        try:
+            available_ifaces = [name for (_idx, name) in socket.if_nameindex()]
+        except Exception:
+            available_ifaces = []
+
+    print(f"[DEBUG] Configured INTERFACE: {INTERFACE}")
+    print(f"[DEBUG] Available interfaces: {available_ifaces}")
+
+    # Socket setup - use ETH_P_ALL (0x0003) to receive all packets on the interface
+    try:
+        proto = socket.ntohs(0x0003)
+        sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, proto)
+        try:
+            sock.bind((INTERFACE, 0))
+        except Exception as e:
+            print(f"[ERROR] Failed to bind raw socket to interface '{INTERFACE}': {e}")
+            if available_ifaces:
+                print(f"[ERROR] '{INTERFACE}' not in available interfaces. Choose one of: {available_ifaces}")
+            raise
+        sock.setblocking(0)
+        print(f"[DEBUG] Raw socket created (AF_PACKET, SOCK_RAW, proto=0x0003) and bound to {INTERFACE}")
+    except Exception as e:
+        print(f"[ERROR] Socket setup failed: {e}")
+        return
 
     # Start server to listen for new messages to send
     task1 = asyncio.create_task(listen_for_new_messages(8999))

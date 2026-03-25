@@ -90,7 +90,7 @@ install_pager_service() {
         echo """
 decay_time=300
 beacon_interval=102
-beacon_uptime=30
+beacon_uptime=60
 ssid_prefix=P2PAGER
 channel=6
 max_message_length=50
