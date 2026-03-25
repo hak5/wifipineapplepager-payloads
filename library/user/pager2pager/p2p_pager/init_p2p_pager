@@ -5,6 +5,7 @@ USE_PROCD=1
 START=99
 STOP=10
 LOGFILE="/tmp/p2p_pager_service.log"
+PIDFILE="/var/run/p2p_pager.pid"
 
 start_service(){
     echo "[$(date)] start_service called" >> "$LOGFILE"
@@ -14,14 +15,43 @@ start_service(){
     procd_close_instance
     echo "[$(date)] procd instance started" >> "$LOGFILE"
     sleep 2
+    # record the pid of the running python process for clean stopping
+    if command -v pgrep >/dev/null 2>&1; then
+        pid=$(pgrep -f "/usr/bin/p2p_pager" | head -n1)
+    else
+        pid=$(ps | grep /usr/bin/p2p_pager | grep -v grep | awk '{print $1}' | head -n1)
+    fi
+    if [ -n "$pid" ]; then
+        echo $pid > "$PIDFILE"
+        echo "Recorded p2p_pager pid $pid" >> "$LOGFILE"
+    else
+        echo "Could not find p2p_pager pid" >> "$LOGFILE"
+    fi
     ps | grep p2p_pager | grep -v grep >> "$LOGFILE" || true
 }
 
 stop_service(){
     echo "[$(date)] stop_service called" >> "$LOGFILE"
-    for pid in $(ps | grep p2p_pager | grep -v grep | awk '{print $1}'); do
-        echo "Killing p2p_pager pid $pid" >> "$LOGFILE"
-        kill "$pid" 2>/dev/null || true
-    done
+    # Try PID file first
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            echo "Killing p2p_pager pid $pid (from $PIDFILE)" >> "$LOGFILE"
+            kill "$pid" 2>/dev/null || true
+            rm -f "$PIDFILE"
+        fi
+    fi
+    # Fallback: kill by matching the command
+    if command -v pgrep >/dev/null 2>&1; then
+        for pid in $(pgrep -f "/usr/bin/p2p_pager" | grep -v "^$(cat $PIDFILE 2>/dev/null)\$" || true); do
+            echo "Killing p2p_pager pid $pid (fallback)" >> "$LOGFILE"
+            kill "$pid" 2>/dev/null || true
+        done
+    else
+        for pid in $(ps | grep /usr/bin/p2p_pager | grep -v grep | awk '{print $1}'); do
+            echo "Killing p2p_pager pid $pid (fallback)" >> "$LOGFILE"
+            kill "$pid" 2>/dev/null || true
+        done
+    fi
     echo "[$(date)] stop_service finished" >> "$LOGFILE"
 }

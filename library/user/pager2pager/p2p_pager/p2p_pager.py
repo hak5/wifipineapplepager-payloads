@@ -376,7 +376,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
 
 
 async def handle_queue():
-    global seen_messages
+    global seen_messages, beacon_uptime
     while True:
         message = await message_queue.get()
         # Process the message (broadcast, alert, etc.)
@@ -387,7 +387,7 @@ async def handle_queue():
             full_message, ssid, channel = parts[0], parts[1], int(parts[2])
             seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
             print(f"Queue processing: Broadcasting message '{full_message}' on SSID '{ssid}' and channel {channel}")
-            await broadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, REBROADCAST_DURATION, custom_message=full_message)
+            await broadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, beacon_uptime, custom_message=full_message)
         else:
             print(f"Invalid message format: {message}")
         
@@ -534,7 +534,7 @@ async def send_alert(message):
 
 
 async def main():
-    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode
+    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode, beacon_uptime
     # Load configuration
     config = load_config()
     decay_time = config["decay_time"]
