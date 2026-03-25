@@ -339,6 +339,9 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
             continue
         if ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid not in networks:
             continue
+        
+        
+        
         for key, data in vendor_tags.items():
             message = data.decode('utf-8', errors='ignore')
             current_time = time.time()
@@ -486,7 +489,7 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
 
     # Custom vendor data for tag 221
     message = "Hello, this is a custom beacon frame!"
-    message_bytes = custom_message.encode('utf-8') if custom_message else message.encode('utf-8')
+    message_bytes = f"{message_prefix}{custom_message}".encode('utf-8') if custom_message else f"{message_prefix}{message}".encode('utf-8')
 
     # Validate vendor data length (221 tag uses 1-byte length)
     if len(message_bytes) + 4 > max_message_length:
