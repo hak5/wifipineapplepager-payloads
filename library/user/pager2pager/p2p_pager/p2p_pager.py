@@ -376,7 +376,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
 
 
 async def handle_queue():
-    global seen_messages, beacon_uptime
+    global seen_messages, beacon_uptime, message_prefix
     while True:
         message = await message_queue.get()
         # Process the message (broadcast, alert, etc.)
@@ -387,7 +387,7 @@ async def handle_queue():
             full_message, ssid, channel = parts[0], parts[1], int(parts[2])
             seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
             print(f"Queue processing: Broadcasting message '{full_message}' on SSID '{ssid}' and channel {channel}")
-            await broadcast_message(INTERFACE, ssid, channel, BEACON_INTERVAL, beacon_uptime, custom_message=full_message)
+            await broadcast_message(INTERFACE, message_prefix, channel, BEACON_INTERVAL, beacon_uptime, custom_message=full_message, network=ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid)
         else:
             print(f"Invalid message format: {message}")
         
@@ -471,6 +471,8 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
     # Combine message prefix with network to the ssid for broadcasting
     ssid = f"{ssid_prefix}{network}" if network else ssid_prefix
 
+    print(f"Network: {network}, SSID: {ssid}, Channel: {channel}, Interval: {interval}s, Uptime: {uptime}s")
+    
     # Non-blocking socket for faster loop control
     sock.setblocking(False)
     
