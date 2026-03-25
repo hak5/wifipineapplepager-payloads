@@ -430,7 +430,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                         #print(f"[DEBUG] Decay time passed, rebroadcasting message: {full_message} from SSID: {ssid}")
 
                         # Add to message queue for processing
-                        message_queue.put(detailed_message)
+                        asyncio.create_task(message_queue.put(detailed_message))
                     else:
                         # Recently seen, ignore but update timestamp
                         seen_messages[message_id] = current_time
@@ -440,7 +440,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                     seen_messages[message_id] = current_time
                     #print(f"[DEBUG] New message received: {full_message} from SSID: {ssid}")
                     # Add to message queue for processing
-                    message_queue.put(detailed_message)
+                    asyncio.create_task(message_queue.put(detailed_message))
 
             elif message.startswith(decay_prefix):
                 decay_message = message[len(decay_prefix):]
