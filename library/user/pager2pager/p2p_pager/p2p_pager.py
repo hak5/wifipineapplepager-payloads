@@ -385,7 +385,7 @@ async def handle_queue():
         parts = message.split(':', 2)
         if len(parts) == 3:
             full_message, ssid, channel = parts[0], parts[1], int(parts[2])
-            seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
+            #seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
             print(f"Queue processing: Broadcasting message '{full_message}' on SSID '{ssid}' and channel {channel}")
             await broadcast_message(INTERFACE, message_prefix, channel, BEACON_INTERVAL, beacon_uptime, custom_message=full_message, network=ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid)
         else:
