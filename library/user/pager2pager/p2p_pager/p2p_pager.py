@@ -391,6 +391,7 @@ async def handle_queue():
         else:
             print(f"Invalid message format: {message}")
         
+        print(f"Finished processing message: {message}")
         message_queue.task_done()
 
 # Listen on a local port for new messages to send, and add them to the queue at the start and add them to seen messages to avoid rebroadcasting them immediately
