@@ -421,7 +421,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
 
                 #print(f"[DEBUG] Message with prefix detected: full_message='{full_message}', message_id='{message_id}'")
 
-                if message_id in seen_messages:
+                if message_id in seen_messages.keys():
                     last_seen = seen_messages[message_id]
                     #print(f"[DEBUG] Message ID '{message_id}' seen before, last_seen={last_seen}, current_time={current_time}")
                     if current_time - last_seen > decay_time:
@@ -430,7 +430,7 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                         #print(f"[DEBUG] Decay time passed, rebroadcasting message: {full_message} from SSID: {ssid}")
 
                         # Add to message queue for processing
-                        asyncio.create_task(message_queue.put(detailed_message))
+                        message_queue.put(detailed_message)
                     else:
                         # Recently seen, ignore but update timestamp
                         seen_messages[message_id] = current_time
@@ -440,13 +440,13 @@ async def receive_messages(sock, decay_time, message_prefix, decay_prefix):
                     seen_messages[message_id] = current_time
                     #print(f"[DEBUG] New message received: {full_message} from SSID: {ssid}")
                     # Add to message queue for processing
-                    asyncio.create_task(message_queue.put(detailed_message))
+                    message_queue.put(detailed_message)
 
             elif message.startswith(decay_prefix):
                 decay_message = message[len(decay_prefix):]
                 decay_id = f"{decay_message}:{ssid}"
                 #print(f"[DEBUG] Decay prefix detected: decay_message='{decay_message}', decay_id='{decay_id}'")
-                if decay_id in seen_messages:
+                if decay_id in seen_messages.keys():
                     del seen_messages[decay_id]
                     #print(f"[DEBUG] Decay message received, removing: {decay_message} from SSID: {ssid}")
                 else:
