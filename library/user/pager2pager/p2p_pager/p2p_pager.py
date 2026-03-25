@@ -536,7 +536,7 @@ async def send_alert(message):
 
 
 async def main():
-    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode, beacon_uptime
+    global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode, beacon_uptime, message_prefix, decay_prefix
     # Load configuration
     config = load_config()
     decay_time = config["decay_time"]
