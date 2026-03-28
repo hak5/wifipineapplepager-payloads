@@ -458,7 +458,7 @@ async def handle_queue():
     while True:
         message = await message_queue.get()
         # Process the message (broadcast, alert, etc.)
-        asyncio.create_task(send_alert(message.split(':', 1)[0]))  # Send alert with the main message part
+        asyncio.create_task(send_alert(f"{message.split(':', 2)[1]}:\n{message.split(':', 1)[0]}"))  # Send alert with the main message part
         # Extract ssid and channel from detailed message
         parts = message.split(':', 2)
         if len(parts) == 3:

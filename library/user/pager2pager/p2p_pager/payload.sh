@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: Manage P2P Pager Service
+# Title: P2P - Manage Pager Service
 # Description: This script installs the P2P Pager service and manages its state (start, stop, restart, enable, disable).
 # Author: ERR0RW0LF
 # Inspiration: Darren Kitchen
@@ -89,8 +89,8 @@ install_pager_service() {
         LOG "Creating default pager configuration..."
         echo """
 decay_time=300
-beacon_interval=102
-beacon_uptime=60
+beacon_interval=10
+beacon_uptime=120
 ssid_prefix=P2PAGER
 channel=6
 max_message_length=50
