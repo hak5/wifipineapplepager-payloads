@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: P2P - Manage Pager Networks
+# Title: P2P - Manage Networks
 # Description: Manage the networks available to the P2P Pager system
 # Author: ERR0RW0LF
 

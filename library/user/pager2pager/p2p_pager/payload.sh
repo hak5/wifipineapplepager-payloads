@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: P2P - Manage Pager Service
+# Title: P2P - Manage Service
 # Description: This script installs the P2P Pager service and manages its state (start, stop, restart, enable, disable).
 # Author: ERR0RW0LF
 # Inspiration: Darren Kitchen

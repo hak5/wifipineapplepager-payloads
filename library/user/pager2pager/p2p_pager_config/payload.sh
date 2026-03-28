@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: P2P - Manage Pager Configuration
+# Title: P2P - Manage Configuration
 # Description: Manage the configuration settings for the P2P Pager system
 # Author: ERR0RW0LF
 
