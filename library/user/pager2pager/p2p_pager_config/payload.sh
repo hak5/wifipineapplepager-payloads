@@ -173,6 +173,7 @@ exit_config_menu() {
         fi
         mv "$TEMP_CONFIG" "$PAGER_CONFIG"
         LOG "Changes applied to pager configuration. Exiting."
+        exit 0
     else
         LOG "No changes to apply. Exiting."
     fi
@@ -186,8 +187,10 @@ main() {
         echo "$STANDARD_CONFIG" > "$PAGER_CONFIG"
         LOG "Default pager configuration created at $PAGER_CONFIG."
     fi
-    
-    main_menu
+    while true; do
+        main_menu
+    done
 }
+
 
 main
