@@ -33,15 +33,31 @@ To avoid message flooding, each pager keeps track of the messages it has already
 
 ```mermaid
 flowchart TD
-    A[Start of service] --> B(Start lissenling on 127.0.0.1:8999 for messages to send)
-    A --> C(Start reciving beacon frames from socket)
-    A --> D(Start message queue handler)
-    
-    C -->|on recive| CA[parse frame]
-    CA --> CB{Check if the Network is included in the Networks specified}
-    CB -->|Yes| CBA(Try geting message from the vendor tag 221)
-    CBA --> CBB{Check if message in seen messages}
-    CBB -->|Yes| CBBA(Continue)
-    CBB -->|No| CBBB[Add message+ssid to seen messages to block it]
-    CBBB --> CBBC[Add message+ssid to the message queue]
+    A[Start of service] --> B(Start lissenling on 127.0.0.1:8999 for messages to send)
+    A --> C(Start reciving beacon frames from socket)
+    A --> D(Start message queue handler)
+
+    B --> BA[Await for socket bind]
+    BA -->|Socket bind| BB[Recive a message and it network. Format: ssid,message]
+    BB --> BC[Add message with ssid to the message queue]
+    BC --> BA
+
+    C -->|on recive| CA[parse frame]
+    CA --> CB{Check if the Network is included in the Networks specified}
+    CB -->|Yes| CBA(Try geting message from the vendor tag 221)
+    CB -->|No| CBD(Continue)
+    CBA --> CBB{Check if message in seen messages}
+    CBB -->|Yes| CBBA(Continue)
+    CBB -->|No| CBBB[Add message+ssid to seen messages to block it]
+    CBBB --> CBBC[Add message+ssid to the message queue]
+
+    D --> DA[Awaite for message queue to get anything]
+    DA --> DAA[Display an alert with following format: 
+Network:
+message
+    ]
+    DA --> DAB[Broadcast message]
+    DAB -->|After finishing| DAC[Set message to finished in queue]
+    DAC --> DA
 ```
+
