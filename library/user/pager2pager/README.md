@@ -29,4 +29,19 @@ The P2P Pager works by creating a beacon frame with the message embedded in an I
 
 To avoid message flooding, each pager keeps track of the messages it has already seen and will not rebroadcast the same message more than once.
 
-A pager automatically rebroadcasts any new messages it receives, for 10 seconds after starting sending. By a default delay of 0.102 seconds between each beacon frame, it sends approximately 98 beacons in that time.
+
+
+```mermaid
+flowchart TD
+    A[Start of service] --> B(Start lissenling on 127.0.0.1:8999 for messages to send)
+    A --> C(Start reciving beacon frames from socket)
+    A --> D(Start message queue handler)
+    
+    C -->|on recive| CA[parse frame]
+    CA --> CB{Check if the Network is included in the Networks specified}
+    CB -->|Yes| CBA(Try geting message from the vendor tag 221)
+    CBA --> CBB{Check if message in seen messages}
+    CBB -->|Yes| CBBA(Continue)
+    CBB -->|No| CBBB[Add message+ssid to seen messages to block it]
+    CBBB --> CBBC[Add message+ssid to the message queue]
+```
