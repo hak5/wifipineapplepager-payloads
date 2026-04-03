@@ -111,7 +111,7 @@ HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
 # gcc must go to MMC (~141MB, root overlay only has ~28MB)
 # Everything else fits on root overlay via normal opkg install
 HTTRACK_BUILD_DEPS_MMC="gcc"
-HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev"
+HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev libc-dev"
 PORTAL_DIR="/www/goodportal"
 TEMP_DIR="/tmp/clone_portal"
 WPA_CONF="/tmp/clone_portal_wpa.conf"
