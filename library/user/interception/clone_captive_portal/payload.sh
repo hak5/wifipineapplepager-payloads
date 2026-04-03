@@ -111,7 +111,7 @@ HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
 # gcc must go to MMC (~141MB, root overlay only has ~28MB)
 # Everything else fits on root overlay via normal opkg install
 HTTRACK_BUILD_DEPS_MMC="gcc"
-HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake zlib-dev grep"
+HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake grep"
 # musl C headers URL (libc-dev not in opkg, so we install headers from musl source)
 MUSL_VERSION="1.2.5"
 MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
@@ -1724,18 +1724,6 @@ ensure_httrack() {
 
     cd "$HTTRACK_REPO_DIR"
 
-    # Fix libz.so if zlib-dev installed a broken linker script or wrong-format file
-    # The real shared library (libz.so.1*) is fine — just the dev symlink is bad
-    if [ -f /usr/lib/libz.so ]; then
-        if ! file /usr/lib/libz.so 2>/dev/null | grep -q "ELF"; then
-            real_libz=$(ls /usr/lib/libz.so.1* 2>/dev/null | head -1)
-            if [ -n "$real_libz" ]; then
-                LOG "  Fixing libz.so symlink -> $(basename "$real_libz")"
-                ln -sf "$(basename "$real_libz")" /usr/lib/libz.so
-            fi
-        fi
-    fi
-
     # Build httrack
     LOG "  Configuring httrack..."
     build_spinner=$(START_SPINNER "Configuring httrack...")
@@ -1746,12 +1734,16 @@ ensure_httrack() {
         autoreconf -ivf >/dev/null 2>&1
     fi
 
-    # Pass explicit include/lib paths so configure finds MMC and system libraries
+    # --without-zlib: the opkg zlib-dev library is wrong format for the MIPS
+    # linker (architecture mismatch). httrack works fine without zlib — it only
+    # affects gzip transfer encoding which captive portal pages don't use.
+    # --without-openssl: not available on the Pager, httrack falls back to HTTP.
     ./configure \
         CFLAGS="-g -O2 -I/usr/include -I/mmc/usr/include" \
         LDFLAGS="-L/usr/lib -L/mmc/usr/lib" \
         CPPFLAGS="-I/usr/include -I/mmc/usr/include" \
-        --with-zlib=/usr \
+        --without-zlib \
+        --without-openssl \
         >/dev/null 2>&1
     local configure_result=$?
     STOP_SPINNER "$build_spinner"
