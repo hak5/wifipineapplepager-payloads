@@ -108,8 +108,10 @@ LOOT_DIR="/root/loot/captive_portals"
 # httrack build from source (not available via opkg)
 HTTRACK_REPO_DIR="/mmc/root/repos/httrack"
 HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
-# Build deps installed to MMC (gcc alone needs ~141MB, root overlay only has ~28MB)
-HTTRACK_BUILD_DEPS="gcc make git-http autoconf automake libtool zlib-dev"
+# gcc must go to MMC (~141MB, root overlay only has ~28MB)
+# Everything else fits on root overlay via normal opkg install
+HTTRACK_BUILD_DEPS_MMC="gcc"
+HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev"
 PORTAL_DIR="/www/goodportal"
 TEMP_DIR="/tmp/clone_portal"
 WPA_CONF="/tmp/clone_portal_wpa.conf"
@@ -1545,7 +1547,7 @@ ensure_httrack() {
     LOG yellow "  httrack not found - needs to be built from source"
     LOG yellow "  (httrack is not available in opkg repositories)"
 
-    resp=$(CONFIRMATION_DIALOG "httrack not installed!\n\nBuild from source?\n\nBuild deps (gcc, make, etc.)\nwill be installed to MMC\npartition to save space.\n\nThis may take several minutes.")
+    resp=$(CONFIRMATION_DIALOG "httrack not installed!\n\nBuild from source?\n\ngcc installed to MMC (large).\nmake, git installed normally.\n\nThis may take several minutes.")
     case $? in
         $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
             LOG yellow "  httrack build skipped (wget/curl fallback will be used)"
@@ -1567,17 +1569,34 @@ ensure_httrack() {
     opkg update >/dev/null 2>&1
     STOP_SPINNER "$build_spinner"
 
-    # Install build dependencies to MMC (root overlay too small for gcc)
-    LOG "Installing build dependencies to MMC partition..."
-    log_to_file "Installing httrack build deps to MMC: $HTTRACK_BUILD_DEPS"
+    # Install gcc to MMC partition (too large for root overlay)
+    LOG "Installing gcc to MMC partition..."
+    log_to_file "Installing gcc to MMC (too large for root overlay)"
 
-    for pkg in $HTTRACK_BUILD_DEPS; do
+    for pkg in $HTTRACK_BUILD_DEPS_MMC; do
         LOG "  Installing $pkg to MMC..."
-        build_spinner=$(START_SPINNER "Installing $pkg...")
+        build_spinner=$(START_SPINNER "Installing $pkg to MMC...")
         opkg install -d mmc "$pkg" >/dev/null 2>&1
         STOP_SPINNER "$build_spinner"
 
-        # Check if installed (on MMC, files go under /mmc/)
+        if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
+            LOG green "    Installed: $pkg (MMC)"
+        else
+            LOG yellow "    Warning: $pkg may not have installed correctly"
+            log_to_file "Warning: $pkg MMC install status uncertain"
+        fi
+    done
+
+    # Install remaining build deps to root overlay (small enough to fit)
+    LOG "Installing build tools..."
+    log_to_file "Installing httrack build deps to root: $HTTRACK_BUILD_DEPS_ROOT"
+
+    for pkg in $HTTRACK_BUILD_DEPS_ROOT; do
+        LOG "  Installing $pkg..."
+        build_spinner=$(START_SPINNER "Installing $pkg...")
+        opkg install "$pkg" >/dev/null 2>&1
+        STOP_SPINNER "$build_spinner"
+
         if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
             LOG green "    Installed: $pkg"
         else
@@ -1603,15 +1622,15 @@ ensure_httrack() {
     LOG green "  gcc available: $(gcc --version 2>/dev/null | head -1)"
 
     if ! command -v make >/dev/null 2>&1; then
-        LOG red "  make not found after MMC install"
-        ERROR_DIALOG "make not available!\n\nmake could not be installed\nto MMC.\n\nhttrack build aborted."
+        LOG red "  make not found after install"
+        ERROR_DIALOG "make not available!\n\nmake could not be installed.\n\nhttrack build aborted."
         return 1
     fi
     LOG green "  make available"
 
     if ! command -v git >/dev/null 2>&1; then
-        LOG red "  git not found after MMC install"
-        ERROR_DIALOG "git not available!\n\ngit could not be installed\nto MMC.\n\nhttrack build aborted."
+        LOG red "  git not found after install"
+        ERROR_DIALOG "git not available!\n\ngit could not be installed.\n\nhttrack build aborted."
         return 1
     fi
     LOG green "  git available"

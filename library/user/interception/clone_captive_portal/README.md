@@ -97,7 +97,7 @@ Cloned portals are compatible with:
 | `curl` | Portal detection and fallback cloning | No (built-in) |
 | `httrack` | Recursive portal cloning (primary) | Yes (built from source) |
 
-> **Note:** `httrack` is not available in the OpenWRT opkg repositories. The payload builds it from source automatically. Build dependencies (`gcc`, `make`, `git`, etc.) are installed to the **MMC partition** via `opkg install -d mmc` because they are too large (~141MB for gcc alone) for the root overlay (~28MB free). The httrack source is cloned to `/mmc/root/repos/httrack`.
+> **Note:** `httrack` is not available in the OpenWRT opkg repositories. The payload builds it from source automatically. `gcc` is installed to the **MMC partition** via `opkg install -d mmc` because it needs ~141MB (root overlay only has ~28MB free). Other build tools (`make`, `git`, etc.) are installed normally via `opkg install`. The httrack source is cloned to `/mmc/root/repos/httrack`.
 
 ### Optional (Enhanced Features)
 | Package | Purpose | Auto-Install |
@@ -187,7 +187,8 @@ For authorized red team engagements:
 - **httrack Cloning**
   - Replaced `wget` with `httrack` as primary cloning tool
   - Built from source (not available in opkg repos)
-  - Build deps (gcc, make, git) installed to MMC partition via `opkg install -d mmc`
+  - gcc installed to MMC partition via `opkg install -d mmc gcc` (too large for root overlay)
+  - Other build deps (make, git, etc.) installed normally via `opkg install`
   - Source cloned to `/mmc/root/repos/httrack`
   - Recursive site mirroring with full asset download (CSS, JS, images, fonts)
   - Automatic link conversion for offline browsing
