@@ -62,21 +62,18 @@
 #   - iw (WiFi scanning and interface management)
 #   - wpa_supplicant (network connection)
 #   - curl (portal detection and fallback cloning)
-#   - httrack (recursive portal cloning - built from source, not in opkg)
-#   - wget (fallback cloning if httrack unavailable)
-#   - gcc, make, git (build deps for httrack - installed to MMC partition)
+#   - wget (recursive portal cloning - primary)
 
 # =============================================================================
 # CHANGELOG (update in README.md as well!)
 # =============================================================================
-#   2.0 - Detection rewrite, httrack cloning, debug mode
+#   2.0 - Detection rewrite, debug mode, known portals
 #       - FIXED: captive portal detection (curl -L was hiding redirects)
 #       - FIXED: expected response validation per detection URL type
 #       - FIXED: BusyBox nslookup parsing for DNS hijack detection
-#       - NEW: httrack as primary cloning tool (recursive, assets, link conversion)
 #       - NEW: Debug mode with verbose logging for troubleshooting
 #       - NEW: Known portal SSIDs (xfinitywifi, etc.) for quick testing
-#       - NEW: Fallback chain: httrack -> wget -> curl
+#       - NEW: wget primary with curl fallback for cloning
 #   1.0 - Initial release
 #       - SSID scanning with signal strength sorting
 #       - Open and WPA network connection support
@@ -105,16 +102,6 @@
 INTERFACE="wlan0cli"
 LOOT_DIR="/root/loot/captive_portals"
 
-# httrack build from source (not available via opkg)
-HTTRACK_REPO_DIR="/mmc/root/repos/httrack"
-HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
-# gcc must go to MMC (~141MB, root overlay only has ~28MB)
-# Everything else fits on root overlay via normal opkg install
-HTTRACK_BUILD_DEPS_MMC="gcc"
-HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake grep"
-# musl C headers URL (libc-dev not in opkg, so we install headers from musl source)
-MUSL_VERSION="1.2.5"
-MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
 PORTAL_DIR="/www/goodportal"
 TEMP_DIR="/tmp/clone_portal"
 WPA_CONF="/tmp/clone_portal_wpa.conf"
@@ -1524,281 +1511,6 @@ preserve_url_params() {
     fi
 }
 
-# =============================================================================
-# HTTRACK BUILD FROM SOURCE
-# =============================================================================
-# httrack is not available via opkg on the WiFi Pineapple Pager.
-# Build deps (gcc ~141MB) are too large for root overlay (~28MB free),
-# so we install them to the MMC partition (4GB) via opkg install -d mmc.
-
-ensure_httrack() {
-    # Already installed?
-    if command -v httrack >/dev/null 2>&1; then
-        LOG green "  httrack already installed"
-        return 0
-    fi
-
-    # Check if previously built binary exists at common locations
-    for bin_path in /usr/local/bin/httrack /mmc/usr/local/bin/httrack /mmc/usr/bin/httrack; do
-        if [ -x "$bin_path" ]; then
-            LOG green "  httrack found at $bin_path"
-            export PATH="$(dirname "$bin_path"):$PATH"
-            return 0
-        fi
-    done
-
-    LOG yellow "  httrack not found - needs to be built from source"
-    LOG yellow "  (httrack is not available in opkg repositories)"
-
-    resp=$(CONFIRMATION_DIALOG "httrack not installed!\n\nBuild from source?\n\ngcc installed to MMC (large).\nmake, git installed normally.\n\nThis may take several minutes.")
-    case $? in
-        $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
-            LOG yellow "  httrack build skipped (wget/curl fallback will be used)"
-            return 1
-            ;;
-    esac
-
-    if [ "$resp" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-        LOG yellow "  httrack build declined (wget/curl fallback will be used)"
-        return 1
-    fi
-
-    LOG ""
-    LOG "=== BUILDING HTTRACK FROM SOURCE ==="
-
-    # Ensure opkg is up to date
-    LOG "Updating opkg package lists..."
-    build_spinner=$(START_SPINNER "Updating opkg...")
-    opkg update >/dev/null 2>&1
-    STOP_SPINNER "$build_spinner"
-
-    # Install gcc to MMC partition (too large for root overlay)
-    LOG "Installing gcc to MMC partition..."
-    for pkg in $HTTRACK_BUILD_DEPS_MMC; do
-        if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-            LOG green "  $pkg already installed (MMC)"
-        else
-            LOG "  Installing $pkg to MMC..."
-            build_spinner=$(START_SPINNER "Installing $pkg to MMC...")
-            opkg install -d mmc "$pkg" >/dev/null 2>&1
-            STOP_SPINNER "$build_spinner"
-
-            if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-                LOG green "    Installed: $pkg (MMC)"
-            else
-                LOG yellow "    Warning: $pkg may not have installed correctly"
-                log_to_file "Warning: $pkg MMC install status uncertain"
-            fi
-        fi
-    done
-
-    # Install remaining build deps to root overlay (small enough to fit)
-    LOG "Installing build tools..."
-    for pkg in $HTTRACK_BUILD_DEPS_ROOT; do
-        if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-            LOG green "  $pkg already installed"
-        else
-            LOG "  Installing $pkg..."
-            build_spinner=$(START_SPINNER "Installing $pkg...")
-            opkg install "$pkg" >/dev/null 2>&1
-            STOP_SPINNER "$build_spinner"
-
-            if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-                LOG green "    Installed: $pkg"
-            else
-                LOG yellow "    Warning: $pkg may not have installed correctly"
-                log_to_file "Warning: $pkg install status uncertain"
-            fi
-        fi
-    done
-
-    # Add MMC bin/lib directories to PATH and LD_LIBRARY_PATH
-    # so the build tools (gcc, make, git) are found
-    export PATH="/mmc/usr/bin:/mmc/usr/sbin:/mmc/bin:/mmc/sbin:$PATH"
-    export LD_LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LD_LIBRARY_PATH:-}"
-    export C_INCLUDE_PATH="/mmc/usr/include:${C_INCLUDE_PATH:-}"
-    export LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LIBRARY_PATH:-}"
-
-    # Install musl C library headers (libc-dev not available via opkg)
-    # gcc needs stdio.h etc. which only come from the musl source headers
-    if [ ! -f "/usr/include/stdio.h" ]; then
-        LOG "  Installing musl C library headers..."
-        log_to_file "musl headers missing - downloading from $MUSL_URL"
-        build_spinner=$(START_SPINNER "Installing C headers...")
-
-        # Download musl source tarball (small, ~1MB)
-        curl -s -L -o /tmp/musl.tar.gz "$MUSL_URL" 2>/dev/null
-        if [ ! -f /tmp/musl.tar.gz ]; then
-            STOP_SPINNER "$build_spinner"
-            LOG red "  Failed to download musl headers"
-            ERROR_DIALOG "Failed to download\nmusl C headers.\n\nCheck internet connection."
-            return 1
-        fi
-
-        # Extract to temp and install headers
-        tar xzf /tmp/musl.tar.gz -C /tmp/ 2>/dev/null
-        if [ -d "/tmp/musl-${MUSL_VERSION}/include" ]; then
-            # Install generic headers
-            mkdir -p /usr/include
-            cp -r "/tmp/musl-${MUSL_VERSION}/include/"* /usr/include/ 2>/dev/null
-
-            # Install architecture-specific headers (mips covers both mips and mipsel)
-            if [ -d "/tmp/musl-${MUSL_VERSION}/arch/mips" ]; then
-                cp -r "/tmp/musl-${MUSL_VERSION}/arch/mips/"* /usr/include/ 2>/dev/null
-            fi
-
-            # Generate alltypes.h from the template if it exists
-            if [ -f "/usr/include/bits/alltypes.h.in" ]; then
-                # Simple sed-based generation (enough for compilation)
-                sed -e 's/TYPEDEF \(.*\) \(.*\);/typedef \1 \2;/g' \
-                    -e 's/STRUCT \(.*\) \(.*\);/struct \1 \2;/g' \
-                    -e 's/UNION \(.*\) \(.*\);/union \1 \2;/g' \
-                    "/usr/include/bits/alltypes.h.in" > "/usr/include/bits/alltypes.h" 2>/dev/null
-            fi
-
-            # Clean up
-            rm -rf "/tmp/musl-${MUSL_VERSION}" /tmp/musl.tar.gz
-
-            if [ -f "/usr/include/stdio.h" ]; then
-                LOG green "  musl C headers installed to /usr/include/"
-            else
-                STOP_SPINNER "$build_spinner"
-                LOG red "  musl header installation failed"
-                ERROR_DIALOG "musl C header install\nfailed.\n\nhttrack build aborted."
-                return 1
-            fi
-        else
-            STOP_SPINNER "$build_spinner"
-            LOG red "  Failed to extract musl source"
-            rm -f /tmp/musl.tar.gz
-            return 1
-        fi
-
-        STOP_SPINNER "$build_spinner"
-    else
-        LOG green "  C library headers already present"
-    fi
-
-    # Verify gcc and make are now available
-    if ! command -v gcc >/dev/null 2>&1; then
-        LOG red "  gcc not found after MMC install"
-        LOG red "  Check: opkg install -d mmc gcc"
-        ERROR_DIALOG "gcc not available!\n\nThe C compiler could not\nbe installed to MMC.\n\nhttrack build aborted."
-        return 1
-    fi
-    LOG green "  gcc available: $(gcc --version 2>/dev/null | head -1)"
-
-    if ! command -v make >/dev/null 2>&1; then
-        LOG red "  make not found after install"
-        ERROR_DIALOG "make not available!\n\nmake could not be installed.\n\nhttrack build aborted."
-        return 1
-    fi
-    LOG green "  make available"
-
-    if ! command -v git >/dev/null 2>&1; then
-        LOG red "  git not found after install"
-        ERROR_DIALOG "git not available!\n\ngit could not be installed.\n\nhttrack build aborted."
-        return 1
-    fi
-    LOG green "  git available"
-
-    # Create repos directory and clone httrack
-    mkdir -p /mmc/root/repos
-
-    if [ -d "$HTTRACK_REPO_DIR" ]; then
-        LOG "  httrack repo already cloned, updating..."
-        cd "$HTTRACK_REPO_DIR"
-        git pull >/dev/null 2>&1 || true
-    else
-        LOG "  Cloning httrack repository..."
-        build_spinner=$(START_SPINNER "Cloning httrack...")
-        git clone "$HTTRACK_REPO_URL" "$HTTRACK_REPO_DIR" --recurse 2>/dev/null
-        STOP_SPINNER "$build_spinner"
-
-        if [ ! -d "$HTTRACK_REPO_DIR" ]; then
-            LOG red "  Failed to clone httrack repository"
-            ERROR_DIALOG "Failed to clone httrack!\n\nCheck internet connection\nand try again."
-            return 1
-        fi
-    fi
-
-    cd "$HTTRACK_REPO_DIR"
-
-    # Build httrack
-    LOG "  Configuring httrack..."
-    build_spinner=$(START_SPINNER "Configuring httrack...")
-
-    # Run autoreconf if configure doesn't exist
-    if [ ! -f "./configure" ]; then
-        LOG "    Running autoreconf..."
-        autoreconf -ivf >/dev/null 2>&1
-    fi
-
-    # --without-zlib: the opkg zlib-dev library is wrong format for the MIPS
-    # linker (architecture mismatch). httrack works fine without zlib — it only
-    # affects gzip transfer encoding which captive portal pages don't use.
-    # --without-openssl: not available on the Pager, httrack falls back to HTTP.
-    ./configure \
-        CFLAGS="-g -O2 -I/usr/include -I/mmc/usr/include" \
-        LDFLAGS="-L/usr/lib -L/mmc/usr/lib" \
-        CPPFLAGS="-I/usr/include -I/mmc/usr/include" \
-        --without-zlib \
-        --without-openssl \
-        >/dev/null 2>&1
-    local configure_result=$?
-    STOP_SPINNER "$build_spinner"
-
-    if [ $configure_result -ne 0 ]; then
-        LOG red "  configure failed"
-        log_to_file "httrack configure failed with exit code $configure_result"
-        ERROR_DIALOG "httrack configure failed!\n\nCheck build log for details."
-        return 1
-    fi
-    LOG green "  Configure succeeded"
-
-    LOG "  Compiling httrack (this may take a while)..."
-    build_spinner=$(START_SPINNER "Compiling httrack...")
-    make -j"$(nproc 2>/dev/null || echo 2)" >/dev/null 2>&1
-    local make_result=$?
-    STOP_SPINNER "$build_spinner"
-
-    if [ $make_result -ne 0 ]; then
-        LOG red "  make failed"
-        log_to_file "httrack make failed with exit code $make_result"
-        ERROR_DIALOG "httrack compilation failed!\n\nCheck build log for details."
-        return 1
-    fi
-    LOG green "  Compilation succeeded"
-
-    LOG "  Installing httrack..."
-    build_spinner=$(START_SPINNER "Installing httrack...")
-    make install DESTDIR=/ >/dev/null 2>&1
-    local install_result=$?
-    STOP_SPINNER "$build_spinner"
-
-    if [ $install_result -ne 0 ]; then
-        LOG red "  make install failed"
-        ERROR_DIALOG "httrack install failed!"
-        return 1
-    fi
-
-    # Verify httrack binary is now available
-    # It typically installs to /usr/local/bin/httrack
-    export PATH="/usr/local/bin:$PATH"
-
-    if command -v httrack >/dev/null 2>&1; then
-        LOG green "  httrack installed successfully!"
-        LOG green "  $(httrack --version 2>/dev/null | head -1)"
-        log_to_file "httrack built and installed from source"
-        return 0
-    else
-        LOG red "  httrack binary not found after install"
-        ERROR_DIALOG "httrack install succeeded\nbut binary not in PATH.\n\nCheck /usr/local/bin/"
-        return 1
-    fi
-}
-
-# =============================================================================
 # PHASE 1: SCAN FOR SSIDS
 # =============================================================================
 scan_ssids() {
@@ -2585,7 +2297,7 @@ clone_portal() {
     # Track response time for rate limiting tuning
     track_response_time "$PORTAL_URL" >/dev/null
 
-    # Clone portal using httrack (primary), wget (fallback), curl (last resort)
+    # Clone portal using wget (primary) with curl fallback
     LOG "Downloading portal pages..."
 
     local spinner_id
@@ -2594,86 +2306,45 @@ clone_portal() {
     local file_count=0
     local clone_method=""
 
-    # --- Primary: httrack (recursive site mirror with assets) ---
-    if [ "$HAVE_HTTRACK" -eq 1 ]; then
-        LOG "  Using httrack for portal cloning..."
-        debug_log "httrack command: httrack '$PORTAL_URL' -O '$TEMP_DIR/clone' -r3 -N100 -c2 -T$TIMEOUT -R2 -q -%v -F '$CURRENT_USER_AGENT'"
+    # --- Primary: wget (recursive with page requisites) ---
+    LOG "  Using wget for portal cloning..."
+    debug_log "wget cloning: $PORTAL_URL -> $TEMP_DIR/clone"
 
-        httrack "$PORTAL_URL" \
-            -O "$TEMP_DIR/clone" \
-            -r3 \
-            -N100 \
-            -c2 \
-            -T"$TIMEOUT" \
-            -R2 \
-            -q \
-            -%v \
-            -F "$CURRENT_USER_AGENT" \
-            -m50000000 \
-            '-*.exe' '-*.zip' '-*.tar' '-*.gz' '-*.pdf' \
-            '-*.doc*' '-*.xls*' '-*.mp4' '-*.mp3' '-*.avi' \
-            '-*.dmg' '-*.iso' '-*.bin' 2>/dev/null || true
+    wget --quiet \
+         --recursive \
+         --level=2 \
+         --page-requisites \
+         --convert-links \
+         --adjust-extension \
+         --no-parent \
+         --no-host-directories \
+         --directory-prefix="$TEMP_DIR/clone" \
+         --timeout="$TIMEOUT" \
+         --tries=2 \
+         --reject "*.exe,*.zip,*.tar,*.gz,*.pdf,*.doc*,*.xls*" \
+         --user-agent="$CURRENT_USER_AGENT" \
+         "$PORTAL_URL" 2>/dev/null || true
 
-        # httrack creates hts-cache/ and other metadata - clean up
-        rm -rf "$TEMP_DIR/clone/hts-cache" 2>/dev/null
-        rm -f "$TEMP_DIR/clone/hts-log.txt" 2>/dev/null
-        rm -f "$TEMP_DIR/clone/backblue.gif" 2>/dev/null
-        rm -f "$TEMP_DIR/clone/fade.gif" 2>/dev/null
-        # Only remove httrack's auto-generated index (contains "<!-- Mirrored from" marker)
-        if [ -f "$TEMP_DIR/clone/index.html" ]; then
-            if grep -q "HTTrack Website Copier" "$TEMP_DIR/clone/index.html" 2>/dev/null; then
-                rm -f "$TEMP_DIR/clone/index.html"
-                debug_log "Removed httrack-generated index.html"
-            fi
-        fi
-
-        # httrack with -N100 puts files directly in output dir
-        file_count=$(find "$TEMP_DIR/clone" -type f \( -name "*.html" -o -name "*.htm" -o -name "*.css" -o -name "*.js" -o -name "*.png" -o -name "*.jpg" -o -name "*.gif" -o -name "*.svg" -o -name "*.ico" -o -name "*.woff" -o -name "*.woff2" -o -name "*.php" \) 2>/dev/null | wc -l)
-        debug_log "httrack downloaded $file_count web files"
-        clone_method="httrack"
-    fi
-
-    # --- Fallback: wget (if httrack failed or unavailable) ---
-    if [ "$file_count" -eq 0 ] && command -v wget >/dev/null 2>&1; then
-        LOG "  httrack produced no files, falling back to wget..."
-        debug_log "Trying wget fallback"
-
+    # Also try root page if we got a deeper URL
+    if [ "$PORTAL_URL" != "$base_url/" ]; then
         wget --quiet \
-             --recursive \
-             --level=2 \
              --page-requisites \
              --convert-links \
-             --adjust-extension \
-             --no-parent \
              --no-host-directories \
              --directory-prefix="$TEMP_DIR/clone" \
              --timeout="$TIMEOUT" \
              --tries=2 \
-             --reject "*.exe,*.zip,*.tar,*.gz,*.pdf,*.doc*,*.xls*" \
              --user-agent="$CURRENT_USER_AGENT" \
-             "$PORTAL_URL" 2>/dev/null || true
-
-        # Also try root page if we got a deeper URL
-        if [ "$PORTAL_URL" != "$base_url/" ]; then
-            wget --quiet \
-                 --page-requisites \
-                 --convert-links \
-                 --no-host-directories \
-                 --directory-prefix="$TEMP_DIR/clone" \
-                 --timeout="$TIMEOUT" \
-                 --tries=2 \
-                 --user-agent="$CURRENT_USER_AGENT" \
-                 "$base_url/" 2>/dev/null || true
-        fi
-
-        file_count=$(find "$TEMP_DIR/clone" -type f 2>/dev/null | wc -l)
-        debug_log "wget downloaded $file_count files"
-        clone_method="wget"
+             "$base_url/" 2>/dev/null || true
     fi
 
-    # --- Last resort: curl (single page only) ---
+    file_count=$(find "$TEMP_DIR/clone" -type f 2>/dev/null | wc -l)
+    debug_log "wget downloaded $file_count files"
+    clone_method="wget"
+
+    # --- Fallback: curl (single page only) ---
     if [ "$file_count" -eq 0 ]; then
-        LOG "  wget failed, falling back to curl (single page)..."
+        LOG "  wget produced no files, falling back to curl (single page)..."
         debug_log "Trying curl fallback for single page download"
 
         mkdir -p "$TEMP_DIR/clone"
@@ -2694,7 +2365,7 @@ clone_portal() {
     debug_log "Clone method: $clone_method, files: $file_count"
 
     if [ "$file_count" -eq 0 ]; then
-        ERROR_DIALOG "Failed to download portal.\n\nThe portal may require\nauthentication or use HTTPS.\n\nTried: httrack, wget, curl"
+        ERROR_DIALOG "Failed to download portal.\n\nThe portal may require\nauthentication or use HTTPS.\n\nTried: wget, curl"
         return 1
     fi
     
@@ -2948,7 +2619,7 @@ mkdir -p "$TEMP_DIR"
 # DEPENDENCY CHECK
 # =============================================================================
 # Map commands to their package names (command:package)
-DEPENDENCIES="curl:curl iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
+DEPENDENCIES="curl:curl wget:wget iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
 
 LOG "Checking dependencies..."
 
@@ -3091,18 +2762,6 @@ if [ -n "$OPTIONAL_MISSING" ]; then
         command -v openssl >/dev/null 2>&1 && HAVE_OPENSSL=1
         grep --version 2>/dev/null | grep -q "GNU" && HAVE_GNU_GREP=1
     fi
-fi
-
-LOG ""
-
-# =============================================================================
-# HTTRACK (build from source if not installed)
-# =============================================================================
-LOG "Checking httrack..."
-ensure_httrack
-HAVE_HTTRACK=0
-if command -v httrack >/dev/null 2>&1; then
-    HAVE_HTTRACK=1
 fi
 
 LOG ""

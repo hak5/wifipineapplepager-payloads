@@ -11,7 +11,7 @@ This payload provides end-to-end automation for captive portal reconnaissance an
 ### Core Features
 - **SSID Scanning** - Scan nearby networks sorted by signal strength
 - **Auto-Connection** - Connect to open or WPA-protected networks
-- **httrack Cloning** - Full recursive site mirror with CSS, JS, images, link conversion
+- **Recursive Cloning** - Download portal HTML, CSS, JS, and images via wget
 - **Credential Capture** - Auto-modify forms to submit to `/captiveportal/`
 - **Evil Twin Setup** - Configure Open AP with cloned SSID and optional MAC
 - **SSID Pool** - Add target SSID to pool for future use
@@ -95,9 +95,7 @@ Cloned portals are compatible with:
 | `iw` | WiFi scanning and interface management | No (built-in) |
 | `wpa_supplicant` | Network connection | No (built-in) |
 | `curl` | Portal detection and fallback cloning | No (built-in) |
-| `httrack` | Recursive portal cloning (primary) | Yes (built from source) |
-
-> **Note:** `httrack` is not available in the OpenWRT opkg repositories. The payload builds it from source automatically. `gcc` is installed to the **MMC partition** via `opkg install -d mmc` because it needs ~141MB (root overlay only has ~28MB free). Other build tools (`make`, `git`, etc.) are installed normally via `opkg install`. The httrack source is cloned to `/mmc/root/repos/httrack`.
+| `wget` | Recursive portal cloning | Yes (if missing) |
 
 ### Optional (Enhanced Features)
 | Package | Purpose | Auto-Install |
@@ -159,7 +157,7 @@ MAX_SSIDS=20             # Maximum SSIDs to display
 - User confirmation before destructive actions
 - Auto-install missing dependencies with user consent
 - Compatible with goodportal and evilportals ecosystems
-- Fallback methods (httrack → wget → curl) for portal cloning
+- Fallback methods (wget → curl) for portal cloning
 - Handle both open and WPA-protected networks
 
 ## Educational Use
@@ -184,15 +182,10 @@ For authorized red team engagements:
   - Added expected response validation per URL type (204 for Google, "Success" for Apple, etc.)
   - Two-phase detection: check without redirect following first, then validate body content
   - Fixed BusyBox `nslookup` parsing for DNS hijack detection
-- **httrack Cloning**
-  - Replaced `wget` with `httrack` as primary cloning tool
-  - Built from source (not available in opkg repos)
-  - gcc installed to MMC partition via `opkg install -d mmc gcc` (too large for root overlay)
-  - Other build deps (make, git, etc.) installed normally via `opkg install`
-  - Source cloned to `/mmc/root/repos/httrack`
-  - Recursive site mirroring with full asset download (CSS, JS, images, fonts)
-  - Automatic link conversion for offline browsing
-  - Fallback chain: httrack -> wget -> curl (single page)
+- **Portal Cloning**
+  - wget as primary cloner (recursive with page requisites, link conversion)
+  - curl as fallback for single-page download
+  - Improved user agent handling and cookie preservation
 - **Known Portal SSIDs**
   - Quick-test mode with pre-configured captive portal SSIDs
   - Includes xfinitywifi, att-wifi, GoogleStarbucks, Boingo Hotspot, CableWiFi, TWCWiFi, optimumwifi
