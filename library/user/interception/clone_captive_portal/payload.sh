@@ -62,8 +62,9 @@
 #   - iw (WiFi scanning and interface management)
 #   - wpa_supplicant (network connection)
 #   - curl (portal detection and fallback cloning)
-#   - httrack (recursive portal cloning - primary)
+#   - httrack (recursive portal cloning - built from source, not in opkg)
 #   - wget (fallback cloning if httrack unavailable)
+#   - gcc, make, git (build deps for httrack - installed to MMC partition)
 
 # =============================================================================
 # CHANGELOG (update in README.md as well!)
@@ -103,6 +104,12 @@
 # =============================================================================
 INTERFACE="wlan0cli"
 LOOT_DIR="/root/loot/captive_portals"
+
+# httrack build from source (not available via opkg)
+HTTRACK_REPO_DIR="/mmc/root/repos/httrack"
+HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
+# Build deps installed to MMC (gcc alone needs ~141MB, root overlay only has ~28MB)
+HTTRACK_BUILD_DEPS="gcc make git-http autoconf automake libtool zlib-dev"
 PORTAL_DIR="/www/goodportal"
 TEMP_DIR="/tmp/clone_portal"
 WPA_CONF="/tmp/clone_portal_wpa.conf"
@@ -1513,6 +1520,189 @@ preserve_url_params() {
 }
 
 # =============================================================================
+# HTTRACK BUILD FROM SOURCE
+# =============================================================================
+# httrack is not available via opkg on the WiFi Pineapple Pager.
+# Build deps (gcc ~141MB) are too large for root overlay (~28MB free),
+# so we install them to the MMC partition (4GB) via opkg install -d mmc.
+
+ensure_httrack() {
+    # Already installed?
+    if command -v httrack >/dev/null 2>&1; then
+        LOG green "  httrack already installed"
+        return 0
+    fi
+
+    # Check if previously built binary exists at common locations
+    for bin_path in /usr/local/bin/httrack /mmc/usr/local/bin/httrack /mmc/usr/bin/httrack; do
+        if [ -x "$bin_path" ]; then
+            LOG green "  httrack found at $bin_path"
+            export PATH="$(dirname "$bin_path"):$PATH"
+            return 0
+        fi
+    done
+
+    LOG yellow "  httrack not found - needs to be built from source"
+    LOG yellow "  (httrack is not available in opkg repositories)"
+
+    resp=$(CONFIRMATION_DIALOG "httrack not installed!\n\nBuild from source?\n\nBuild deps (gcc, make, etc.)\nwill be installed to MMC\npartition to save space.\n\nThis may take several minutes.")
+    case $? in
+        $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
+            LOG yellow "  httrack build skipped (wget/curl fallback will be used)"
+            return 1
+            ;;
+    esac
+
+    if [ "$resp" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+        LOG yellow "  httrack build declined (wget/curl fallback will be used)"
+        return 1
+    fi
+
+    LOG ""
+    LOG "=== BUILDING HTTRACK FROM SOURCE ==="
+
+    # Ensure opkg is up to date
+    LOG "Updating opkg package lists..."
+    build_spinner=$(START_SPINNER "Updating opkg...")
+    opkg update >/dev/null 2>&1
+    STOP_SPINNER "$build_spinner"
+
+    # Install build dependencies to MMC (root overlay too small for gcc)
+    LOG "Installing build dependencies to MMC partition..."
+    log_to_file "Installing httrack build deps to MMC: $HTTRACK_BUILD_DEPS"
+
+    for pkg in $HTTRACK_BUILD_DEPS; do
+        LOG "  Installing $pkg to MMC..."
+        build_spinner=$(START_SPINNER "Installing $pkg...")
+        opkg install -d mmc "$pkg" >/dev/null 2>&1
+        STOP_SPINNER "$build_spinner"
+
+        # Check if installed (on MMC, files go under /mmc/)
+        if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
+            LOG green "    Installed: $pkg"
+        else
+            LOG yellow "    Warning: $pkg may not have installed correctly"
+            log_to_file "Warning: $pkg install status uncertain"
+        fi
+    done
+
+    # Add MMC bin/lib directories to PATH and LD_LIBRARY_PATH
+    # so the build tools (gcc, make, git) are found
+    export PATH="/mmc/usr/bin:/mmc/usr/sbin:/mmc/bin:/mmc/sbin:$PATH"
+    export LD_LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LD_LIBRARY_PATH:-}"
+    export C_INCLUDE_PATH="/mmc/usr/include:${C_INCLUDE_PATH:-}"
+    export LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LIBRARY_PATH:-}"
+
+    # Verify gcc and make are now available
+    if ! command -v gcc >/dev/null 2>&1; then
+        LOG red "  gcc not found after MMC install"
+        LOG red "  Check: opkg install -d mmc gcc"
+        ERROR_DIALOG "gcc not available!\n\nThe C compiler could not\nbe installed to MMC.\n\nhttrack build aborted."
+        return 1
+    fi
+    LOG green "  gcc available: $(gcc --version 2>/dev/null | head -1)"
+
+    if ! command -v make >/dev/null 2>&1; then
+        LOG red "  make not found after MMC install"
+        ERROR_DIALOG "make not available!\n\nmake could not be installed\nto MMC.\n\nhttrack build aborted."
+        return 1
+    fi
+    LOG green "  make available"
+
+    if ! command -v git >/dev/null 2>&1; then
+        LOG red "  git not found after MMC install"
+        ERROR_DIALOG "git not available!\n\ngit could not be installed\nto MMC.\n\nhttrack build aborted."
+        return 1
+    fi
+    LOG green "  git available"
+
+    # Create repos directory and clone httrack
+    mkdir -p /mmc/root/repos
+
+    if [ -d "$HTTRACK_REPO_DIR" ]; then
+        LOG "  httrack repo already cloned, updating..."
+        cd "$HTTRACK_REPO_DIR"
+        git pull >/dev/null 2>&1 || true
+    else
+        LOG "  Cloning httrack repository..."
+        build_spinner=$(START_SPINNER "Cloning httrack...")
+        git clone "$HTTRACK_REPO_URL" "$HTTRACK_REPO_DIR" --recurse 2>/dev/null
+        STOP_SPINNER "$build_spinner"
+
+        if [ ! -d "$HTTRACK_REPO_DIR" ]; then
+            LOG red "  Failed to clone httrack repository"
+            ERROR_DIALOG "Failed to clone httrack!\n\nCheck internet connection\nand try again."
+            return 1
+        fi
+    fi
+
+    cd "$HTTRACK_REPO_DIR"
+
+    # Build httrack
+    LOG "  Configuring httrack..."
+    build_spinner=$(START_SPINNER "Configuring httrack...")
+
+    # Run autoreconf if configure doesn't exist
+    if [ ! -f "./configure" ]; then
+        LOG "    Running autoreconf..."
+        autoreconf -ivf >/dev/null 2>&1
+    fi
+
+    ./configure >/dev/null 2>&1
+    local configure_result=$?
+    STOP_SPINNER "$build_spinner"
+
+    if [ $configure_result -ne 0 ]; then
+        LOG red "  configure failed"
+        log_to_file "httrack configure failed with exit code $configure_result"
+        ERROR_DIALOG "httrack configure failed!\n\nCheck build log for details."
+        return 1
+    fi
+    LOG green "  Configure succeeded"
+
+    LOG "  Compiling httrack (this may take a while)..."
+    build_spinner=$(START_SPINNER "Compiling httrack...")
+    make -j"$(nproc 2>/dev/null || echo 2)" >/dev/null 2>&1
+    local make_result=$?
+    STOP_SPINNER "$build_spinner"
+
+    if [ $make_result -ne 0 ]; then
+        LOG red "  make failed"
+        log_to_file "httrack make failed with exit code $make_result"
+        ERROR_DIALOG "httrack compilation failed!\n\nCheck build log for details."
+        return 1
+    fi
+    LOG green "  Compilation succeeded"
+
+    LOG "  Installing httrack..."
+    build_spinner=$(START_SPINNER "Installing httrack...")
+    make install DESTDIR=/ >/dev/null 2>&1
+    local install_result=$?
+    STOP_SPINNER "$build_spinner"
+
+    if [ $install_result -ne 0 ]; then
+        LOG red "  make install failed"
+        ERROR_DIALOG "httrack install failed!"
+        return 1
+    fi
+
+    # Verify httrack binary is now available
+    # It typically installs to /usr/local/bin/httrack
+    export PATH="/usr/local/bin:$PATH"
+
+    if command -v httrack >/dev/null 2>&1; then
+        LOG green "  httrack installed successfully!"
+        LOG green "  $(httrack --version 2>/dev/null | head -1)"
+        log_to_file "httrack built and installed from source"
+        return 0
+    else
+        LOG red "  httrack binary not found after install"
+        ERROR_DIALOG "httrack install succeeded\nbut binary not in PATH.\n\nCheck /usr/local/bin/"
+        return 1
+    fi
+}
+
+# =============================================================================
 # PHASE 1: SCAN FOR SSIDS
 # =============================================================================
 scan_ssids() {
@@ -2309,7 +2499,7 @@ clone_portal() {
     local clone_method=""
 
     # --- Primary: httrack (recursive site mirror with assets) ---
-    if command -v httrack >/dev/null 2>&1; then
+    if [ "$HAVE_HTTRACK" -eq 1 ]; then
         LOG "  Using httrack for portal cloning..."
         debug_log "httrack command: httrack '$PORTAL_URL' -O '$TEMP_DIR/clone' -r3 -N100 -c2 -T$TIMEOUT -R2 -q -%v -F '$CURRENT_USER_AGENT'"
 
@@ -2662,7 +2852,7 @@ mkdir -p "$TEMP_DIR"
 # DEPENDENCY CHECK
 # =============================================================================
 # Map commands to their package names (command:package)
-DEPENDENCIES="curl:curl httrack:httrack iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
+DEPENDENCIES="curl:curl iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
 
 LOG "Checking dependencies..."
 
@@ -2805,6 +2995,18 @@ if [ -n "$OPTIONAL_MISSING" ]; then
         command -v openssl >/dev/null 2>&1 && HAVE_OPENSSL=1
         grep --version 2>/dev/null | grep -q "GNU" && HAVE_GNU_GREP=1
     fi
+fi
+
+LOG ""
+
+# =============================================================================
+# HTTRACK (build from source if not installed)
+# =============================================================================
+LOG "Checking httrack..."
+ensure_httrack
+HAVE_HTTRACK=0
+if command -v httrack >/dev/null 2>&1; then
+    HAVE_HTTRACK=1
 fi
 
 LOG ""
