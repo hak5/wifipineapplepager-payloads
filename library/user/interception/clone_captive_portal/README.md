@@ -11,20 +11,22 @@ This payload provides end-to-end automation for captive portal reconnaissance an
 ### Core Features
 - **SSID Scanning** - Scan nearby networks sorted by signal strength
 - **Auto-Connection** - Connect to open or WPA-protected networks
-- **Recursive Cloning** - Download portal HTML, CSS, JS, and images (level=2)
+- **httrack Cloning** - Full recursive site mirror with CSS, JS, images, link conversion
 - **Credential Capture** - Auto-modify forms to submit to `/captiveportal/`
 - **Evil Twin Setup** - Configure Open AP with cloned SSID and optional MAC
 - **SSID Pool** - Add target SSID to pool for future use
 - **State Restoration** - Save and restore interface and Open AP state on exit
 
-### Enhanced Portal Detection (v1.1+)
+### Enhanced Portal Detection (v2.0)
 - **DNS Hijack Detection** - Detect portals that intercept all DNS queries
-- **HTTP Connectivity Check** - Standard method using known endpoints
+- **HTTP Connectivity Check** - Two-phase detection (no redirect following) with expected response validation
 - **HTTPS Detection** - Detect HTTPS-only portals (with cert bypass)
 - **JavaScript Redirect Extraction** - Parse JS redirects from portal pages
 - **WISPr XML Parsing** - Support for enterprise hotspot protocols
 - **Gateway Direct Access** - Fallback check on network gateway
 - **Headless Browser** - Optional JS rendering (requires phantomjs/chromium)
+- **Known Portal SSIDs** - Quick-test mode with xfinitywifi, att-wifi, GoogleStarbucks, etc.
+- **Debug Mode** - Verbose logging of every detection step for troubleshooting
 
 ### Advanced Analysis (v1.3)
 - **MAC Bypass Detection** - Detect if portal whitelists by MAC address
@@ -93,7 +95,7 @@ Cloned portals are compatible with:
 | `iw` | WiFi scanning and interface management | No (built-in) |
 | `wpa_supplicant` | Network connection | No (built-in) |
 | `curl` | Portal detection and fallback cloning | No (built-in) |
-| `wget` | Recursive portal cloning | Yes (if missing) |
+| `httrack` | Recursive portal cloning (primary) | Yes (if missing) |
 
 ### Optional (Enhanced Features)
 | Package | Purpose | Auto-Install |
@@ -109,12 +111,14 @@ The payload uses multiple detection methods in sequence:
 ### Method 1: DNS Hijack Detection
 Checks if DNS queries for known domains return unexpected IPs (indicates portal intercepting all DNS).
 
-### Method 2: HTTP Connectivity Check
-Tests standard connectivity endpoints:
-- `http://connectivitycheck.gstatic.com/generate_204` (Google/Android)
-- `http://captive.apple.com/hotspot-detect.html` (Apple)
-- `http://detectportal.firefox.com/success.txt` (Firefox)
-- `http://www.msftconnecttest.com/connecttest.txt` (Microsoft)
+### Method 2: HTTP Connectivity Check (v2.0 - Fixed)
+Tests standard connectivity endpoints **without following redirects** (`curl` without `-L`), then validates expected response per URL type:
+- `generate_204` endpoints: expects HTTP 204, any other response = portal
+- `captive.apple.com`: expects body containing "Success"
+- `detectportal.firefox.com`: expects body containing "success"
+- `msftconnecttest.com`: expects body containing "Microsoft Connect Test"
+
+If the actual response differs from expected, a captive portal is detected.
 
 ### Method 3: HTTPS Connectivity Check
 Tests HTTPS endpoints for HTTPS-only portals:
@@ -153,7 +157,7 @@ MAX_SSIDS=20             # Maximum SSIDs to display
 - User confirmation before destructive actions
 - Auto-install missing dependencies with user consent
 - Compatible with goodportal and evilportals ecosystems
-- Fallback methods (wget → curl) for portal cloning
+- Fallback methods (httrack → wget → curl) for portal cloning
 - Handle both open and WPA-protected networks
 
 ## Educational Use
@@ -171,6 +175,26 @@ For authorized red team engagements:
 5. Whitelisted clients bypass the firewall to access the internet
 
 ## Changelog
+
+### Version 2.0
+- **Critical Detection Fix**
+  - Removed `curl -L` from HTTP connectivity checks (was silently following captive portal redirects, making HTTP 302 detection impossible)
+  - Added expected response validation per URL type (204 for Google, "Success" for Apple, etc.)
+  - Two-phase detection: check without redirect following first, then validate body content
+  - Fixed BusyBox `nslookup` parsing for DNS hijack detection
+- **httrack Cloning**
+  - Replaced `wget` with `httrack` as primary cloning tool
+  - Recursive site mirroring with full asset download (CSS, JS, images, fonts)
+  - Automatic link conversion for offline browsing
+  - Fallback chain: httrack -> wget -> curl (single page)
+- **Known Portal SSIDs**
+  - Quick-test mode with pre-configured captive portal SSIDs
+  - Includes xfinitywifi, att-wifi, GoogleStarbucks, Boingo Hotspot, CableWiFi, TWCWiFi, optimumwifi
+  - Auto-selects matching SSID from scan results
+- **Debug Mode**
+  - Toggleable verbose logging for troubleshooting detection failures
+  - Logs HTTP codes, redirect URLs, expected vs actual responses, content snippets
+  - Debug output tagged with `[DEBUG]` prefix in log file and screen
 
 ### Version 1.3
 - **Advanced Portal Analysis**

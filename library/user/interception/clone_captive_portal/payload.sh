@@ -3,7 +3,7 @@
 # Description: Scan for SSIDs, connect to selected network, detect and clone captive portal
 # Purpose: Automate captive portal reconnaissance and cloning for authorized security assessments
 # Author: WiFi Pineapple Pager Community
-# Version: 1.0
+# Version: 2.0
 # Category: interception
 
 # IMPORTANT! As of Pager Firmware 1.0.4 the opkg source list is broken with a missing repository.
@@ -62,11 +62,20 @@
 #   - iw (WiFi scanning and interface management)
 #   - wpa_supplicant (network connection)
 #   - curl (portal detection and fallback cloning)
-#   - wget (recursive portal cloning - installed if missing)
+#   - httrack (recursive portal cloning - primary)
+#   - wget (fallback cloning if httrack unavailable)
 
 # =============================================================================
 # CHANGELOG (update in README.md as well!)
 # =============================================================================
+#   2.0 - Detection rewrite, httrack cloning, debug mode
+#       - FIXED: captive portal detection (curl -L was hiding redirects)
+#       - FIXED: expected response validation per detection URL type
+#       - FIXED: BusyBox nslookup parsing for DNS hijack detection
+#       - NEW: httrack as primary cloning tool (recursive, assets, link conversion)
+#       - NEW: Debug mode with verbose logging for troubleshooting
+#       - NEW: Known portal SSIDs (xfinitywifi, etc.) for quick testing
+#       - NEW: Fallback chain: httrack -> wget -> curl
 #   1.0 - Initial release
 #       - SSID scanning with signal strength sorting
 #       - Open and WPA network connection support
@@ -180,6 +189,9 @@ PORTAL_TEMPLATES=(
     "coova:CoovaChilli|coova.org|uamip"
 )
 
+# Debug mode (verbose detection logging)
+DEBUG_MODE=0
+
 # Logging
 LOG_FILE=""
 LOG_TO_FILE=1
@@ -197,6 +209,33 @@ SESSION_LAST_CHECK=0
 
 # Response time tracking
 RESPONSE_TIMES=()
+
+# Known captive portal SSIDs for quick testing (ssid:auth_type:description)
+KNOWN_PORTAL_SSIDS=(
+    "xfinitywifi:open:Xfinity/Comcast public WiFi hotspot"
+    "att-wifi:open:AT&T public WiFi hotspot"
+    "GoogleStarbucks:open:Starbucks Google WiFi"
+    "Boingo Hotspot:open:Boingo airport/venue WiFi"
+    "attwifi:open:AT&T WiFi (alternate SSID)"
+    "CableWiFi:open:Cable provider shared hotspot"
+    "TWCWiFi:open:Spectrum/TWC public WiFi"
+    "optimumwifi:open:Optimum/Altice public WiFi"
+)
+USE_KNOWN_PORTAL=0
+KNOWN_PORTAL_TARGET=""
+
+# Expected responses for captive portal detection URLs
+# Format: url_pattern:expected_http_code:expected_body_pattern
+# If actual response differs from expected, a captive portal is present
+EXPECTED_RESPONSES_204=(
+    "connectivitycheck.gstatic.com/generate_204"
+    "www.gstatic.com/generate_204"
+    "clients3.google.com/generate_204"
+    "www.google.com/generate_204"
+)
+EXPECTED_RESPONSE_APPLE="Success"
+EXPECTED_RESPONSE_FIREFOX="success"
+EXPECTED_RESPONSE_MSFT="Microsoft Connect Test"
 
 # Known tracking/analytics domains to sanitize
 TRACKING_DOMAINS=(
@@ -451,6 +490,15 @@ led_fail() {
 # =============================================================================
 # UTILITY FUNCTIONS
 # =============================================================================
+
+# Debug log - only outputs when DEBUG_MODE=1
+debug_log() {
+    local msg="$1"
+    if [ "$DEBUG_MODE" -eq 1 ]; then
+        LOG yellow "  [DEBUG] $msg"
+    fi
+    log_to_file "[DEBUG] $msg"
+}
 
 # Sanitize SSID for use as directory name
 sanitize_ssid() {
@@ -792,6 +840,7 @@ FILTER_WEAK_SIGNALS=$FILTER_WEAK_SIGNALS
 MIN_SIGNAL_STRENGTH=$MIN_SIGNAL_STRENGTH
 USE_HEADLESS_BROWSER=$USE_HEADLESS_BROWSER
 CURRENT_USER_AGENT="$CURRENT_USER_AGENT"
+DEBUG_MODE=$DEBUG_MODE
 EOF
     log_to_file "Configuration saved to $CONFIG_FILE"
 }
@@ -801,7 +850,7 @@ load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         LOG "Loading saved configuration..."
         # shellcheck source=/dev/null
-        source "$CONFIG_FILE"
+        . "$CONFIG_FILE"
         log_to_file "Configuration loaded from $CONFIG_FILE"
         return 0
     fi
@@ -1277,31 +1326,38 @@ integrate_with_goodportal() {
 # Detect DNS hijacking (portal intercepts all DNS queries)
 detect_dns_hijack() {
     LOG "  Checking for DNS hijack..."
-    
+
     for entry in "${DNS_CHECK_DOMAINS[@]}"; do
         local domain="${entry%%:*}"
         local expected_prefix="${entry##*:}"
-        
-        # Resolve domain
+
+        # Resolve domain - BusyBox nslookup output differs from GNU
+        # BusyBox format: "Address 1: x.x.x.x" or "Address: x.x.x.x"
         local resolved
-        resolved=$(nslookup "$domain" 2>/dev/null | grep -A1 "Name:" | grep "Address" | awk '{print $2}' | head -1)
-        
+        resolved=$(nslookup "$domain" 2>/dev/null | tail -n +3 | grep -i "address" | head -1 | awk '{print $NF}')
+
         if [ -z "$resolved" ]; then
-            # Try alternative method - use sed instead of grep -P
+            # Fallback: extract IP from ping response
             resolved=$(ping -c1 -W2 "$domain" 2>/dev/null | head -1 | sed -E 's/.*\(([0-9.]+)\).*/\1/')
         fi
-        
+
+        debug_log "DNS check: $domain -> $resolved (expected prefix: $expected_prefix)"
+
         if [ -n "$resolved" ]; then
             # Check if resolved IP matches expected prefix
-            if [[ ! "$resolved" =~ ^$expected_prefix ]]; then
-                LOG green "    DNS hijack detected: $domain -> $resolved"
-                # Portal is likely at the hijacked IP
+            if ! echo "$resolved" | grep -q "^${expected_prefix}"; then
+                LOG green "    DNS hijack detected: $domain -> $resolved (expected $expected_prefix.*)"
+                debug_log "DNS HIJACK: $domain resolved to $resolved instead of $expected_prefix.*"
                 DNS_HIJACK_IP="$resolved"
                 return 0
+            else
+                debug_log "DNS OK: $domain -> $resolved matches expected prefix"
             fi
+        else
+            debug_log "DNS FAIL: could not resolve $domain"
         fi
     done
-    
+
     LOG "    No DNS hijack detected"
     return 1
 }
@@ -1821,16 +1877,209 @@ EOF
 }
 
 # =============================================================================
-# PHASE 4: DETECT CAPTIVE PORTAL (ENHANCED)
+# PHASE 4: DETECT CAPTIVE PORTAL (ENHANCED v2.0)
 # =============================================================================
+
+# Helper: check if URL is a generate_204 endpoint (expects HTTP 204)
+is_204_url() {
+    local url="$1"
+    for pattern in "${EXPECTED_RESPONSES_204[@]}"; do
+        if echo "$url" | grep -q "$pattern"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Helper: get expected body content for a detection URL
+get_expected_body() {
+    local url="$1"
+    if echo "$url" | grep -q "apple.com"; then
+        echo "$EXPECTED_RESPONSE_APPLE"
+    elif echo "$url" | grep -q "firefox.com"; then
+        echo "$EXPECTED_RESPONSE_FIREFOX"
+    elif echo "$url" | grep -q "msftconnecttest.com"; then
+        echo "$EXPECTED_RESPONSE_MSFT"
+    else
+        echo ""
+    fi
+}
+
+# Helper: check a single detection URL for portal presence (NO -L, NO redirect following)
+# Returns 0 if portal detected, sets PORTAL_URL
+check_detection_url() {
+    local url="$1"
+    local body_file="/tmp/portal_detect_body.html"
+
+    debug_log "=== Checking URL: $url ==="
+
+    # Request WITHOUT -L so we see the raw redirect
+    local response
+    response=$(curl -s -m "$TIMEOUT" -o "$body_file" -w "%{http_code}|%{redirect_url}" \
+        -A "$CURRENT_USER_AGENT" \
+        -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+        "$url" 2>/dev/null)
+
+    local http_code
+    local redirect_url
+    http_code=$(echo "$response" | cut -d'|' -f1)
+    redirect_url=$(echo "$response" | cut -d'|' -f2)
+
+    debug_log "  HTTP code: $http_code"
+    debug_log "  Redirect URL: ${redirect_url:-(none)}"
+
+    # --- Case 1: HTTP redirect (301/302/303/307/308) ---
+    if [ "$http_code" = "301" ] || [ "$http_code" = "302" ] || \
+       [ "$http_code" = "303" ] || [ "$http_code" = "307" ] || [ "$http_code" = "308" ]; then
+        if [ -n "$redirect_url" ]; then
+            PORTAL_URL="$redirect_url"
+        else
+            # Some servers don't set Location properly; follow once to find it
+            PORTAL_URL=$(curl -s -m "$TIMEOUT" -o /dev/null -w "%{url_effective}" -L --max-redirs 1 "$url" 2>/dev/null)
+        fi
+        debug_log "  PORTAL FOUND via redirect -> $PORTAL_URL"
+        LOG green "  Redirect detected (HTTP $http_code): $PORTAL_URL"
+        rm -f "$body_file"
+        return 0
+    fi
+
+    # --- Case 2: HTTP 204 (expected for generate_204 URLs = no portal) ---
+    if [ "$http_code" = "204" ]; then
+        debug_log "  HTTP 204 received (expected for connectivity check = no portal)"
+        rm -f "$body_file"
+        return 1
+    fi
+
+    # --- Case 3: HTTP 200 - need to validate body content ---
+    if [ "$http_code" = "200" ]; then
+        local body_content=""
+        [ -f "$body_file" ] && body_content=$(cat "$body_file" 2>/dev/null)
+        local body_len=${#body_content}
+        debug_log "  HTTP 200, body length: $body_len bytes"
+
+        # 3a: If this URL expects 204 but got 200, that itself indicates a portal
+        if is_204_url "$url"; then
+            debug_log "  URL expects 204 but got 200 -> PORTAL"
+            LOG green "  Portal detected: $url returned 200 instead of 204"
+
+            # Check body for WISPr, JS redirects, or keywords
+            if [ -n "$body_content" ]; then
+                # WISPr check
+                local wispr_url
+                wispr_url=$(parse_wispr_response "$body_content")
+                if [ -n "$wispr_url" ]; then
+                    PORTAL_URL="$wispr_url"
+                    debug_log "  WISPr login URL: $PORTAL_URL"
+                    rm -f "$body_file"
+                    return 0
+                fi
+
+                # JS redirect check
+                echo "$body_content" > /tmp/portal_check.html
+                local js_redirect
+                js_redirect=$(extract_js_redirects /tmp/portal_check.html)
+                rm -f /tmp/portal_check.html
+                if [ -n "$js_redirect" ]; then
+                    # Make relative URLs absolute
+                    if echo "$js_redirect" | grep -q "^/"; then
+                        local base_domain
+                        base_domain=$(echo "$url" | sed -E 's|(https?://[^/]+).*|\1|')
+                        js_redirect="${base_domain}${js_redirect}"
+                    fi
+                    PORTAL_URL="$js_redirect"
+                    debug_log "  JS redirect -> $PORTAL_URL"
+                else
+                    PORTAL_URL="$url"
+                fi
+            else
+                PORTAL_URL="$url"
+            fi
+            rm -f "$body_file"
+            return 0
+        fi
+
+        # 3b: For non-204 URLs, check if body matches expected content
+        local expected_body
+        expected_body=$(get_expected_body "$url")
+
+        if [ -n "$expected_body" ]; then
+            if echo "$body_content" | grep -qi "$expected_body"; then
+                debug_log "  Body matches expected ('$expected_body') = no portal"
+                rm -f "$body_file"
+                return 1
+            else
+                debug_log "  Body does NOT match expected ('$expected_body') -> PORTAL"
+                LOG green "  Portal detected: unexpected content from $url"
+                if [ -n "$body_content" ]; then
+                    debug_log "  Body preview: $(echo "$body_content" | head -c 200)"
+                fi
+                PORTAL_URL="$url"
+                rm -f "$body_file"
+                return 0
+            fi
+        fi
+
+        # 3c: Check for portal keywords in body
+        if [ -n "$body_content" ]; then
+            # WISPr check
+            local wispr_url
+            wispr_url=$(parse_wispr_response "$body_content")
+            if [ -n "$wispr_url" ]; then
+                PORTAL_URL="$wispr_url"
+                LOG green "  WISPr login URL: $PORTAL_URL"
+                rm -f "$body_file"
+                return 0
+            fi
+
+            # Keyword check (multi-language)
+            if echo "$body_content" | head -c 2000 | grep -qiE "($PORTAL_KEYWORDS_ALL)"; then
+                debug_log "  Portal keywords found in body"
+
+                # JS redirect check
+                echo "$body_content" > /tmp/portal_check.html
+                local js_redirect
+                js_redirect=$(extract_js_redirects /tmp/portal_check.html)
+                rm -f /tmp/portal_check.html
+
+                if [ -n "$js_redirect" ]; then
+                    if echo "$js_redirect" | grep -q "^/"; then
+                        local base_domain
+                        base_domain=$(echo "$url" | sed -E 's|(https?://[^/]+).*|\1|')
+                        js_redirect="${base_domain}${js_redirect}"
+                    fi
+                    PORTAL_URL="$js_redirect"
+                    LOG green "  JS redirect found: $PORTAL_URL"
+                else
+                    PORTAL_URL="$url"
+                    LOG green "  Portal content detected at: $url"
+                fi
+                rm -f "$body_file"
+                return 0
+            fi
+
+            debug_log "  No portal keywords found in body"
+        fi
+
+        rm -f "$body_file"
+        return 1
+    fi
+
+    # --- Case 4: Connection failure / timeout ---
+    debug_log "  HTTP $http_code (connection issue or timeout)"
+    rm -f "$body_file"
+    return 1
+}
+
 detect_captive_portal() {
     LOG "=== DETECTING CAPTIVE PORTAL ==="
     led_cloning
-    
+
     PORTAL_URL=""
     PORTAL_DETECTED=0
     DNS_HIJACK_IP=""
-    
+
+    [ -z "$CURRENT_USER_AGENT" ] && get_random_user_agent >/dev/null
+
     # -------------------------------------------------------------------------
     # Method 1: DNS Hijack Detection
     # -------------------------------------------------------------------------
@@ -1840,127 +2089,91 @@ detect_captive_portal() {
         PORTAL_DETECTED=1
         LOG green "  Portal likely at: $PORTAL_URL"
     fi
-    
+
     # -------------------------------------------------------------------------
-    # Method 2: HTTP Connectivity Check (standard method)
+    # Method 2: HTTP Connectivity Check (NO -L, validates expected responses)
     # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ]; then
         LOG "Method 2: HTTP connectivity check..."
-        
+
         for url in "${DETECTION_URLS_HTTP[@]}"; do
             LOG "  Testing: $url"
-            
-            local response
-            local http_code
-            local final_url
-            local redirect_url
-            
-            response=$(curl -s -L -m $TIMEOUT -o /dev/null -w "%{http_code}|%{url_effective}|%{redirect_url}" "$url" 2>/dev/null)
-            http_code=$(echo "$response" | cut -d'|' -f1)
-            final_url=$(echo "$response" | cut -d'|' -f2)
-            redirect_url=$(echo "$response" | cut -d'|' -f3)
-            
-            LOG "    HTTP: $http_code"
-            
-            # Check for redirect
-            if [ "$http_code" = "302" ] || [ "$http_code" = "301" ] || [ "$http_code" = "307" ]; then
-                if [ -n "$redirect_url" ]; then
-                    PORTAL_URL="$redirect_url"
-                else
-                    PORTAL_URL="$final_url"
-                fi
+
+            if check_detection_url "$url"; then
                 PORTAL_DETECTED=1
-                LOG green "  Redirect detected: $PORTAL_URL"
                 break
-            elif [ "$http_code" = "200" ]; then
-                # Check content for portal indicators
-                local content
-                content=$(curl -s -m $TIMEOUT "$url" 2>/dev/null)
-                
-                # Check for WISPr response
-                local wispr_url
-                wispr_url=$(parse_wispr_response "$content")
-                if [ -n "$wispr_url" ]; then
-                    PORTAL_URL="$wispr_url"
-                    PORTAL_DETECTED=1
-                    LOG green "  WISPr login URL: $PORTAL_URL"
-                    break
-                fi
-                
-                # Check for portal keywords (multi-language)
-                if echo "$content" | head -c 1000 | grep -qiE "($PORTAL_KEYWORDS_ALL)"; then
-                    # Save content for JS redirect extraction
-                    echo "$content" > /tmp/portal_check.html
-                    
-                    # Check for JavaScript redirects
-                    local js_redirect
-                    js_redirect=$(extract_js_redirects /tmp/portal_check.html)
-                    if [ -n "$js_redirect" ]; then
-                        LOG green "  JS redirect found: $js_redirect"
-                        # Make relative URLs absolute
-                        if [[ "$js_redirect" =~ ^/ ]]; then
-                            local base_domain
-                            base_domain=$(echo "$url" | sed -E 's|(https?://[^/]+).*|\1|')
-                            js_redirect="${base_domain}${js_redirect}"
-                        fi
-                        PORTAL_URL="$js_redirect"
-                    else
-                        PORTAL_URL="$url"
-                    fi
-                    PORTAL_DETECTED=1
-                    LOG green "  Portal content detected"
-                    rm -f /tmp/portal_check.html
-                    break
-                fi
             fi
         done
     fi
-    
+
     # -------------------------------------------------------------------------
-    # Method 3: HTTPS Connectivity Check (for HTTPS-only portals)
+    # Method 3: HTTPS Connectivity Check (NO -L, validates expected responses)
     # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ]; then
         LOG "Method 3: HTTPS connectivity check..."
-        
+
         for url in "${DETECTION_URLS_HTTPS[@]}"; do
             LOG "  Testing: $url"
-            
+
+            # For HTTPS, use -k to ignore cert errors (portal may use self-signed cert)
+            local body_file="/tmp/portal_detect_body.html"
             local response
+            response=$(curl -s -k -m "$TIMEOUT" -o "$body_file" -w "%{http_code}|%{redirect_url}" \
+                -A "$CURRENT_USER_AGENT" "$url" 2>/dev/null)
+
             local http_code
-            local final_url
-            
-            # Note: -k to ignore cert errors (portal may have self-signed cert)
-            response=$(curl -s -k -L -m $TIMEOUT -o /dev/null -w "%{http_code}|%{url_effective}" "$url" 2>/dev/null)
+            local redirect_url
             http_code=$(echo "$response" | cut -d'|' -f1)
-            final_url=$(echo "$response" | cut -d'|' -f2)
-            
-            LOG "    HTTP: $http_code"
-            
-            if [ "$http_code" = "302" ] || [ "$http_code" = "301" ] || [ "$http_code" = "307" ]; then
-                PORTAL_URL="$final_url"
+            redirect_url=$(echo "$response" | cut -d'|' -f2)
+
+            debug_log "HTTPS check: $url -> HTTP $http_code, redirect: ${redirect_url:-(none)}"
+
+            if [ "$http_code" = "301" ] || [ "$http_code" = "302" ] || \
+               [ "$http_code" = "303" ] || [ "$http_code" = "307" ] || [ "$http_code" = "308" ]; then
+                if [ -n "$redirect_url" ]; then
+                    PORTAL_URL="$redirect_url"
+                else
+                    PORTAL_URL=$(curl -s -k -m "$TIMEOUT" -o /dev/null -w "%{url_effective}" -L --max-redirs 1 "$url" 2>/dev/null)
+                fi
                 PORTAL_DETECTED=1
                 LOG green "  HTTPS redirect: $PORTAL_URL"
+                rm -f "$body_file"
                 break
-            elif [ "$http_code" = "200" ] && [ "$final_url" != "$url" ]; then
-                # Was redirected to different URL
-                PORTAL_URL="$final_url"
-                PORTAL_DETECTED=1
-                LOG green "  HTTPS portal: $PORTAL_URL"
-                break
+            elif [ "$http_code" = "200" ]; then
+                # For HTTPS, check content for portal indicators
+                local body_content=""
+                [ -f "$body_file" ] && body_content=$(cat "$body_file" 2>/dev/null)
+
+                local expected_body
+                expected_body=$(get_expected_body "$url")
+
+                if [ -n "$expected_body" ] && [ -n "$body_content" ]; then
+                    if ! echo "$body_content" | grep -qi "$expected_body"; then
+                        PORTAL_URL="$url"
+                        PORTAL_DETECTED=1
+                        LOG green "  HTTPS portal: unexpected content"
+                        rm -f "$body_file"
+                        break
+                    fi
+                fi
             fi
+            rm -f "$body_file"
         done
     fi
-    
+
     # -------------------------------------------------------------------------
     # Method 4: Gateway Direct Access
     # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ] && [ -n "$GATEWAY" ]; then
         LOG "Method 4: Gateway direct access..."
         LOG "  Testing: http://$GATEWAY/"
-        
+        debug_log "Gateway IP: $GATEWAY"
+
         local gw_response
-        gw_response=$(curl -s -m $TIMEOUT "http://$GATEWAY/" 2>/dev/null)
-        
+        gw_response=$(curl -s -m "$TIMEOUT" "http://$GATEWAY/" 2>/dev/null)
+        local gw_len=${#gw_response}
+        debug_log "  Gateway response length: $gw_len bytes"
+
         if [ -n "$gw_response" ]; then
             # Check for WISPr
             local wispr_url
@@ -1969,13 +2182,13 @@ detect_captive_portal() {
                 PORTAL_URL="$wispr_url"
                 PORTAL_DETECTED=1
                 LOG green "  WISPr at gateway: $PORTAL_URL"
-            elif echo "$gw_response" | head -c 1000 | grep -qiE "($PORTAL_KEYWORDS_ALL|<form)"; then
+            elif echo "$gw_response" | head -c 2000 | grep -qiE "($PORTAL_KEYWORDS_ALL|<form)"; then
                 # Save and check for JS redirects
                 echo "$gw_response" > /tmp/portal_check.html
                 local js_redirect
                 js_redirect=$(extract_js_redirects /tmp/portal_check.html)
                 if [ -n "$js_redirect" ]; then
-                    if [[ "$js_redirect" =~ ^/ ]]; then
+                    if echo "$js_redirect" | grep -q "^/"; then
                         js_redirect="http://$GATEWAY$js_redirect"
                     fi
                     PORTAL_URL="$js_redirect"
@@ -1988,13 +2201,13 @@ detect_captive_portal() {
             fi
         fi
     fi
-    
+
     # -------------------------------------------------------------------------
     # Method 5: Headless Browser (optional, for JS-heavy portals)
     # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ] && [ "$USE_HEADLESS_BROWSER" -eq 1 ] && [ "$HEADLESS_AVAILABLE" -eq 1 ]; then
         LOG "Method 5: Headless browser rendering..."
-        
+
         local test_url="${DETECTION_URLS_HTTP[0]}"
         if headless_fetch "$test_url" "/tmp/headless_result.html"; then
             # Check if we got redirected
@@ -2010,31 +2223,32 @@ detect_captive_portal() {
             rm -f /tmp/headless_result.html /tmp/headless_result.html.url
         fi
     fi
-    
+
     # -------------------------------------------------------------------------
     # Fallback: Manual URL Entry
     # -------------------------------------------------------------------------
     if [ $PORTAL_DETECTED -eq 0 ]; then
         LOG yellow "No captive portal detected via automatic methods"
-        
+        debug_log "All detection methods exhausted without finding a portal"
+
         local resp
         resp=$(CONFIRMATION_DIALOG "No captive portal detected.\n\nTried: DNS hijack, HTTP,\nHTTPS, gateway access.\n\nEnter URL manually?")
-        
+
         case $? in
             $DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_CANCELLED)
                 return 1
                 ;;
         esac
-        
+
         if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
             PORTAL_URL=$(TEXT_PICKER "Enter portal URL" "http://")
-            
+
             case $? in
                 $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
                     return 1
                     ;;
             esac
-            
+
             if [ -n "$PORTAL_URL" ]; then
                 PORTAL_DETECTED=1
             fi
@@ -2042,9 +2256,10 @@ detect_captive_portal() {
             return 1
         fi
     fi
-    
+
     LOG ""
     LOG green "Portal URL: $PORTAL_URL"
+    log_to_file "Portal detected: $PORTAL_URL (methods tried: DNS, HTTP, HTTPS, gateway)"
     return 0
 }
 
@@ -2083,64 +2298,117 @@ clone_portal() {
     
     # Track response time for rate limiting tuning
     track_response_time "$PORTAL_URL" >/dev/null
-    
-    # Clone using wget with recursive depth
+
+    # Clone portal using httrack (primary), wget (fallback), curl (last resort)
     LOG "Downloading portal pages..."
-    
+
     local spinner_id
     spinner_id=$(START_SPINNER "Cloning portal...")
-    
-    # Download main page and linked resources
-    # Note: wget uses --directory-prefix so no cd needed
-    
-    wget --quiet \
-         --recursive \
-         --level=2 \
-         --page-requisites \
-         --convert-links \
-         --adjust-extension \
-         --no-parent \
-         --no-host-directories \
-         --directory-prefix="$TEMP_DIR/clone" \
-         --timeout=$TIMEOUT \
-         --tries=2 \
-         --reject "*.exe,*.zip,*.tar,*.gz,*.pdf,*.doc*,*.xls*" \
-         --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15" \
-         "$PORTAL_URL" 2>/dev/null || true
-    
-    # Also try to get the root page if we got a deeper URL
-    if [ "$PORTAL_URL" != "$base_url/" ]; then
+
+    local file_count=0
+    local clone_method=""
+
+    # --- Primary: httrack (recursive site mirror with assets) ---
+    if command -v httrack >/dev/null 2>&1; then
+        LOG "  Using httrack for portal cloning..."
+        debug_log "httrack command: httrack '$PORTAL_URL' -O '$TEMP_DIR/clone' -r3 -N100 -c2 -T$TIMEOUT -R2 -q -%v -F '$CURRENT_USER_AGENT'"
+
+        httrack "$PORTAL_URL" \
+            -O "$TEMP_DIR/clone" \
+            -r3 \
+            -N100 \
+            -c2 \
+            -T"$TIMEOUT" \
+            -R2 \
+            -q \
+            -%v \
+            -F "$CURRENT_USER_AGENT" \
+            -m50000000 \
+            '-*.exe' '-*.zip' '-*.tar' '-*.gz' '-*.pdf' \
+            '-*.doc*' '-*.xls*' '-*.mp4' '-*.mp3' '-*.avi' \
+            '-*.dmg' '-*.iso' '-*.bin' 2>/dev/null || true
+
+        # httrack creates hts-cache/ and other metadata - clean up
+        rm -rf "$TEMP_DIR/clone/hts-cache" 2>/dev/null
+        rm -f "$TEMP_DIR/clone/hts-log.txt" 2>/dev/null
+        rm -f "$TEMP_DIR/clone/backblue.gif" 2>/dev/null
+        rm -f "$TEMP_DIR/clone/fade.gif" 2>/dev/null
+        # Only remove httrack's auto-generated index (contains "<!-- Mirrored from" marker)
+        if [ -f "$TEMP_DIR/clone/index.html" ]; then
+            if grep -q "HTTrack Website Copier" "$TEMP_DIR/clone/index.html" 2>/dev/null; then
+                rm -f "$TEMP_DIR/clone/index.html"
+                debug_log "Removed httrack-generated index.html"
+            fi
+        fi
+
+        # httrack with -N100 puts files directly in output dir
+        file_count=$(find "$TEMP_DIR/clone" -type f \( -name "*.html" -o -name "*.htm" -o -name "*.css" -o -name "*.js" -o -name "*.png" -o -name "*.jpg" -o -name "*.gif" -o -name "*.svg" -o -name "*.ico" -o -name "*.woff" -o -name "*.woff2" -o -name "*.php" \) 2>/dev/null | wc -l)
+        debug_log "httrack downloaded $file_count web files"
+        clone_method="httrack"
+    fi
+
+    # --- Fallback: wget (if httrack failed or unavailable) ---
+    if [ "$file_count" -eq 0 ] && command -v wget >/dev/null 2>&1; then
+        LOG "  httrack produced no files, falling back to wget..."
+        debug_log "Trying wget fallback"
+
         wget --quiet \
+             --recursive \
+             --level=2 \
              --page-requisites \
              --convert-links \
+             --adjust-extension \
+             --no-parent \
              --no-host-directories \
              --directory-prefix="$TEMP_DIR/clone" \
-             --timeout=$TIMEOUT \
+             --timeout="$TIMEOUT" \
              --tries=2 \
-             --user-agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15" \
-             "$base_url/" 2>/dev/null || true
+             --reject "*.exe,*.zip,*.tar,*.gz,*.pdf,*.doc*,*.xls*" \
+             --user-agent="$CURRENT_USER_AGENT" \
+             "$PORTAL_URL" 2>/dev/null || true
+
+        # Also try root page if we got a deeper URL
+        if [ "$PORTAL_URL" != "$base_url/" ]; then
+            wget --quiet \
+                 --page-requisites \
+                 --convert-links \
+                 --no-host-directories \
+                 --directory-prefix="$TEMP_DIR/clone" \
+                 --timeout="$TIMEOUT" \
+                 --tries=2 \
+                 --user-agent="$CURRENT_USER_AGENT" \
+                 "$base_url/" 2>/dev/null || true
+        fi
+
+        file_count=$(find "$TEMP_DIR/clone" -type f 2>/dev/null | wc -l)
+        debug_log "wget downloaded $file_count files"
+        clone_method="wget"
     fi
-    
-    STOP_SPINNER $spinner_id
-    
-    # Check what we got
-    local file_count=$(find "$TEMP_DIR/clone" -type f 2>/dev/null | wc -l)
-    LOG "Downloaded $file_count files"
-    
+
+    # --- Last resort: curl (single page only) ---
     if [ "$file_count" -eq 0 ]; then
-        # Try alternative method with curl
-        LOG "Trying curl method..."
-        
-        curl -s -L -m $TIMEOUT \
-             -A "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)" \
+        LOG "  wget failed, falling back to curl (single page)..."
+        debug_log "Trying curl fallback for single page download"
+
+        mkdir -p "$TEMP_DIR/clone"
+        curl -s -L -m "$TIMEOUT" \
+             -A "$CURRENT_USER_AGENT" \
+             -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
              -o "$TEMP_DIR/clone/index.html" \
              "$PORTAL_URL" 2>/dev/null
-        
+
         file_count=$(find "$TEMP_DIR/clone" -type f 2>/dev/null | wc -l)
+        debug_log "curl downloaded $file_count files"
+        clone_method="curl"
     fi
-    
+
+    STOP_SPINNER "$spinner_id"
+
+    LOG "Downloaded $file_count files via $clone_method"
+    debug_log "Clone method: $clone_method, files: $file_count"
+
     if [ "$file_count" -eq 0 ]; then
-        ERROR_DIALOG "Failed to download portal.\n\nThe portal may require authentication or use HTTPS."
+        ERROR_DIALOG "Failed to download portal.\n\nThe portal may require\nauthentication or use HTTPS.\n\nTried: httrack, wget, curl"
         return 1
     fi
     
@@ -2394,7 +2662,7 @@ mkdir -p "$TEMP_DIR"
 # DEPENDENCY CHECK
 # =============================================================================
 # Map commands to their package names (command:package)
-DEPENDENCIES="curl:curl wget:wget iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
+DEPENDENCIES="curl:curl httrack:httrack iw:iw wpa_supplicant:wpa_supplicant wpa_cli:wpa-cli"
 
 LOG "Checking dependencies..."
 
@@ -2578,6 +2846,53 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 # =============================================================================
+# DEBUG MODE TOGGLE
+# =============================================================================
+resp=$(CONFIRMATION_DIALOG "Enable debug mode?\n\nVerbose logging for\ntroubleshooting portal\ndetection issues.\n\nRecommended for testing.")
+if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    DEBUG_MODE=1
+    LOG green "  Debug mode ENABLED"
+    LOG yellow "  Detection details will be logged"
+else
+    DEBUG_MODE=0
+fi
+
+LOG ""
+
+# =============================================================================
+# KNOWN PORTAL SSID (quick test option)
+# =============================================================================
+resp=$(CONFIRMATION_DIALOG "Use a known captive portal\nSSID for testing?\n\ne.g. xfinitywifi, att-wifi\n\n[Yes] = Pick from list\n[No] = Scan for networks")
+if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+    # Build selection menu from known portals
+    kp_menu="Select known portal:\n\n"
+    kp_idx=1
+
+    > "$TEMP_DIR/known_portals_indexed.txt"
+    for entry in "${KNOWN_PORTAL_SSIDS[@]}"; do
+        kp_ssid="${entry%%:*}"
+        kp_rest="${entry#*:}"
+        kp_desc="${kp_rest#*:}"
+        echo "$kp_idx|$kp_ssid|$kp_desc" >> "$TEMP_DIR/known_portals_indexed.txt"
+        kp_menu="${kp_menu}${kp_idx}. ${kp_ssid}\n   ${kp_desc}\n"
+        kp_idx=$((kp_idx + 1))
+    done
+
+    PROMPT "$kp_menu"
+    kp_selection=$(NUMBER_PICKER "Select portal (1-$((kp_idx-1)))" "1")
+
+    if [ -n "$kp_selection" ] && [ "$kp_selection" -ge 1 ] && [ "$kp_selection" -lt "$kp_idx" ]; then
+        kp_line=$(grep "^${kp_selection}|" "$TEMP_DIR/known_portals_indexed.txt")
+        KNOWN_PORTAL_TARGET=$(echo "$kp_line" | cut -d'|' -f2)
+        USE_KNOWN_PORTAL=1
+        LOG green "  Target known portal: $KNOWN_PORTAL_TARGET"
+        debug_log "Known portal selected: $KNOWN_PORTAL_TARGET"
+    fi
+fi
+
+LOG ""
+
+# =============================================================================
 # SCAN FILTER OPTIONS
 # =============================================================================
 resp=$(CONFIRMATION_DIALOG "Configure scan filters?\n\n- Signal strength filter\n- Band selection (2.4/5GHz)\n\nSkip for defaults.")
@@ -2617,8 +2932,11 @@ LOG ""
 
 # Initialize logging
 init_logging
-log_to_file "Configuration: Interface=$INTERFACE, Band=$BAND_FILTER, WeakFilter=$FILTER_WEAK_SIGNALS"
+log_to_file "Configuration: Interface=$INTERFACE, Band=$BAND_FILTER, WeakFilter=$FILTER_WEAK_SIGNALS, Debug=$DEBUG_MODE"
 log_to_file "User Agent: ${CURRENT_USER_AGENT:-rotating}"
+if [ "$USE_KNOWN_PORTAL" -eq 1 ]; then
+    log_to_file "Known portal mode: $KNOWN_PORTAL_TARGET"
+fi
 
 # Save original interface state before modifying
 save_interface_state
@@ -2645,7 +2963,34 @@ while true; do
     fi
 
     # Phase 2: Select target SSID
-    if ! select_ssid; then
+    # If known portal mode, auto-select matching SSID from scan results
+    if [ "$USE_KNOWN_PORTAL" -eq 1 ] && [ -n "$KNOWN_PORTAL_TARGET" ]; then
+        LOG "Looking for known portal SSID: $KNOWN_PORTAL_TARGET"
+        found_known=0
+
+        while IFS='|' read -r signal ssid bssid channel; do
+            if [ "$ssid" = "$KNOWN_PORTAL_TARGET" ]; then
+                TARGET_SSID="$ssid"
+                TARGET_BSSID="$bssid"
+                TARGET_CHANNEL="$channel"
+                found_known=1
+                LOG green "  Found $KNOWN_PORTAL_TARGET (${signal}dBm, ch$channel)"
+                debug_log "Known portal found: SSID=$ssid BSSID=$bssid signal=$signal channel=$channel"
+                break
+            fi
+        done < "$TEMP_DIR/ssids.txt"
+
+        if [ "$found_known" -eq 0 ]; then
+            LOG yellow "  Known portal '$KNOWN_PORTAL_TARGET' not found in scan results"
+            resp=$(CONFIRMATION_DIALOG "$KNOWN_PORTAL_TARGET not found!\n\nRescan or select manually?")
+            if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                USE_KNOWN_PORTAL=0
+                continue
+            else
+                exit 0
+            fi
+        fi
+    elif ! select_ssid; then
         resp=$(CONFIRMATION_DIALOG "Selection cancelled.\n\nWould you like to\nscan again?")
         case $? in
             "$DUCKYSCRIPT_REJECTED"|"$DUCKYSCRIPT_CANCELLED")
