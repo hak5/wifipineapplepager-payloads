@@ -111,7 +111,7 @@ HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
 # gcc must go to MMC (~141MB, root overlay only has ~28MB)
 # Everything else fits on root overlay via normal opkg install
 HTTRACK_BUILD_DEPS_MMC="gcc"
-HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev"
+HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev grep"
 # musl C headers URL (libc-dev not in opkg, so we install headers from musl source)
 MUSL_VERSION="1.2.5"
 MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
