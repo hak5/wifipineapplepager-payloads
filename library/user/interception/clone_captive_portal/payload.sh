@@ -111,7 +111,10 @@ HTTRACK_REPO_URL="https://github.com/xroche/httrack.git"
 # gcc must go to MMC (~141MB, root overlay only has ~28MB)
 # Everything else fits on root overlay via normal opkg install
 HTTRACK_BUILD_DEPS_MMC="gcc"
-HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev libc-dev"
+HTTRACK_BUILD_DEPS_ROOT="make git-http autoconf automake libtool zlib-dev"
+# musl C headers URL (libc-dev not in opkg, so we install headers from musl source)
+MUSL_VERSION="1.2.5"
+MUSL_URL="https://musl.libc.org/releases/musl-${MUSL_VERSION}.tar.gz"
 PORTAL_DIR="/www/goodportal"
 TEMP_DIR="/tmp/clone_portal"
 WPA_CONF="/tmp/clone_portal_wpa.conf"
@@ -1571,37 +1574,41 @@ ensure_httrack() {
 
     # Install gcc to MMC partition (too large for root overlay)
     LOG "Installing gcc to MMC partition..."
-    log_to_file "Installing gcc to MMC (too large for root overlay)"
-
     for pkg in $HTTRACK_BUILD_DEPS_MMC; do
-        LOG "  Installing $pkg to MMC..."
-        build_spinner=$(START_SPINNER "Installing $pkg to MMC...")
-        opkg install -d mmc "$pkg" >/dev/null 2>&1
-        STOP_SPINNER "$build_spinner"
-
         if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-            LOG green "    Installed: $pkg (MMC)"
+            LOG green "  $pkg already installed (MMC)"
         else
-            LOG yellow "    Warning: $pkg may not have installed correctly"
-            log_to_file "Warning: $pkg MMC install status uncertain"
+            LOG "  Installing $pkg to MMC..."
+            build_spinner=$(START_SPINNER "Installing $pkg to MMC...")
+            opkg install -d mmc "$pkg" >/dev/null 2>&1
+            STOP_SPINNER "$build_spinner"
+
+            if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
+                LOG green "    Installed: $pkg (MMC)"
+            else
+                LOG yellow "    Warning: $pkg may not have installed correctly"
+                log_to_file "Warning: $pkg MMC install status uncertain"
+            fi
         fi
     done
 
     # Install remaining build deps to root overlay (small enough to fit)
     LOG "Installing build tools..."
-    log_to_file "Installing httrack build deps to root: $HTTRACK_BUILD_DEPS_ROOT"
-
     for pkg in $HTTRACK_BUILD_DEPS_ROOT; do
-        LOG "  Installing $pkg..."
-        build_spinner=$(START_SPINNER "Installing $pkg...")
-        opkg install "$pkg" >/dev/null 2>&1
-        STOP_SPINNER "$build_spinner"
-
         if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
-            LOG green "    Installed: $pkg"
+            LOG green "  $pkg already installed"
         else
-            LOG yellow "    Warning: $pkg may not have installed correctly"
-            log_to_file "Warning: $pkg install status uncertain"
+            LOG "  Installing $pkg..."
+            build_spinner=$(START_SPINNER "Installing $pkg...")
+            opkg install "$pkg" >/dev/null 2>&1
+            STOP_SPINNER "$build_spinner"
+
+            if opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
+                LOG green "    Installed: $pkg"
+            else
+                LOG yellow "    Warning: $pkg may not have installed correctly"
+                log_to_file "Warning: $pkg install status uncertain"
+            fi
         fi
     done
 
@@ -1611,6 +1618,66 @@ ensure_httrack() {
     export LD_LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LD_LIBRARY_PATH:-}"
     export C_INCLUDE_PATH="/mmc/usr/include:${C_INCLUDE_PATH:-}"
     export LIBRARY_PATH="/mmc/usr/lib:/mmc/lib:${LIBRARY_PATH:-}"
+
+    # Install musl C library headers (libc-dev not available via opkg)
+    # gcc needs stdio.h etc. which only come from the musl source headers
+    if [ ! -f "/usr/include/stdio.h" ]; then
+        LOG "  Installing musl C library headers..."
+        log_to_file "musl headers missing - downloading from $MUSL_URL"
+        build_spinner=$(START_SPINNER "Installing C headers...")
+
+        # Download musl source tarball (small, ~1MB)
+        curl -s -L -o /tmp/musl.tar.gz "$MUSL_URL" 2>/dev/null
+        if [ ! -f /tmp/musl.tar.gz ]; then
+            STOP_SPINNER "$build_spinner"
+            LOG red "  Failed to download musl headers"
+            ERROR_DIALOG "Failed to download\nmusl C headers.\n\nCheck internet connection."
+            return 1
+        fi
+
+        # Extract to temp and install headers
+        tar xzf /tmp/musl.tar.gz -C /tmp/ 2>/dev/null
+        if [ -d "/tmp/musl-${MUSL_VERSION}/include" ]; then
+            # Install generic headers
+            mkdir -p /usr/include
+            cp -r "/tmp/musl-${MUSL_VERSION}/include/"* /usr/include/ 2>/dev/null
+
+            # Install architecture-specific headers (mips covers both mips and mipsel)
+            if [ -d "/tmp/musl-${MUSL_VERSION}/arch/mips" ]; then
+                cp -r "/tmp/musl-${MUSL_VERSION}/arch/mips/"* /usr/include/ 2>/dev/null
+            fi
+
+            # Generate alltypes.h from the template if it exists
+            if [ -f "/usr/include/bits/alltypes.h.in" ]; then
+                # Simple sed-based generation (enough for compilation)
+                sed -e 's/TYPEDEF \(.*\) \(.*\);/typedef \1 \2;/g' \
+                    -e 's/STRUCT \(.*\) \(.*\);/struct \1 \2;/g' \
+                    -e 's/UNION \(.*\) \(.*\);/union \1 \2;/g' \
+                    "/usr/include/bits/alltypes.h.in" > "/usr/include/bits/alltypes.h" 2>/dev/null
+            fi
+
+            # Clean up
+            rm -rf "/tmp/musl-${MUSL_VERSION}" /tmp/musl.tar.gz
+
+            if [ -f "/usr/include/stdio.h" ]; then
+                LOG green "  musl C headers installed to /usr/include/"
+            else
+                STOP_SPINNER "$build_spinner"
+                LOG red "  musl header installation failed"
+                ERROR_DIALOG "musl C header install\nfailed.\n\nhttrack build aborted."
+                return 1
+            fi
+        else
+            STOP_SPINNER "$build_spinner"
+            LOG red "  Failed to extract musl source"
+            rm -f /tmp/musl.tar.gz
+            return 1
+        fi
+
+        STOP_SPINNER "$build_spinner"
+    else
+        LOG green "  C library headers already present"
+    fi
 
     # Verify gcc and make are now available
     if ! command -v gcc >/dev/null 2>&1; then
