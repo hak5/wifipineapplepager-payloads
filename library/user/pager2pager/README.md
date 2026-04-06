@@ -19,9 +19,10 @@ ERR0RW0LF
 
 | Payload | Description |
 | ------- | ----------- |
+|p2p_pager | Install and manage the P2P Pager service. |
 |p2p_pager_send_message | Send a message to other P2P pagers in range. |
-|psp_pager | Install and manage the P2P Pager service. |
-
+|p2p_pager_config | Configure the P2P Pager service. |
+|p2p_pager_networks | Configure the networks that the P2P Pager will listen to and rebroadcast messages for. |
 
 ## How it works
 
