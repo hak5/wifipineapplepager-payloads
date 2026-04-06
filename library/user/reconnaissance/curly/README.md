@@ -3,35 +3,39 @@
 **Curly** transforms your WiFi Pineapple Pager into a portable web reconnaissance and vulnerability scanning tool using curl. Perfect for pentesting and bug bounty hunting on the go!
 
 - **Author:** curtthecoder
-- **Version:** 3.8
+- **Version:** 4.0
 
 ---
 
 ## What it does
 
-Curly performs comprehensive web security testing using only curl:
+Curly performs comprehensive web security testing using only curl (plus nmap for port scanning):
 
 - **IP Geolocation Lookup** - Resolves target IP and queries ipinfo.io for location, ISP, timezone data
-- **Protocol Availability Check** 🌐 - Detects if site responds on HTTP, HTTPS, or both; checks for proper HTTP→HTTPS redirects
-- **SSL/TLS Security Analysis** 🔒 - Certificate expiration, TLS version detection, weak cipher identification, self-signed cert detection
-- **Severity Scoring System** 📊 - All findings categorized as CRITICAL/HIGH/MEDIUM/LOW/INFO with beautiful summary report
-- **Scan Time Tracking** ⏱️ *(NEW in v3.6)* - Estimated times before scans + actual elapsed time in final summary
-- **Manual Verification Guides** 📖 *(NEW in v3.6)* - Step-by-step instructions on how to verify findings (XSS, SSRF, bypasses)
-- **Content Verification System** 🎯 *(NEW in v3.6)* - Validates actual file content to eliminate false positives on sites with catch-all routing
-- **Parameter Discovery** 🔍 - Tests 30+ common parameters for behavior changes, reflection, and pollution vulnerabilities
+- **Protocol Availability Check** - Detects if site responds on HTTP, HTTPS, or both; checks for proper HTTP→HTTPS redirects
+- **SSL/TLS Security Analysis** - Certificate expiration, TLS version detection, weak cipher identification, self-signed cert detection
+- **DNS Record Enumeration** - A, AAAA, NS, MX, TXT, CNAME, SOA records + AXFR zone transfer attempts
+- **Email Security Check** - SPF, DMARC, DKIM, and BIMI record analysis
+- **Certificate Transparency (crt.sh)** - Discovers subdomains via CT logs; probes each for liveness
+- **Port Scan** - nmap scan of web, service, and database ports with service identification
+- **CSP Deep Analysis** - Evaluates Content-Security-Policy for unsafe directives and JSONP bypass vectors
+- **Severity Scoring System** - All findings categorized as CRITICAL/HIGH/MEDIUM/LOW/INFO with summary report
+- **Scan Time Tracking** - Estimated times before scans + actual elapsed time in final summary
+- **Manual Verification Guides** - Step-by-step instructions on how to verify findings (XSS, SSRF, bypasses)
+- **Content Verification System** - Validates actual file content to eliminate false positives on sites with catch-all routing
+- **Parameter Discovery** - Tests 30+ common parameters for behavior changes, reflection, and pollution vulnerabilities
 - **WAF/CDN Detection** - Identifies Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - **Technology Fingerprinting** - Detects web servers, CMS (WordPress, Drupal, Joomla), frameworks (React, Vue, Angular)
-- **WordPress Version & Vulnerability Scanner** - Detects WP version via 6 methods (RSS, Atom, meta tag, OPML, readme, asset versions), queries WPScan API for known CVEs, enumerates plugins/themes with vulnerability lookup
+- **WordPress Version & Vulnerability Scanner** - Detects WP version via 6 methods, queries WPScan API for known CVEs, enumerates plugins/themes
 - **WordPress Security Tests** - Auto-runs when WordPress detected: user enumeration, xmlrpc, debug logs
-- **Subdomain Enumeration** - Tests 50+ common subdomains (api, admin, dev, staging, etc.)
 - **Information Gathering** - Headers, server fingerprinting, security header analysis
 - **HTML Source Analysis** - Extracts emails, comments, API keys, internal URLs, TODOs
 - **Enhanced Endpoint Discovery** - 50+ endpoints including Spring Boot Actuator, Laravel Telescope, Django debug
-- **Cloud Metadata Endpoints** - Tests for AWS/GCP/Azure metadata SSRF vulnerabilities
+- **Cloud Metadata Endpoints** - Tests for AWS/GCP/Azure metadata SSRF vulnerabilities (with baseline comparison to eliminate false positives)
 - **Backup File Hunter** - Finds .bak, .old, .sql, .zip backup files
 - **HTTP Methods Testing** - Smart detection of dangerous methods (PUT, DELETE, TRACE, PATCH)
 - **Header Injection** - Tests for X-Forwarded-For, Host header, and bypass techniques
-- **Cookie Security** - Analyzes HttpOnly, Secure, SameSite flags + detects JavaScript cookies (document.cookie) and cookie consent mechanisms
+- **Cookie Security** - Analyzes HttpOnly, Secure, SameSite flags + detects JavaScript cookies and cookie consent mechanisms
 - **CORS Misconfiguration** - Detects weak CORS policies
 - **Open Redirects** - Accurate detection of open redirect vulnerabilities
 - **API Reconnaissance** - Discovers API endpoints and checks for sensitive data exposure
@@ -40,14 +44,16 @@ Curly performs comprehensive web security testing using only curl:
 
 ## Features
 
-### 6 Scan Modes
+### 8 Scan Modes
 
 1. **Quick Scan** - Fast reconnaissance (IP geo + protocol check + SSL/TLS + WAF + tech + WP vulns + info + endpoints + HTML source)
-2. **Full Scan (All Modules)** - Comprehensive security testing (all 19 modules including protocol check + SSL/TLS + WP vulnerability scan + parameter discovery!)
-3. **API Recon** - Focused API endpoint discovery + subdomain enumeration
-4. **Security Audit** - Deep security testing (IP geo + protocol check + SSL/TLS + tech + WP vulns + HTML + parameters + methods + headers + cookies + CORS + redirects + cloud metadata)
+2. **Full Scan (All Modules)** - Comprehensive security testing (all modules including DNS, email security, CT subdomains, CSP, port scan, and more)
+3. **API Recon** - Focused API endpoint discovery + CT subdomain enumeration
+4. **Security Audit** - Deep security testing (IP geo + protocol + DNS + email security + SSL + tech + WP vulns + CSP + headers + cookies + CORS + redirects + cloud metadata)
 5. **Tech Fingerprint** - Identify IP location, protocol availability, SSL/TLS config, WAF, CDN, web server, technology stack, and WordPress vulnerabilities
-6. **Subdomain Enum** - Test 50+ common subdomains for the target
+6. **Subdomain Enum** - Certificate Transparency (crt.sh) subdomain discovery with liveness probing
+7. **DNS Recon** - Full DNS enumeration + email security records + CT subdomain discovery
+8. **Port Scan** - IP geolocation + nmap port scan + SSL/TLS analysis
 
 ### Visual & Audio Feedback
 
@@ -63,11 +69,11 @@ Curly performs comprehensive web security testing using only curl:
 
 - **Vibration:** On scan completion
 
-### Discord Integration
+### Notification Integration
 
-- **Automatic Notifications:** Configure a Discord webhook to receive scan results directly in your Discord channel
-- **Rich Results:** Get formatted messages with target info, scan mode, timestamp, and only imporant results show up on discord, or interesting findings
-- **Optional:** Works seamlessly without webhook - just leave it blank for local-only results
+- **Discord Webhook** - Receive formatted scan results with all CRITICAL/HIGH/MEDIUM findings grouped by section
+- **Slack Webhook** - Alternative to Discord; sends severity summary + key findings to any Slack channel
+- **Optional:** Works seamlessly without either webhook — just leave them blank for local-only results
 
 ---
 
@@ -77,15 +83,18 @@ Curly performs comprehensive web security testing using only curl:
 2. **(Optional)** Configure Discord webhook in `payload.sh`:
    - Get webhook URL from Discord: Server Settings → Integrations → Webhooks → New Webhook
    - Edit line 11: `DISCORD_WEBHOOK="https://discord.com/api/webhooks/YOUR_WEBHOOK_HERE"`
-3. **(Optional)** Configure WPScan API token for WordPress vulnerability lookup:
+3. **(Optional)** Configure Slack webhook in `payload.sh`:
+   - Get webhook URL from Slack: Apps → Incoming Webhooks → Add New Webhook
+   - Edit line 12: `SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR_WEBHOOK_HERE"`
+4. **(Optional)** Configure WPScan API token for WordPress vulnerability lookup:
    - Register for a free token at https://wpscan.com/register (25 requests/day)
-   - Edit line 12: `WPSCAN_API_TOKEN="your_token_here"`
+   - Edit line 13: `WPSCAN_API_TOKEN="your_token_here"`
    - Without a token, Curly still detects WP version and does basic age checks
-4. Enter target URL when prompted (e.g., `example.com` - no need for https://)
-5. Select scan mode (1-6) using number picker
-6. Press **A** to start the scan
-7. Watch results in real-time on the Pager display
-8. Results auto-saved to `/root/loot/curly/` (and sent to Discord if configured)
+5. Enter target URL when prompted (e.g., `example.com` - no need for https://)
+6. Select scan mode (1-8) using number picker
+7. Press **A** to start the scan
+8. Watch results in real-time on the Pager display
+9. Results auto-saved to `/root/loot/curly/` (and sent to Discord/Slack if configured)
 
 ---
 
@@ -94,21 +103,25 @@ Curly performs comprehensive web security testing using only curl:
 ### Security Issues
 
 - ✅ **IP Geolocation** - IP address, hostname, city, region, country, ISP/organization, coordinates, timezone
-- 🌐 **Protocol Availability** - Detects HTTP/HTTPS availability; flags sites with no SSL (HIGH), missing HTTP→HTTPS redirects (MEDIUM), or secure HTTPS-only configs (INFO)
-- 🔒 **SSL/TLS Security** *(NEW in v3.5)* - Expired/expiring certificates, self-signed certs, weak ciphers (DES, RC4, MD5), outdated TLS versions (1.0/1.1), certificate chain issues
-- 📊 **Severity Scoring** *(NEW in v3.5)* - CRITICAL/HIGH/MEDIUM/LOW/INFO classification for all findings with summary report
-- 🔍 **Parameter Discovery** *(NEW in v3.5)* - Tests debug, auth, data, config parameters (~30 total); detects reflection, behavior changes, parameter pollution
+- ✅ **Protocol Availability** - Detects HTTP/HTTPS availability; flags sites with no SSL (HIGH), missing HTTP→HTTPS redirects (MEDIUM), or secure HTTPS-only configs (INFO)
+- ✅ **SSL/TLS Security** - Expired/expiring certificates, self-signed certs, weak ciphers (DES, RC4, MD5), outdated TLS versions (1.0/1.1), certificate chain issues
+- ✅ **DNS Record Enumeration** - A, AAAA, NS, MX, TXT, CNAME, SOA records with provider identification; AXFR zone transfer attempts against all nameservers
+- ✅ **Email Security** - SPF record + strictness (softfail vs reject), DMARC policy enforcement level, DKIM selector probing (12+ common selectors), BIMI brand indicator lookup
+- ✅ **Certificate Transparency** - Queries crt.sh CT logs for all known subdomains; probes each for HTTP liveness; flags CNAME targets pointing to cloud services (potential subdomain takeover)
+- ✅ **Port Scanning** - nmap scan of 26 common ports (web, admin, database, service); identifies open alternate admin panels (8080, 8443, etc.)
+- ✅ **CSP Analysis** - Full Content-Security-Policy deep analysis: unsafe-inline, unsafe-eval, wildcard sources, missing directives, JSONP bypass CDNs, mixed content issues
+- ✅ **Severity Scoring** - CRITICAL/HIGH/MEDIUM/LOW/INFO classification for all findings with summary report
+- ✅ **Parameter Discovery** - Tests debug, auth, data, config parameters (~30 total); detects reflection, behavior changes, parameter pollution
 - ✅ **WAF/CDN Protection** - Cloudflare, Akamai, AWS CloudFront, Incapsula, Sucuri, ModSecurity
 - ✅ **Technology Stack** - Web servers, CMS platforms, frontend frameworks, libraries with versions
-- ✅ **WordPress Version & CVE Scanner** *(NEW in v3.8)* - Detects WP version via 6 methods (RSS feed, Atom feed, meta generator, OPML, readme.html, CSS/JS query strings), queries WPScan API for known CVEs with titles/references/fix versions, enumerates plugins + themes with vulnerability lookup
+- ✅ **WordPress Version & CVE Scanner** - Detects WP version via 6 methods (RSS feed, Atom feed, meta generator, OPML, readme.html, CSS/JS query strings), queries WPScan API for known CVEs with titles/references/fix versions, enumerates plugins + themes with vulnerability lookup
 - ✅ **WordPress Security Tests** - User enumeration API, xmlrpc.php, debug logs, wp-admin access (with content verification to prevent false positives)
-- ✅ **Subdomains** - Tests 50+ common subdomains (api, admin, dev, staging, mail, etc.)
 - ✅ **HTML Source Secrets** - Email addresses, API keys, internal URLs, TODO comments, stack traces
 - ✅ **Missing security headers** - X-Frame-Options, CSP, HSTS, X-Content-Type-Options
 - ✅ **Information disclosure** - Server version, X-Powered-By, tech stack leakage
 - ✅ **Exposed sensitive files** - `.git`, `.env`, `.aws/credentials`, `.svn`, `.hg` (with content verification to eliminate false positives)
 - ✅ **Enhanced endpoints** - Spring Boot Actuator, Laravel Telescope, Django debug, Tomcat manager (50+ paths)
-- ✅ **Cloud SSRF (Smart Detection)** - AWS/GCP/Azure metadata endpoint testing with intelligent false positive reduction
+- ✅ **Cloud SSRF (Smart Detection)** - AWS/GCP/Azure metadata endpoint testing with baseline comparison — only fires if keywords appear in test response but NOT in the baseline page
 - ✅ **Backup files** - .bak, .old, .sql, .zip, .tar.gz with 80+ combinations tested
 - ✅ **API documentation** - `/swagger.json`, `/openapi.json`, GraphQL endpoints (validates JSON format to prevent false positives)
 - ✅ **Dangerous HTTP methods** - PUT, DELETE, TRACE, PATCH (smart detection, filters rate limiting)
@@ -156,17 +169,6 @@ Curly performs comprehensive web security testing using only curl:
 /manager/html, /manager/status (Tomcat)
 ```
 
-### Subdomains Tested (50+)
-
-```
-www, api, admin, dev, staging, test, beta, demo, portal, dashboard
-app, mail, ftp, vpn, ssh, remote, store, shop, blog, forum
-status, help, support, cdn, static, assets, images, media, upload
-files, mobile, m, secure, login, auth, sso, sandbox, uat, qa
-prod, old, new, v2, api2, backend, server, db, database, cloud
-git, gitlab, jenkins, monitor
-```
-
 ---
 
 ## Output
@@ -178,8 +180,8 @@ All results are saved to timestamped files in `/root/loot/curly/`:
 ```
 
 Each loot file contains:
-- Full scan report with timestamps
-- Discovered vulnerabilities with severity markers ([!!!] CRITICAL, [!!] HIGH, [!] MEDIUM, [-] LOW, [*] INFO)
+- Full scan report with timestamps and GPS coordinates (when available)
+- Discovered vulnerabilities with severity markers (`[!!!]` CRITICAL, `[!!]` HIGH, `[!]` MEDIUM, `[-]` LOW, `[*]` INFO)
 - Beautiful severity summary box at the end
 - HTTP status codes
 - Found endpoints
@@ -194,10 +196,12 @@ Each loot file contains:
 This tool is perfect for initial reconnaissance:
 
 1. **Quick triage** - Run quick scan on multiple targets
-2. **API hunting** - Use API Recon mode to find undocumented endpoints
-3. **Header bypass** - Identify potential authentication bypasses
-4. **Information gathering** - Collect server fingerprints and tech stack info
-5. **Sensitive files** - Find exposed configuration and credential files
+2. **Subdomain discovery** - Use Subdomain Enum (mode 6) or DNS Recon (mode 7) to find attack surface via CT logs
+3. **Email spoofing** - DNS Recon identifies SPF softfail + missing DMARC (common report finding)
+4. **API hunting** - Use API Recon mode to find undocumented endpoints
+5. **Header bypass** - Identify potential authentication bypasses
+6. **Information gathering** - Collect server fingerprints and tech stack info
+7. **Sensitive files** - Find exposed configuration and credential files
 
 ---
 
@@ -207,6 +211,9 @@ This tool is perfect for initial reconnaissance:
 - **HTTP/HTTPS:** Auto-detects or defaults to HTTPS
 - **Non-blocking:** LED and sound feedback during scans
 - **Portable:** All results stored locally on Pager
+- **BusyBox compatible:** Works with BusyBox nslookup, sed, awk (no GNU-specific features required)
+- **DNS-over-HTTPS:** Falls back to Google DoH (dns.google) when nslookup results are incomplete
+- **Memory-aware:** Large API responses (e.g., crt.sh JSON) written to temp files to avoid embedded device OOM
 
 ---
 
@@ -242,19 +249,17 @@ This tool is perfect for initial reconnaissance:
 
    [+] SSL/TLS SECURITY ANALYSIS
    [*] Certificate expires: Jul 15 23:59:59 2026 GMT
-   [*] SSL Certificate valid for 201 days
    [*] TLS Version: TLSv1.3
+   [*] Cipher Suite: TLS_AES_256_GCM_SHA384
    [*] Certificate chain valid
 
    [*] WAF: Cloudflare detected
    [*] Web Server: nginx/1.18.0
    [*] CMS: WordPress detected
-   [*] Frontend: React detected
    [!] Missing: X-Frame-Options
    [!] Missing: CSP
    [!] FOUND [200]: /api/v1
    [!] FOUND [200]: /swagger.json
-   [!] FOUND [200]: /sitemap_index.xml
 
    ╔════════════════════════════════════╗
    ║    SEVERITY SUMMARY               ║
@@ -270,23 +275,16 @@ This tool is perfect for initial reconnaissance:
    ╚════════════════════════════════════╝
 
 4. Loot saved to: /root/loot/curly/api.example.com_20260107_143022.txt
-5. Discord notification sent! 📱 (if webhook configured)
-6. Next steps: Behind Cloudflare, WordPress + React stack, review swagger.json
-   - Fix 2 MEDIUM issues (missing security headers)
-   - Review API documentation at /swagger.json
+5. Discord/Slack notification sent! (if webhook configured)
+6. Next steps: Behind Cloudflare, WordPress stack, review swagger.json
 ```
 
-### Discord Notification Example
+### Discord/Slack Notification Example
 
-When configured, you'll receive a Discord message like:
-```
-🎯 Curly Scan Complete
-Target: `api.example.com`
-Scan Mode: 1
-Timestamp: Mon Jan 12 15:30:22 EST 2026
-
-📎 Attachment: api.example.com_20260112_153022.txt
-```
+When configured, you'll receive a message with:
+- Target, scan mode, timestamp, severity counts
+- All CRITICAL/HIGH/MEDIUM findings grouped by section
+- Results uploaded as a text file attachment
 
 ---
 
@@ -295,8 +293,77 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 - Designed for **authorized penetration testing** and bug bounty programs
 - Always obtain permission before scanning targets
 - Some tests may trigger WAFs or security monitoring
-- Results are indicators - manual verification recommended
+- Results are indicators — manual verification recommended
 - Combine with other Pineapple payloads for complete assessment
+
+---
+
+## What's New in v4.0
+
+### New Modules
+
+**DNS Record Enumeration (`scan_dns_enum`)**
+- Full DNS record lookup: A, AAAA, NS, MX, TXT, CNAME, SOA
+- AXFR zone transfer attempts against every nameserver (verbose rejection reporting)
+- Provider identification for NS/MX records (Cloudflare, Google, Mimecast, etc.)
+- SPF record detection in TXT records
+
+**Email Security Check (`scan_email_security`)**
+- SPF record analysis — reports strictness (`~all` softfail vs `-all` reject)
+- DMARC policy detection — flags `p=none` (monitoring only) and missing records
+- DKIM probing — checks 12+ common selectors (default, google, mail, smtp, etc.)
+- BIMI brand indicator lookup (optional/informational)
+
+**Certificate Transparency (`scan_crt_sh`)**
+- Queries crt.sh CT logs for all subdomains ever seen in certificates
+- Deduplicates and probes each discovered subdomain for HTTP liveness
+- Reports HTTP status code per subdomain
+- Flags CNAMEs pointing to cloud services (GitHub Pages, S3, Heroku, etc.) as potential subdomain takeovers
+- Replaces the old wordlist-based subdomain enumeration entirely — CT logs are more accurate and comprehensive
+
+**CSP Deep Analysis (`scan_csp_analysis`)**
+- Detects missing CSP header (flags as MEDIUM)
+- Checks for `unsafe-inline`, `unsafe-eval` in script/style directives
+- Identifies known JSONP bypass CDNs in source allowlists
+- Flags missing `default-src`, `form-action`, `base-uri`, `object-src` directives
+- Reports total CSP issue count
+
+**Port Scan (`scan_ports`)**
+- nmap scan of 26 ports: web (80, 443, 8080, 8443), admin (8888, 9090, 9200, 5601), databases (3306, 5432, 6379, 27017), and services
+- Service name identification per open port
+- Flags alternate web ports as potential admin panels (MEDIUM)
+- Flags database ports exposed to internet (HIGH/CRITICAL)
+
+### New Scan Modes
+
+- **Mode 7 — DNS Recon:** `scan_dns_enum` + `scan_email_security` + `scan_crt_sh`
+- **Mode 8 — Port Scan:** `scan_ip_geolocation` + `scan_ports` + `scan_ssl_tls`
+
+### Updated Scan Modes
+
+- **Mode 4 (Security Audit):** Now includes `scan_dns_enum`, `scan_email_security`, and `scan_csp_analysis`
+- **Mode 6 (Subdomain Enum):** Now uses CT logs (`scan_crt_sh`) only — wordlist method removed
+- **Mode 2 (Full Scan):** Includes all new modules; wordlist subdomain enumeration removed in favor of crt.sh
+- **Mode 3 (API Recon):** Subdomain step now uses `scan_crt_sh` instead of wordlist, get better results this way in my opinion
+
+### Slack Webhook Support
+
+New `SLACK_WEBHOOK` config variable. Sends severity summary + CRITICAL/HIGH findings to any Slack channel as an alternative (or addition) to Discord.
+
+### Bug Fixes
+
+- **Cipher Suite display** — was showing the literal word "Cipher" instead of the cipher name (fixed `grep` to target `Cipher is X` line)
+- **WordPress readme.html HTML** — was logging raw `<li>` HTML tags; now strips all tags before logging
+- **AAAA Records** — was showing CNAME chain hostnames (domain names) in the IPv6 section; now filters to real IPv6 addresses only (must contain `:`)
+- **CNAME false positives** — DoH queries returning SOA data or the queried domain itself are now suppressed; trailing dot stripped from results
+- **SSRF false positives** — `check_metadata_content` now requires keywords to be absent from the baseline page; eliminates CONFIRMED CRITICAL false alarms on normal Shopify/CDN pages
+- **Cookie name prefix** — HTTP/2 lowercase `set-cookie:` header was showing as part of the cookie name; fixed with `awk -F': '` parser instead of case-sensitive sed
+- **doh_query Authority leakage** — DoH JSON `"data"` fields from the Authority (SOA) section were being extracted when there were no Answer records; now strips Authority section before parsing (or uses `jq .Answer[].data`)
+- **A Records showing resolver IP** — BusyBox nslookup uses `:53` format (not `#53`); fixed filter to exclude both
+- **GPS zeros logged** — suppressed GPS logging when coordinates are all zeros (no fix)
+- **crt.sh BusyBox sed issue** — BusyBox `sed` doesn't interpret `\n` in replacements; switched to `jq` as primary parser with `awk gsub` fallback
+- **crt.sh memory issue on full scan** — 248KB+ JSON variable assignment fails silently on embedded devices; fixed by writing directly to temp files with `curl -o`
+- **Discord missing findings** — awk pattern missed `[!!]` HIGH severity entirely; hardcoded section filter replaced with dynamic section tracking
 
 ---
 
@@ -304,297 +371,75 @@ Timestamp: Mon Jan 12 15:30:22 EST 2026
 
 ### WordPress Version & Vulnerability Scanner (v3.8):
 
-**🔍 WordPress Version Detection (6 Methods)**
-- **RSS Feed Generator** - Parses `<generator>` tag from `/feed/` (most reliable, same as WPScan's "Rss Generator" aggressive detection)
-- **Atom Feed Generator** - Parses version attribute from `/feed/atom/` (used as confirmation)
-- **Meta Generator Tag** - Extracts version from `<meta name="generator">` in HTML source (passive detection)
+**WordPress Version Detection (6 Methods)**
+- **RSS Feed Generator** - Parses `<generator>` tag from `/feed/`
+- **Atom Feed Generator** - Parses version attribute from `/feed/atom/`
+- **Meta Generator Tag** - Extracts version from `<meta name="generator">` in HTML source
 - **OPML Link** - Checks `/wp-links-opml.php` for generator version string
-- **readme.html** - Reads version from WordPress readme file (often removed but worth checking)
-- **CSS/JS Query Strings** - Fallback method: finds most common `?ver=X.X.X` parameter across page assets
-- **WPScan-Style Output** - Displays detection method and evidence URL, just like WPScan does
+- **readme.html** - Reads version from WordPress readme file
+- **CSS/JS Query Strings** - Fallback: finds most common `?ver=X.X.X` parameter across page assets
 
-**🛡️ Vulnerability Lookup via WPScan API**
-- **Free API Integration** - Queries WPScan's vulnerability database using just curl (25 free requests/day)
-- **CVE Details** - Shows vulnerability title, fixed-in version, and reference URLs (WPScan, CVE, Patchstack, WordPress.org)
-- **Severity Classification** - Auto-categorizes vulns: RCE/SQLi = CRITICAL, XSS/CSRF/SSRF = HIGH, Disclosure = MEDIUM
-- **Version Status** - Reports whether the installed version is marked "Insecure" or "Latest" by WPScan
-- **Graceful Fallback** - Without an API token, still provides basic version age assessment (outdated version warnings)
-- **Output Format** - Matches WPScan's familiar output style with `[!]` markers and indented references
+**Vulnerability Lookup via WPScan API**
+- Free API integration using curl (25 free requests/day)
+- CVE details: title, fixed-in version, reference URLs
+- Severity classification: RCE/SQLi = CRITICAL, XSS/CSRF/SSRF = HIGH, Disclosure = MEDIUM
+- Graceful fallback without API token (basic version age assessment)
 
-**🔌 WordPress Plugin Enumeration**
-- **Source Code Detection** - Extracts plugin slugs from `/wp-content/plugins/` paths in page source
-- **Version Detection** - Reads each plugin's `readme.txt` to determine installed version
-- **Plugin Vulnerability Lookup** - Queries WPScan API for known vulnerabilities per plugin
-- **Unpatched Vuln Detection** - Flags plugins with no known fix as CRITICAL severity
-
-**🎨 WordPress Theme Detection**
-- **Active Theme Identification** - Finds active theme from `/wp-content/themes/` paths
-- **Version Extraction** - Reads theme's `style.css` to determine version
-- **Theme Vulnerability Lookup** - Queries WPScan API for known theme vulnerabilities
-
-**⚙️ Configuration**
-- New config option: `WPSCAN_API_TOKEN=""` - Set your free API token from https://wpscan.com/register
-- Works without token (basic version age check) - full CVE data requires the free token
-- Added to Quick Scan, Full Scan, Security Audit, and Tech Fingerprint modes
-- Gracefully skips if target is not WordPress
-
-**Example Output:**
-```
-[+] WORDPRESS VERSION & VULNERABILITY SCAN
-
-[+] WordPress version 6.7.2 identified
- | Found By: Rss Generator (Aggressive Detection)
- |  - https://example.com/feed/
- | Confirmed By: Atom Generator (Aggressive Detection)
- |  - https://example.com/feed/atom/
- |
- | Status: Insecure, released on 2025-02-11
- |
- | [!] 2 vulnerabilities identified:
- |
- | [!] Title: WP < 6.8.3 - Author+ DOM Stored XSS
- |     Fixed in: 6.7.4
- |     References:
- |      - https://wpscan.com/vulnerability/c4616b57-...
- |      - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-58674
- |
- | [!] Title: WP < 6.8.3 - Contributor+ Sensitive Data Disclosure
- |     Fixed in: 6.7.4
- |     References:
- |      - https://wpscan.com/vulnerability/1e2dad30-...
- |      - https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2025-58246
-
-[+] WORDPRESS PLUGIN ENUMERATION
- | [*] contact-form-7 (v6.0.2)
- |   [!] Contact Form 7 < 6.0.5 - Reflected XSS
- |       Fixed in: 6.0.5
- | [*] yoast-seo (v24.1)
- |
- | [*] 2 plugin(s) found
-
-[+] WORDPRESS THEME DETECTION
-[*] Active theme: flavor
- | Version: 1.2.1
-```
+**WordPress Plugin & Theme Enumeration**
+- Extracts plugin slugs from page source `/wp-content/plugins/` paths
+- Reads each plugin's `readme.txt` for version
+- Queries WPScan API per plugin/theme for known vulnerabilities
 
 ---
 
 ## What's New in v3.7
 
 ### Protocol Availability Check (v3.7):
-
-**🌐 HTTP/HTTPS Detection**
-- **Dual Protocol Testing** - Checks if site responds on both HTTP (port 80) and HTTPS (port 443)
-  - Reports HTTP status codes for each protocol
-  - Identifies sites only available via HTTP (no encryption) - HIGH severity
-  - Detects when both protocols are available but HTTP doesn't redirect to HTTPS - MEDIUM severity
-  - Confirms secure configurations where HTTP properly redirects to HTTPS - INFO
-  - Notes HTTPS-only sites as secure configuration - INFO
-- **Redirect Verification** - Uses curl to follow HTTP requests and verify final URL is HTTPS
-- **Why This Matters:**
-  - Without redirect enforcement, users can accidentally use unencrypted HTTP
-  - Mixed content risks when both protocols serve the same content
-  - Helps identify targets that need HTTPS redirect configuration
+- Dual Protocol Testing — checks HTTP and HTTPS availability with status codes
+- Redirect Verification — confirms HTTP→HTTPS redirect is enforced
+- Identifies HTTP-only sites (HIGH), missing redirects (MEDIUM), secure configs (INFO)
 
 ### Automatic Update Checking (v3.7):
-
-**🔄 Version Check System**
-- **Automatic Update Notifications** - Payload checks GitHub for newer versions on startup
-  - Compares local version against remote VERSION file
-  - Displays "UPDATE AVAILABLE!" banner when newer version exists
-  - Shows current vs latest version numbers with link to update
-  - Gracefully continues if network unavailable or check fails
-- **Configurable** - Set `ENABLE_UPDATE_CHECK=false` in payload.sh to disable
-- **Non-Blocking** - Quick 3-second timeout, won't slow down scans
+- Checks GitHub for newer versions on startup
+- Displays "UPDATE AVAILABLE!" banner with version comparison
+- Configurable via `ENABLE_UPDATE_CHECK=false`
 
 ### Enhanced Cookie Security Analysis (v3.7):
-
-**🍪 JavaScript Cookie Detection**
-- **document.cookie Scanning** - Detects cookies set via JavaScript, not just HTTP headers
-  - Scans HTML/JS source for `document.cookie =` assignments
-  - Counts cookie read operations (`document.cookie` access)
-  - Extracts and displays sample cookie patterns found in code
-  - Identifies cookies that won't appear in curl's HTTP header checks
-- **Security Implications** - Warns that JS-set cookies cannot have HttpOnly flag (XSS vulnerability)
-
-**🔐 Cookie Consent Detection**
-- **GDPR/Consent Banner Detection** - Identifies 15+ common consent management platforms:
-  - CookieBot, OneTrust, TrustArc, Osano, Quantcast, Didomi
-  - Iubenda, Complianz, Klaro, TarteAuCitron, and more
-- **Explains Missing Cookies** - When consent is detected but no cookies found, explains that cookies may only appear after user consents in browser
-- **Reduces False Negatives** - No more "No cookies found" when the site actually has cookies behind consent
-
-**📖 Manual Verification Guide**
-- **Step-by-Step Browser Instructions** - When no HTTP cookies are detected:
-  - How to check `document.cookie` in browser DevTools console
-  - How to view cookies in Application tab → Storage → Cookies
-  - Instructions for accepting consent and re-checking
-- **Explains curl Limitations** - Educates users that curl cannot execute JavaScript or interact with consent dialogs
-- **Context-Aware Guidance** - Different instructions shown based on whether consent banners were detected
-
-**Why This Matters:**
-- Many modern sites set cookies via JavaScript, not HTTP headers
-- GDPR compliance means cookies often require user consent first
-- curl-based scanning has inherent limitations - now the tool explains them
-- Prevents false sense of security when "No cookies" is reported
+- `document.cookie` scanning — detects JS-set cookies that won't appear in HTTP headers
+- Cookie consent detection (15+ CMP platforms: CookieBot, OneTrust, TrustArc, etc.)
+- Manual verification guide when cookies are behind consent banners
 
 ---
 
 ## What's New in v3.6
 
 ### Major Update - Comprehensive Security Scanner (v3.6):
+- Scan Time Tracking — estimated times before scans + actual elapsed time in summary
+- Manual Verification Guides — step-by-step instructions for XSS, SSRF, bypass verification
+- SSL/TLS Security Analysis — full certificate and cipher analysis
+- Severity Scoring System — five-tier CRITICAL/HIGH/MEDIUM/LOW/INFO classification
+- Parameter Discovery — 30 common parameters with reflection/behavior/pollution detection
+- Intelligent SSRF Detection — baseline comparison with three-tier confidence levels
+- Enhanced Detection Accuracy — improved Cloudflare and WordPress detection
+- Discord Webhook Integration
 
-**⏱️ Scan Time Tracking**
-- **Estimated Time Display** - Shows expected scan duration before each mode starts
-  - Quick Scan: ~30-45 seconds
-  - Full Scan: ~2-25 minutes
-  - API Recon: ~45-60 seconds
-  - Security Audit: ~90-120 seconds
-  - Tech Fingerprint: ~20-30 seconds
-  - Subdomain Enum: ~30-45 seconds
-- **Actual Elapsed Time** - Displays real scan duration in severity summary box
-  - Formatted as "Xm Ys" for scans over 1 minute, or just "Ys" for shorter scans
-  - Helps benchmark performance and plan scanning sessions
-  - Useful for tracking efficiency on different targets
-
-**📖 Manual Verification Guides**
-- **Parameter Discovery Guide** - Step-by-step instructions when reflected parameters are found
-  - Browser testing workflow for XSS verification
-  - curl command examples for quick testing
-  - Edge case testing suggestions (page=999999 to trigger errors)
-  - Eliminates guesswork on how to verify findings and shit like that
-- **X-Original-URL Bypass Guide** - Shows exact commands to verify ACL bypasses
-  - Pre-filled curl examples with target URL
-  - Multiple test paths (/admin, /console)
-  - Clear success criteria explanation
-- **SSRF Verification Guide** - Comprehensive SSRF testing instructions
-  - Burp Collaborator / webhook.site integration steps
-  - Internal network access testing examples
-  - AWS/GCP/Azure metadata exploitation commands
-  - Only displays when SSRF findings are detected
-
-**🔒 SSL/TLS Security Analysis**
-- **Certificate Expiration Monitoring** - Alerts on expired certs (CRITICAL) or certs expiring within 30 days (HIGH)
-- **TLS Version Detection** - Identifies outdated/insecure TLS versions (TLS 1.0/1.1 = HIGH, SSLv2/v3 = CRITICAL)
-- **Weak Cipher Detection** - Flags dangerous ciphers (NULL, EXPORT, DES, RC4, MD5, anon) as CRITICAL
-- **Self-Signed Certificate Detection** - Identifies self-signed certs (HIGH severity)
-- **Certificate Chain Validation** - Checks for chain issues (MEDIUM severity)
-- **Portable Date Parsing** - Works on both Linux and OpenWrt systems
-- **Smart Skip for HTTP** - Gracefully skips SSL checks for HTTP-only sites
-
-**📊 Severity Scoring System**
-- **Five-Tier Classification:**
-  - 🔴 **CRITICAL** `[!!!]` - Immediate threats: exposed configs, SSRF, expired SSL, API keys in source, backup files, debug logs
-  - 🟠 **HIGH** `[!!]` - Serious issues: open redirects, CORS wildcards, X-Powered-By disclosure, parameter reflection, TLS 1.0/1.1
-  - 🟡 **MEDIUM** `[!]` - Security improvements needed: missing headers, cookie flags, WordPress enumeration, certificate chain issues
-  - 🟢 **LOW** `[-]` - Minor issues: missing SameSite, xmlrpc.php accessible, developer comments
-  - ℹ️ **INFO** `[*]` - Informational: server types, technologies detected, email addresses, valid SSL certs
-- **Summary Report** - Color-coded box at scan end showing counts by severity
-- **Risk Prioritization** - Instantly see which findings need immediate attention
-- **Comprehensive Coverage** - ALL 17 modules now use severity scoring
-
-**🔍 Parameter Discovery**
-- **Balanced Testing** - Tests ~30 common parameters (debug, test, dev, admin, user, id, key, config, etc.)
-- **Multiple Detection Methods:**
-  - Status code changes (e.g., 200 → 500) = MEDIUM severity
-  - Response size differences (>100 bytes) = LOW severity
-  - Parameter reflection in response = LOW severity (needs manual verification)
-- **Parameter Pollution Testing** - Detects HTTP Parameter Pollution (HPP) vulnerabilities
-- **Smart Baseline Comparison** - Compares against normal page response to reduce false positives
-- **Ignores Rate Limiting** - Skips HTTP 429 responses to eliminate noise
-- **Summary Report** - Lists all interesting parameters discovered at end of scan
-
-**🎯 Intelligent SSRF Detection**
-- **Baseline Comparison** - Compares test responses against normal homepage
-- **Content Analysis** - Scans for actual AWS/GCP/Azure metadata keywords
-- **Response Size Checking** - Flags significant size differences (>1000 bytes)
-- **Three-Tier Confidence Levels:**
-  - `[!!!]` = High confidence (actual metadata content found) - **REPORT THIS!**
-  - `[?]` = Requires manual verification (suspicious but needs confirmation)
-  - `[*]` = Likely false positive (normal page response)
-- Dramatically reduced false positives for cloud metadata testing
-
-**🔍 Enhanced Detection Accuracy**
-- **Cloudflare Detection** - More reliable WAF/CDN identification
-  - DNS Nameserver Checking as fallback when HTTP headers don't reveal Cloudflare
-  - Detects Cloudflare even when proxy/CDN headers are stripped or hidden
-  - Queries for `*.ns.cloudflare.com` nameservers to confirm Cloudflare usage
-  - Eliminates false negatives where Cloudflare was present but not detected
-- **WordPress Detection** - Fixed false positives with smarter CMS detection
-  - Technical Indicator Matching: Only detects when actual WordPress files/paths are present
-  - Looks for generator meta tags, `/wp-content/themes/`, `/wp-content/plugins/`, `/wp-includes/`
-  - No longer triggers on pages that merely mention "WordPress" in content
-  - Still validates with endpoint checks (wp-json, wp-login.php) for confirmation
-
-**📱 Discord Webhook Integration**
-- **Automatic Notifications** - Send scan results to your Discord channel
-  - Configure once, get instant notifications on every scan
-  - Includes formatted message with target, scan mode, and timestamp
-  - Results sent as downloadable text file attachment
-  - Completely optional - works great without it too!
-
-**🗺️ Enhanced Coverage**
-- **Sitemap Discovery** - Added `/sitemap_index.xml` to endpoint testing
-  - Many sites use sitemap index files that point to multiple sitemaps
-  - Better coverage for large sites with multiple sitemap files
-
-**🎯 Content Verification System**
-- **WordPress Detection** - Dramatically improved accuracy with content verification
-  - Checks actual WordPress content (wp-json API namespace, login form elements)
-  - No longer triggers on sites that return HTTP 200 for everything (e.g., Facebook, large CDNs)
-  - Verifies `/wp-json/` contains valid WordPress REST API JSON
-  - Confirms `/wp-login.php` has real WordPress login form elements
-  - Eliminates false positives from sites that merely mention "WordPress" in content
-- **Critical File Detection** - Validates actual file content, not just HTTP status codes
-  - **/.env files** - Verifies KEY=value format, not HTML redirects
-  - **/phpinfo.php** - Confirms presence of "PHP Version" or phpinfo() output
-  - **/.git, /.aws files** - Ensures content isn't HTML (actual git/aws files)
-  - **/swagger.json, /openapi.json** - Validates JSON contains "swagger" or "openapi" keys
-  - Prevents CRITICAL false alarms on sites with catch-all routing (SPAs, frameworks)
-- **Intelligent HTTP 200 Handling**
-  - Many modern sites (Facebook, Google, SPAs) return 200 for all paths
-  - Scanner now verifies response content matches expected file type
-  - Only reports findings when content is verified as legitimate
-  - Saves time and eliminates noise in scan results
-
-**🔧 Bug Fixes & UX Improvements**
-- **Reduced False Positives** - Parameter Discovery ignores HTTP 429 rate limiting responses
-- **Lower Severity for Reflected Params** - Changed from HIGH to LOW (needs manual verification)
-- **Removed Excessive Beeping** - No more beeping on each reflected parameter (too noisy)
-- **Cleaner Output** - More actionable results with accurate severity ratings
-- **Educational Tool** - Verification guides teach you how to exploit findings
-- **Performance Optimization** - Only fetches content when status is 200 (reduces unnecessary requests)
-- **Other Bug Fixes..**
 ---
 
-## What's New in v3.0
+## What's New in v3.0 / v2.x
 
-### New Modules Added (v3.0):
-- 🌍 **IP Geolocation Lookup** - Queries ipinfo.io for target IP location, ISP, timezone, and more
-- 🔧 **Improved Detection** - Fixed false positives in TODO/FIXME, backup files, and error detection
-- 🔄 **Automatic Redirect Following** - Now follows www redirects automatically (e.g., example.com → www.example.com)
+- IP Geolocation Lookup
+- HTML Source Analysis — emails, API keys, internal URLs, TODOs
+- Enhanced Endpoint Discovery — 50+ endpoints
+- Cloud Metadata Endpoints — AWS/GCP/Azure SSRF testing
+- WordPress Security Tests
+- WAF/CDN Detection
+- Technology Fingerprinting
+- Backup File Hunter
+- Cookie Security Analysis
+- CORS Misconfiguration Detection
+- Open Redirect Detection
 
-### Previous Additions (v2.5):
-- 💎 **HTML Source Analysis** - Extracts emails, comments, API keys, internal URLs, developer TODOs
-- 🎯 **Enhanced Endpoint Discovery** - 50+ endpoints (Spring Boot, Laravel, Django, Tomcat)
-- ☁️ **Cloud Metadata Endpoints** - SSRF testing for AWS/GCP/Azure metadata APIs
-- 🎨 **WordPress Security Tests** - Auto-detects and tests WordPress-specific vulnerabilities
-
-### Previous Additions (v2.0):
-- 🛡️ **WAF/CDN Detection** - Identifies 6+ protection systems
-- 🔍 **Technology Fingerprinting** - CMS, frameworks, libraries with versions
-- 🌐 **Subdomain Enumeration** - Tests 50+ common subdomains
-- 🗂️ **Backup File Hunter** - Tests 80+ backup file combinations
-- 🍪 **Cookie Security Analysis** - HttpOnly, Secure, SameSite flags + JavaScript cookie detection + consent banner detection *(enhanced in v3.7)*
-
-### Improvements:
-- ✅ **Smarter HTTP Methods Testing** - Filters rate limiting (429/503), only flags real vulnerabilities
-- ✅ **Accurate Redirect Detection** - Fixed false positives, uses regex pattern matching
-- ✅ **Better UX** - No need to type "https://", just enter domain name
-- ✅ **6 Scan Modes** - More options for different use cases
-- ✅ **Progress Indicators** - Live updates during subdomain scanning
-- ✅ **Conditional Testing** - WordPress tests only run when WordPress is detected
-- ✅ **Subdomain Summary** - Clear list of discovered subdomains at scan end
+---
 
 ## Future Enhancements
 
@@ -604,17 +449,15 @@ Potential additions:
 - XSS reflection testing
 - Directory brute forcing with custom wordlists
 - Proxy support for Burp Suite integration
-- Subdomain takeover detection
-- DNS zone transfer testing
 - Response time analysis for timing attacks
 - Custom wordlist support for parameter fuzzing
-- WordPress plugin/theme version comparison (semantic version compare)
+- WordPress plugin/theme semantic version comparison
 
 ---
 
 ## Disclaimer
 
-This tool is for **authorized security testing only**. Unauthorized access to computer systems is illegal. Always ensure you have explicit permission before testing any target. I am not responsible for misuse of this tool.
+This tool is for **authorized security testing only**. Unauthorized access to computer systems is illegal. Always ensure you have explicit permission before testing any target. I am not responsible for misuse of this tool. Dont' be an asshole!
 
 ---
 
