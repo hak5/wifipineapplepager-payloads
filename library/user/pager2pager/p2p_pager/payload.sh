@@ -144,69 +144,44 @@ reinstall_pager_service() {
 
 # Menu
 main() {
-    LOG " "
-    LOG "===== P2P Pager Service Management ====="
-    LOG ""
-    LOG "U) Install / Uninstall / Reinstall P2P Pager Service"
-    LOG "D) Start / Stop P2P Pager Service"
-    LOG "R) Restart P2P Pager Service"
-    LOG "L) Exit"
-    LOG " "
-    LOG " "
-    choice=$(WAIT_FOR_INPUT)
+    resp=$(LIST_PICKER "Main Menu" "Install" "Uninstall" "Reinstall" "Start" "Stop" "Restart" "Log" "About" "Exit" "Install")
 
-    case $choice in
-        UP)
-            LOG "You chose to Install / Uninstall P2P Pager Service."
-            LOG "U) Install P2P Pager Service"
-            LOG "D) Uninstall P2P Pager Service"
-            LOG "R) Reinstall P2P Pager Service"
-            LOG " "
-            sub_choice=$(WAIT_FOR_INPUT)
-            case $sub_choice in
-                UP)
-                    install_pager_service
-                    ;;
-                DOWN)
-                    uninstall_pager_service
-                    ;;
-                RIGHT)
-                    reinstall_pager_service
-                    ;;
-                *)
-                    LOG "Invalid choice. Exiting."
-                    ;;
-            esac
+    case "$resp" in
+        "Install")
+            install_pager_service
             ;;
-        DOWN)
-            LOG "You chose to Start / Stop P2P Pager Service."
-            LOG "U) Start P2P Pager Service"
-            LOG "D) Stop P2P Pager Service"
-            LOG " "
-            sub_choice=$(WAIT_FOR_INPUT)
-            case $sub_choice in
-                UP)
-                    start_pager_service
-                    ;;
-                DOWN)
-                    stop_pager_service
-                    ;;
-                *)
-                    LOG "Invalid choice. Exiting."
-                    ;;
-            esac
+        "Uninstall")
+            uninstall_pager_service
             ;;
-        RIGHT)
+        "Reinstall")
+            reinstall_pager_service
+            ;;
+        "Start")
+            start_pager_service
+            ;;
+        "Stop")
+            stop_pager_service
+            ;;
+        "Restart")
             restart_pager_service
             ;;
-        LEFT)
-            LOG "Exiting P2P Pager Service Management."
-            exit 0
+        "Log")
+            LOG red "To get back into the main menu press the A button"
+            WAIT_FOR_BUTTON_PRESS "A"
             ;;
-        *)
-            LOG "Invalid choice. Exiting."
+        "About")
+            # Example of a nested list
+            LIST_PICKER "About page" "Project by ERR0RW0LF" "Inspired by:" "@Hak5Darren" "Big thanks to you" "Darren for believing in" "this project and" "supporting it." "Where you can find me:" "Youtube: @3RR0RW0LF" "Discord: err0rw0lf" "<- Back" "<- Back"
+            # Selection is ignored, so all list items are essentially "<- Back"
+            ;;
+        "Exit")
+            resp=$(CONFIRMATION_DIALOG "Exit Payload?") || exit 1
+            if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                exit 0
+            fi
             ;;
     esac
+
 }
 
 
