@@ -12,6 +12,7 @@ PentestPlaybook
 |---------|-------------|
 | `install_evil_portal` | Installs Evil Portal service and dependencies |
 | `set_evil_portal_interface` | Sets the network interface Evil Portal applies to |
+| `interface_manager` | Displays interface status and manages interface activation |
 | `enable_evil_portal` | Enables Evil Portal to start on boot |
 | `disable_evil_portal` | Disables Evil Portal from starting on boot |
 | `start_evil_portal` | Starts the Evil Portal service |
@@ -19,7 +20,6 @@ PentestPlaybook
 | `restart_evil_portal` | Restarts the Evil Portal service |
 | `switch_evil_portal` | Switches active captive portal at runtime |
 | `default_portal` | Activates the default captive portal theme |
-| `setup_wordpress_portal` | Deploys the WordPress login captive portal theme |
 
 ## Requirements
 - WiFi Pineapple Pager (OpenWrt 24.10.1)
@@ -28,8 +28,8 @@ PentestPlaybook
 ## Installation Order
 1. Run `install_evil_portal` to install Evil Portal service and dependencies
 2. Run `set_evil_portal_interface` to configure which interface Evil Portal applies to
-3. Run `setup_wordpress_portal` to deploy the WordPress captive portal
-4. Run `switch_evil_portal` and select `wordpress` to activate it
+3. Run `interface_manager` to confirm interface status and resolve any connectivity issues
+4. Run `switch_evil_portal` and select your desired portal to activate it
 
 Evil Portal is automatically enabled and started during installation.
 
@@ -56,7 +56,8 @@ By default, Evil Portal applies to all interfaces on the management network (172
 - Automatic captive portal detection for iOS and Android devices
 - Credential capture to `/root/logs/credentials.json`
 - Client authorization management via nftables
-- WordPress portal includes all static assets (no external downloads)
+- Runtime portal switching without service restart
+- Interface status monitoring and activation management
 
 ## Quick Reference
 
@@ -83,6 +84,25 @@ cat /root/logs/credentials.json
 
 ## Troubleshooting
 
+### No internet connectivity after connecting to access point and pager cannot ping a domain
+- Ensure that all 3 access points are not enabled simultaneously
+- Verify your WiFi Client Mode configuration is correct
+
+### No internet connectivity after connecting to access point and pager can ping a domain
+- Verify your PineAP filters are set to **DENY**
+- If filters are set to **ALLOW**, ensure connecting device has been added to the allow list
+
+### Not able to connect to an access point
+- Verify the AP you are trying to connect to is currently enabled on the Pager
+- Use the `interface_manager` payload to confirm which interfaces are currently up
+
+### Portal Not Loading After Activation
+If a newly activated portal doesn't appear on your device:
+1. Connect to `172.16.52.1` on your PC browser to confirm the correct portal is loaded
+2. Disconnect and reconnect your test device from the WiFi network
+3. Wait longer - some devices cache the previous portal and take time to refresh
+4. Try "Forget Network" on your device and reconnect fresh
+
 ### Debugging Any Payload
 ```bash
 # Run with verbose output
@@ -96,16 +116,9 @@ logread | grep -i error | tail -20
 ```
 
 ### Common Issues
-- **"No space left on device"** - Free up storage or use external storage
-- **"Package not found"** - Run `opkg update` first
-- **Network errors** - Verify internet connection is active
-
-### Portal Not Loading After Activation
-If a newly activated portal doesn't appear on your device:
-1. Connect to `172.16.52.1` on your PC browser to confirm the correct portal is loaded
-2. Disconnect and reconnect your test device from the WiFi network
-3. Wait longer - some devices cache the previous portal and take time to refresh
-4. Try "Forget Network" on your device and reconnect fresh
+- **"No space left on device"** — Free up storage or use external storage
+- **"Package not found"** — Run `opkg update` first
+- **Network errors** — Verify internet connection is active
 
 ---
 
@@ -117,7 +130,7 @@ These payloads are provided for security research, penetration testing, and educ
 
 **By using these payloads, you agree to:**
 - Only use on networks/systems you own or have explicit permission to test
-- Comply with all local, state, and federal law
+- Comply with all local, state, and federal laws
 - Take full responsibility for your actions
 
 The authors and contributors are not responsible for misuse or damage caused by these tools.
