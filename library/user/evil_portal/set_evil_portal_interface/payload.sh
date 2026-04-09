@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 1.5
+# Version: 1.6
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -178,20 +178,19 @@ if [ "$TARGET_MODE" = "lan" ]; then
     # STATE: Convert back to br-lan
     LOG "Converting back to br-lan (all interfaces)..."
 
-    # Move current interface back to br-lan ports and remove from br-evil
+# Move current interface back to br-lan ports and remove from br-evil
     if [ -n "$CURRENT_IFACE" ]; then
-        EVIL_DEVICE_IDX=$(uci show network | grep "name='br-evil'" | sed 's/network\.\@device\[\([0-9]*\)\].*/\1/')
-        uci del_list network.@device[${EVIL_DEVICE_IDX}].ports="${CURRENT_IFACE}"
+        uci del_list network.br_evil.ports="${CURRENT_IFACE}"
         uci add_list network.brlan.ports="${CURRENT_IFACE}"
         uci commit network
         uci del wireless.${CURRENT_IFACE}.network
         uci commit wireless
     fi
 
-    # Remove evil network and br-evil device from /etc/config/network
-    LOG "Removing br-evil and evil network from /etc/config/network..."
+    # Remove evil network and br-evil device
+    LOG "Removing br-evil and evil network..."
     uci delete network.evil 2>/dev/null
-    uci delete network.@device[$(uci show network | grep "name='br-evil'" | sed 's/network\.\@device\[\([0-9]*\)\].*/\1/')] 2>/dev/null
+    uci delete network.br_evil 2>/dev/null
     uci commit network
 
     # Remove evil DHCP config
@@ -234,14 +233,11 @@ elif [ "$CURRENT_BRIDGE" = "br-evil" ] && [ -n "$CURRENT_IFACE" ]; then
     # STATE: br-evil exists with wrong interface - swap interfaces
     LOG "Swapping ${CURRENT_IFACE} for ${TARGET_IFACE} on br-evil..."
 
-    EVIL_DEVICE_IDX=$(uci show network | grep "name='br-evil'" | sed 's/network\.\@device\[\([0-9]*\)\].*/\1/')
-    LOG "br-evil device index: ${EVIL_DEVICE_IDX}"
-
     # Move TARGET_IFACE from br-lan to br-evil and CURRENT_IFACE back to br-lan
     uci del_list network.brlan.ports="${TARGET_IFACE}"
-    uci del_list network.@device[${EVIL_DEVICE_IDX}].ports="${CURRENT_IFACE}"
+    uci del_list network.br_evil.ports="${CURRENT_IFACE}"
     uci add_list network.brlan.ports="${CURRENT_IFACE}"
-    uci add_list network.@device[${EVIL_DEVICE_IDX}].ports="${TARGET_IFACE}"
+    uci add_list network.br_evil.ports="${TARGET_IFACE}"
     uci commit network
 
     # Reassign wireless network assignments
@@ -254,16 +250,30 @@ else
     # STATE: br-lan - full conversion to br-evil
     LOG "Converting from br-lan to br-evil with ${TARGET_IFACE}..."
 
-    # Create br-evil bridge and evil network interface (no list ports in block)
-    echo -e "\nconfig device\n        option name 'br-evil'\n        option type 'bridge'\n\nconfig interface 'evil'\n        option device 'br-evil'\n        option proto 'static'\n        option ipaddr '10.0.0.1'\n        option netmask '255.255.255.0'" >> /etc/config/network
+    # Create br-evil bridge and evil network interface via UCI batch (no file append)
+    uci batch << UCIEOF
+set network.br_evil=device
+set network.br_evil.name='br-evil'
+set network.br_evil.type='bridge'
+set network.evil=interface
+set network.evil.device='br-evil'
+set network.evil.proto='static'
+set network.evil.ipaddr='10.0.0.1'
+set network.evil.netmask='255.255.255.0'
+UCIEOF
 
-    # Configure DHCP for evil network
-    echo -e "\nconfig dhcp 'evil'\n        option interface 'evil'\n        option start '100'\n        option limit '150'\n        option leasetime '1h'" >> /etc/config/dhcp
+    # Configure DHCP for evil network via UCI batch
+    uci batch << UCIEOF
+set dhcp.evil=dhcp
+set dhcp.evil.interface='evil'
+set dhcp.evil.start='100'
+set dhcp.evil.limit='150'
+set dhcp.evil.leasetime='1h'
+UCIEOF
 
     # Remove target interface from br-lan and add to br-evil
     uci del_list network.brlan.ports="${TARGET_IFACE}"
-    EVIL_DEVICE_IDX=$(uci show network | grep "name='br-evil'" | sed 's/network\.\@device\[\([0-9]*\)\].*/\1/')
-    uci add_list network.@device[${EVIL_DEVICE_IDX}].ports="${TARGET_IFACE}"
+    uci add_list network.br_evil.ports="${TARGET_IFACE}"
     uci commit network
 
     # Assign target interface to evil network and explicitly assign other interface to lan
@@ -383,9 +393,28 @@ if [ "$TARGET_MODE" = "isolated" ]; then
     LOG "Step 12: Bringing up ${TARGET_IFACE}..."
     uci set wireless.${TARGET_IFACE}.disabled='0'
     uci commit wireless
+    RELOAD_LOG_LINES=$(logread | wc -l)
     wifi reload
+    LOG "Waiting for radio0 to be ready..."
+    RELOAD_TIME=$(date +%s)
+    until logread | tail -n +$((RELOAD_LOG_LINES + 1)) | grep -q "Wireless device 'radio0' is now up"; do
+        sleep 2
+        if [ $(( $(date +%s) - RELOAD_TIME )) -ge 30 ]; then
+            LOG "WARNING: radio0 up message not seen, continuing anyway..."
+            break
+        fi
+    done
+    sleep 2
     LOG "Waiting for ${TARGET_IFACE} to come up..."
-    until ip link show ${TARGET_IFACE} 2>/dev/null | grep -q "UP"; do sleep 2; done
+    WAIT_COUNT=0
+    until ip link show ${TARGET_IFACE} 2>/dev/null | grep -q "UP"; do
+        sleep 2
+        WAIT_COUNT=$((WAIT_COUNT + 1))
+        if [ $WAIT_COUNT -ge 15 ]; then
+            LOG "ERROR: ${TARGET_IFACE} failed to come up after 30 seconds"
+            exit 1
+        fi
+    done
     sleep 5
     LOG "Step 12: Restarting network to assign br-evil IP..."
     /etc/init.d/network restart
