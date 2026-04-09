@@ -43,35 +43,48 @@ create_tmp_config() {
 # Waiting for user input...
 
 main_menu() {
-    LOG "P2P Pager Configuration Management"
-    LOG "1) Get current configuration"
-    LOG "2) Reset to default values"
-    LOG "3) Change settings"
-    LOG "0) Exit"
+    #LOG "P2P Pager Configuration Management"
+    #LOG "1) Get current configuration"
+    #LOG "2) Reset to default values"
+    #LOG "3) Change settings"
+    #LOG "0) Exit"
     
-    LOG " "
-    LOG "Waiting for user input..."
+    #LOG " "
+    #LOG "Waiting for user input..."
     
-    WAIT_FOR_INPUT
+    #WAIT_FOR_INPUT
 
-    choice=$(NUMBER_PICKER "Select an option:" 1)
+    #choice=$(NUMBER_PICKER "Select an option:" 1)
+    resp=$(LIST_PICKER "Main Menu" "Get current configuration" "Reset to default values" "Change settings" "Log" "About" "Exit" "Get current configuration")
     
-    case $choice in
-        1)
+    case $resp in
+        "Get current configuration")
             #LOG "Current pager configuration:"
             current_config_menu
             ;;
-        2)
+        "Reset to default values")
             if [ "$(CONFIRMATION_DIALOG "Are you sure you want to reset the pager configuration to default values? This action cannot be undone.")" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
                 LOG "User cancelled resetting pager configuration." && return
             fi
             reset_pager_config
             ;;
-        3)
+        "Change settings")
             change_settings_menu
             ;;
-        0)
-            exit_config_menu
+        "Log")
+            LOG red "To get back into the main menu press the A button"
+            WAIT_FOR_BUTTON_PRESS "A"
+            ;;
+        "About")
+            # Example of a nested list
+            LIST_PICKER "About page" "Project by ERR0RW0LF" "Inspired by:" "@Hak5Darren" "Big thanks to you" "Darren for believing in" "this project and" "supporting it." "Where you can find me:" "Youtube: @3RR0RW0LF" "Discord: err0rw0lf" "<- Back" "<- Back"
+            # Selection is ignored, so all list items are essentially "<- Back"
+            ;;
+        "Exit")
+            resp=$(CONFIRMATION_DIALOG "Exit Payload?") || exit 1
+            if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                exit 0
+            fi
             ;;
         *)
             LOG "Invalid choice. Please select a valid option."
@@ -113,45 +126,64 @@ current_config_menu() {
 
 change_settings_menu() {
     LOG "===== Change Pager Configuration Settings: ======"
-    # List all settings with numbers, and a 0 for going back to the main menu
+    # Build a selectable list of settings for LIST_PICKER
     mapfile -t settings < "$PAGER_CONFIG"
+    menu_items=()
+    setting_indices=()
+
     for i in "${!settings[@]}"; do
         if [[ ${settings[i]} =~ ^([a-zA-Z_]+)=(.*)$ ]]; then
             name="${BASH_REMATCH[1]}"
-            LOG "$((i + 1)) ) $name"
+            value="${BASH_REMATCH[2]}"
+            menu_items+=("$name: $value")
+            setting_indices+=("$i")
         fi
     done
-    LOG "0) Back"
-    LOG " "
-    LOG "Waiting for user input..."
-    WAIT_FOR_INPUT
-    choice=$(NUMBER_PICKER "Select a setting to change:" 1)
-    if [[ $choice -ge 1 && $choice -le ${#settings[@]} ]]; then
-        if [[ ${settings[choice-1]} =~ ^([a-zA-Z_]+)=(.*)$ ]]; then
-            name="${BASH_REMATCH[1]}"
-            current_value="${BASH_REMATCH[2]}"
-            new_value=$(TEXT_PICKER "Enter new value for $name:" "$current_value")
-            if [ -n "$new_value" ]; then
-                # Update the temporary config file with the new value
-                sed -i "s/^$name=.*/$name=$new_value/" "$TEMP_CONFIG"
-                LOG "Setting '$name' updated to '$new_value' in temporary configuration."
-                # Ask user if they want to apply changes or discard them
-                if [ "$(CONFIRMATION_DIALOG "Do you want to apply the changes to the pager configuration?")" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-                    LOG "User cancelled applying changes. Discarding changes and returning to menu." && rm -f "$TEMP_CONFIG" && return
-                fi
-                # Move the temporary config file to the actual config file to apply changes
-                mv "$TEMP_CONFIG" "$PAGER_CONFIG"
-                LOG "Changes applied to pager configuration."
-            else
-                LOG "No value entered. Returning to menu."
-            fi
-        else
-            LOG "Invalid setting format. Returning to menu."
-        fi
-    elif [ $choice -eq 0 ]; then
+
+    if [ ${#menu_items[@]} -eq 0 ]; then
+        LOG "No valid settings found. Returning to menu."
+        return
+    fi
+
+    choice=$(LIST_PICKER "Change Settings" "${menu_items[@]}" "<- Back" "${menu_items[0]}")
+
+    if [ "$choice" = "<- Back" ]; then
         LOG "Returning to main menu."
+        return
+    fi
+
+    selected_index=-1
+    for i in "${!menu_items[@]}"; do
+        if [ "${menu_items[i]}" = "$choice" ]; then
+            selected_index="${setting_indices[i]}"
+            break
+        fi
+    done
+
+    if [ "$selected_index" -ge 0 ] && [[ ${settings[selected_index]} =~ ^([a-zA-Z_]+)=(.*)$ ]]; then
+        name="${BASH_REMATCH[1]}"
+        current_value="${BASH_REMATCH[2]}"
+        new_value=$(TEXT_PICKER "Enter new value for $name:" "$current_value")
+        if [ -n "$new_value" ]; then
+            # Ensure a working copy exists before editing
+            if [ ! -f "$TEMP_CONFIG" ]; then
+                create_tmp_config
+            fi
+            # Update the temporary config file with the new value
+            sed -i "s/^$name=.*/$name=$new_value/" "$TEMP_CONFIG"
+            LOG "Setting '$name' updated to '$new_value' in temporary configuration."
+            # Ask user if they want to apply changes or discard them
+            if [ "$(CONFIRMATION_DIALOG "Do you want to apply the changes to the pager configuration?")" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                LOG "User cancelled applying changes. Discarding changes and returning to menu." && rm -f "$TEMP_CONFIG" && return
+            fi
+            # Move the temporary config file to the actual config file to apply changes
+            mv "$TEMP_CONFIG" "$PAGER_CONFIG"
+            LOG "Changes applied to pager configuration."
+        else
+            LOG "No value entered. Returning to menu."
+        fi
     else
-        LOG "Invalid choice. Returning to menu."
+        LOG "Invalid setting selection. Returning to menu."
     fi
 }
 
