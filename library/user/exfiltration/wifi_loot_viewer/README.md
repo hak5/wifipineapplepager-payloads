@@ -14,7 +14,7 @@ Description:
 
 Files:
 omg_payload = copy and past into omg cable payload slot
-magic.ps1 = upload to your own google drive
+magic.ps1 = this will download thru scp to the target pc
 payload.sh = simple payload that on launch unzips any zip files in the loot\wifi dir then
 opens a file choose menu to view the wifi dump xml files in the log viewer. to install
 create a folder in /mmc/root/payloads/user/exfiltration named wifi_loot_viewer. and copy
