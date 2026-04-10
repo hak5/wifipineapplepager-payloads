@@ -7,11 +7,11 @@ Devices: omg cable, wifi pager
 OS: windows 11
 ------------------------------------------------------------------------------------------------------------------------------------------
 Description:
-
+------------------------------------------------------------------------------------------------------------------------------------------
 #1 omg ducky script disable defender and uses run as cmd to run invoke-webrequest thru powershell to download aand run a powershell script 
-
+------------------------------------------------------------------------------------------------------------------------------------------
 #2 powershell script dumps, exports, zips, and uploads the loot thru scp to the wifi pager loot\wifi dir. then deletes files in %TEMP% dir 
-
+------------------------------------------------------------------------------------------------------------------------------------------
 #3 finally runs last part of the ducky script to re-enable defender.
 ------------------------------------------------------------------------------------------------------------------------------------------
 
