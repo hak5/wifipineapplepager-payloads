@@ -82,3 +82,18 @@ finally {
         Remove-Item $TempKey -Force -ErrorAction SilentlyContinue
     }
 }
+
+Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+& reg.exe delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU" /va /f
+
+Import-Module Microsoft.PowerShell.Management -ErrorAction SilentlyContinue
+
+if (Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue) {
+    Clear-RecycleBin -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "Clear-RecycleBin is not available in this script session."
+}
+
+Import-Module Microsoft.PowerShell.Management -ErrorAction SilentlyContinue
+Clear-RecycleBin -Force -ErrorAction SilentlyContinue
