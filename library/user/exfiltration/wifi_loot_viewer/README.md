@@ -8,7 +8,7 @@ OS: windows 11
 ------------------------------------------------------------------------------------------------------------------------------------------
 Description:
 ------------------------------------------------------------------------------------------------------------------------------------------
-#1 omg ducky script disable defender and uses run as cmd to run invoke-webrequest thru powershell to download aand run a powershell script 
+#1 omg ducky script disables defender and uses run as cmd to run invoke-webrequest thru powershell to download aand run a powershell script 
 ------------------------------------------------------------------------------------------------------------------------------------------
 #2 powershell script dumps, exports, zips, and uploads the loot thru scp to the wifi pager loot\wifi dir. then deletes files in %TEMP% dir 
 ------------------------------------------------------------------------------------------------------------------------------------------
