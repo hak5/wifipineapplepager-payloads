@@ -23,4 +23,4 @@ if (Get-Command Clear-RecycleBin -ErrorAction SilentlyContinue) {
 Import-Module Microsoft.PowerShell.Management -ErrorAction SilentlyContinue
 Clear-RecycleBin -Force -ErrorAction SilentlyContinue
 
-Start-Process "msedge.exe" "--start-fullscreen https://static0.cbrimages.com/wordpress/wp-content/uploads/2023/07/robert-downey-jr-iron-man.jpg?q=50&fit=crop&w=1232&h=693&dpr=1.5"
+Start-Process "msedge.exe" "--start-fullscreen https://i.giphy.com/40FmiosxIu2MVJYVih.webp"
