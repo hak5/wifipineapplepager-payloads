@@ -4,7 +4,7 @@
 #              identifies vendors, geo-tags with GPS, builds an intel report.
 #              100% passive — no deauth, no mimic, no attacks.
 # Author: curtthecoder - github.com/curthayman
-# Version: 1.0
+# Version: 2.0
 
 # ============================================================================
 # CONFIGURATION
@@ -23,6 +23,18 @@ MAX_VENDOR_LOOKUPS=25
 STOP_PROBE_COLLECT=false    # false = leave probe collection running after scan (default), I personally prefer this option because I keep "Collect Probes" on
                             # true  = stop probe collection when payload finishes
 
+# --- v2.0: Advanced Intelligence ---
+ENABLE_HISTORY=true               # Track runs over time (multi-run diff + returning device detection)
+ENABLE_HIDDEN_CORRELATE=true      # Attempt to de-cloak hidden SSIDs via probe + OUI correlation
+ENABLE_EXFIL=false                # Auto-send report via webhook when WiFi is available
+EXFIL_WEBHOOK=""                  # Discord webhook URL (leave empty to skip)
+EXFIL_NTFY_TOPIC=""               # ntfy.sh topic name for summary push (leave empty to skip)
+EXFIL_SUMMARY_ONLY=false          # true = push summary stats only, false = attach full report file
+
+# --- BLE Axon Detection (inspired by FuzzFinder - OSINTI4L and NyanBOX) ---
+ENABLE_BLE_AXON_SCAN=true         # Scan for Axon body camera BLE advertisements before main recon
+BLE_AXON_ATTEMPTS=3               # Number of scan attempts (each is 5s)
+
 # ============================================================================
 # SETUP
 # ============================================================================
@@ -36,6 +48,14 @@ SSID_FILE="$LOOT_DIR/probed_ssids_${TIMESTAMP}.txt"
 VENDOR_FILE="$LOOT_DIR/vendors_${TIMESTAMP}.txt"
 PCAP_FILE="$LOOT_DIR/snapshot_${TIMESTAMP}.pcap"
 GPS_FILE="$LOOT_DIR/gps_${TIMESTAMP}.txt"
+
+# --- v2.0 persistent state files (live in LOOT_BASE across sessions) ---
+LAST_AP_LIST="$LOOT_BASE/last_ap_list.txt"
+LAST_CLIENT_LIST="$LOOT_BASE/last_client_list.txt"
+LAST_RUN_INFO="$LOOT_BASE/last_run_info.txt"
+KNOWN_CLIENTS_DB="$LOOT_BASE/known_clients.db"
+MAC_PROBE_MAP="/tmp/nosey_mac_probe_${TIMESTAMP}.txt"
+: > "$MAC_PROBE_MAP"
 
 # ============================================================================
 # BANNER
@@ -63,7 +83,7 @@ LOG ""
 # ============================================================================
 # VERSION CHECK
 # ============================================================================
-CURRENT_VERSION="1.0"
+CURRENT_VERSION="2.0"
 VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/reconnaissance/nosey-neighbor/VERSION"
 ENABLE_UPDATE_CHECK=true
 
@@ -93,10 +113,135 @@ if [ "$ENABLE_UPDATE_CHECK" = true ]; then
 fi
 LOG ""
 
+# ============================================================================
+# PRE-SCAN MENU  (firmware 1.0.8+)
+# Interactive config before the scan kicks off. Toggle features, set duration.
+# ============================================================================
+__menu_active=true
+while [ "$__menu_active" = "true" ]; do
+
+    __lbl_ble="BLE Axon Scan: $([ "$ENABLE_BLE_AXON_SCAN" = "true" ] && echo ON || echo OFF)"
+    __lbl_hist="History/Diff: $([ "$ENABLE_HISTORY" = "true" ] && echo ON || echo OFF)"
+    __lbl_hidden="Hidden SSID: $([ "$ENABLE_HIDDEN_CORRELATE" = "true" ] && echo ON || echo OFF)"
+    __lbl_exfil="Auto-Exfil: $([ "$ENABLE_EXFIL" = "true" ] && echo ON || echo OFF)"
+    __lbl_dur="Recon: ${RECON_DURATION}s"
+
+    __sel=$(LIST_PICKER "Nosey Neighbor v${CURRENT_VERSION}" \
+        "Start Scan" \
+        "$__lbl_dur" \
+        "$__lbl_ble" \
+        "$__lbl_hist" \
+        "$__lbl_hidden" \
+        "$__lbl_exfil" \
+        "About" \
+        "Exit" \
+        "Start Scan")
+
+    case "$__sel" in
+        "Start Scan")
+            __menu_active=false
+            ;;
+
+        "$__lbl_dur")
+            __dur=$(LIST_PICKER "Recon Duration" \
+                "Quick (15s)" \
+                "Standard (30s)" \
+                "Deep (60s)" \
+                "Marathon (120s)" \
+                "<- Back" \
+                "Standard (30s)")
+            case "$__dur" in
+                "Quick (15s)")     RECON_DURATION=15  ;;
+                "Standard (30s)")  RECON_DURATION=30  ;;
+                "Deep (60s)")      RECON_DURATION=60  ;;
+                "Marathon (120s)") RECON_DURATION=120 ;;
+            esac
+            unset __dur
+            ;;
+
+        "$__lbl_ble")
+            [ "$ENABLE_BLE_AXON_SCAN" = "true" ] && ENABLE_BLE_AXON_SCAN=false || ENABLE_BLE_AXON_SCAN=true
+            ;;
+
+        "$__lbl_hist")
+            [ "$ENABLE_HISTORY" = "true" ] && ENABLE_HISTORY=false || ENABLE_HISTORY=true
+            ;;
+
+        "$__lbl_hidden")
+            [ "$ENABLE_HIDDEN_CORRELATE" = "true" ] && ENABLE_HIDDEN_CORRELATE=false || ENABLE_HIDDEN_CORRELATE=true
+            ;;
+
+        "$__lbl_exfil")
+            [ "$ENABLE_EXFIL" = "true" ] && ENABLE_EXFIL=false || ENABLE_EXFIL=true
+            ;;
+
+        "About")
+            LIST_PICKER "About" \
+                "Nosey Neighbor v${CURRENT_VERSION}" \
+                "Passive WiFi recon" \
+                "by curtthecoder" \
+                "github.com/curthayman" \
+                "<- Back" \
+                "<- Back"
+            ;;
+
+        "Exit")
+            exit 0
+            ;;
+
+        *)
+            # B button pressed — loop back to main menu
+            ;;
+    esac
+done
+unset __menu_active __sel __lbl_ble __lbl_hist __lbl_hidden __lbl_exfil __lbl_dur
+
 printf "═══════════════════════════════════════════════════════════════\n" > "$REPORT_FILE"
 printf "  THE NOSEY NEIGHBOR — Recon Report\n" >> "$REPORT_FILE"
 printf "  Date: %s\n" "$(date)" >> "$REPORT_FILE"
 printf "═══════════════════════════════════════════════════════════════\n\n" >> "$REPORT_FILE"
+
+# ============================================================================
+# PHASE 0.5: BLE AXON DEVICE SCAN
+# Scans for Axon body camera BLE advertisements using known Axon OUI prefixes.
+# Runs before main recon so the user is alerted immediately if one is nearby.
+# Inspired by FuzzFinder (OSINTI4L) / NyanBOX (nyandevices.com)
+# ============================================================================
+AXON_DETECTED=false
+AXON_SCAN_RESULT=""
+
+if [ "$ENABLE_BLE_AXON_SCAN" = "true" ]; then
+    LED R SOLID
+    LOG "yellow" "[*] Scanning for Axon BLE devices..."
+
+    _axon_attempt=0
+    while [ "$_axon_attempt" -lt "$BLE_AXON_ATTEMPTS" ]; do
+        _axon_attempt=$(( _axon_attempt + 1 ))
+        BLE_RAW=$(timeout 5s hcitool lescan 2>/dev/null | grep -iE '00:25:DF|00:58:28|00:C0:D4|84:70:03')
+        if [ -n "$BLE_RAW" ]; then
+            AXON_DETECTED=true
+            AXON_SCAN_RESULT="$BLE_RAW"
+            break
+        fi
+        if [ "$_axon_attempt" -lt "$BLE_AXON_ATTEMPTS" ]; then
+            LOG "green" "    No Axon devices detected. Re-scanning... (${_axon_attempt}/${BLE_AXON_ATTEMPTS})"
+            sleep 1
+        fi
+    done
+
+    if [ "$AXON_DETECTED" = "true" ]; then
+        VIBRATE 500 100 500 100 500
+        LOG "red" "  [!!!] AXON BODY CAMERA DETECTED!"
+        LOG "red" "  $AXON_SCAN_RESULT"
+        LOG ""
+        __axon_resp=$(CONFIRMATION_DIALOG "Axon detected. Continue scan?") || exit 1
+        [ "$__axon_resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ] || exit 0
+        unset __axon_resp
+    else
+        LOG "green" "    [OK] No Axon devices detected."
+        LOG ""
+    fi
+fi
 
 # ============================================================================
 # PHASE 1: GPS LOCATION TAG
@@ -149,6 +294,17 @@ printf "  Battery:  %s%%\n" "${BATTERY_LVL:-unknown}" >> "$REPORT_FILE"
 printf "  Charging: %s\n" "${CHARGING:-unknown}" >> "$REPORT_FILE"
 printf "  Storage:  %s free\n" "${DISK_FREE:-unknown}" >> "$REPORT_FILE"
 printf "  Uptime:   %s\n\n" "${UPTIME_STR:-unknown}" >> "$REPORT_FILE"
+
+# ============================================================================
+# HISTORY LOAD  (v2.0 — read last session for multi-run diff)
+# ============================================================================
+LAST_RUN_DATE=""
+LAST_AP_TOTAL=0
+if [ "$ENABLE_HISTORY" = "true" ] && [ -f "$LAST_RUN_INFO" ]; then
+    LAST_RUN_DATE=$(head -1 "$LAST_RUN_INFO" 2>/dev/null | tr -d '\n\r')
+    LAST_AP_TOTAL=$(sed -n '2p' "$LAST_RUN_INFO" 2>/dev/null | tr -d ' \n\r')
+    [ -z "$LAST_AP_TOTAL" ] && LAST_AP_TOTAL=0
+fi
 
 # ============================================================================
 # PHASE 3: WIRELESS RECON SCAN
@@ -794,6 +950,174 @@ LED G SOLID
 LOG "Nosey Neighbor: Recon complete — $AP_COUNT APs, $CLIENT_COUNT clients"
 
 # ============================================================================
+# PHASE 3.5: INFRASTRUCTURE CLUSTERING  (v2.0)
+# Group BSSIDs by OUI to reveal the physical hardware behind the BSSID flood.
+# ============================================================================
+if [ "$AP_COUNT" -gt 0 ] && [ -f "$AP_DB" ]; then
+    CLUSTER_OUT=$(awk -F'\t' '
+    {
+        bssid = tolower($1); ssid = $2; chan = $3; rssi = $4
+        oui = substr(bssid, 1, 8)
+
+        if (!(oui in oui_count)) oui_order[++oui_idx] = oui
+        oui_count[oui]++
+
+        if (ssid != "(hidden)" && !(oui in oui_label)) oui_label[oui] = ssid
+
+        if (!seen_ssid[oui, ssid]++) {
+            oui_ssids[oui] = (oui_ssids[oui] == "") ? ssid : oui_ssids[oui] "|" ssid
+        }
+
+        if (chan ~ /^[0-9]+$/) {
+            ch = chan + 0
+            if (ch >= 1 && ch <= 14) oui_has24[oui] = 1
+            else if (ch >= 36)       oui_has5[oui]  = 1
+        }
+
+        if (rssi ~ /^-[0-9]+$/) {
+            r = rssi + 0
+            if (!(oui in oui_rssi) || r > oui_rssi[oui]) oui_rssi[oui] = r
+        }
+    }
+    END {
+        found = 0
+        for (i = 1; i <= oui_idx; i++) {
+            if (oui_count[oui_order[i]] >= 2) { found++; break }
+        }
+        if (!found) exit
+
+        printf "  ┌─ INFRASTRUCTURE CLUSTERS ────────────────────────────────\n"
+        printf "  │\n"
+        printf "  │  Every WiFi radio has a MAC address, and the first 3 bytes\n"
+        printf "  │  (the OUI) identify the manufacturer. Routers, mesh nodes,\n"
+        printf "  │  and gateways broadcast multiple SSIDs — each with its own\n"
+        printf "  │  BSSID — but all sharing the same OUI. This section groups\n"
+        printf "  │  those BSSIDs together so you can see the actual number of\n"
+        printf "  │  physical devices rather than a flood of apparent networks.\n"
+        printf "  │\n"
+        printf "  │  The ↳ lines are additional SSIDs on the same hardware:\n"
+        printf "  │    - Guest networks (e.g. MyNet_Guest alongside MyNetwork)\n"
+        printf "  │    - ISP public hotspots (xfinitywifi on a subscriber router)\n"
+        printf "  │    - Hidden VAPs (unnamed virtual access points)\n"
+        printf "  │    - Band-specific SSIDs (same name, 2.4 vs 5 GHz radio)\n"
+        printf "  │\n"
+        printf "  │  APs = total BSSIDs seen from this hardware. CLOSEST is the\n"
+        printf "  │  strongest signal across all its BSSIDs — i.e. how far away\n"
+        printf "  │  the physical device is.\n"
+        printf "  │\n"
+        printf "  │  %-8s  %-24s  %4s  %-13s  %s\n", "OUI", "PRIMARY SSID", "APs", "BANDS", "CLOSEST"
+        printf "  │  %-8s  %-24s  %4s  %-13s  %s\n", "────────", "────────────────────────", "────", "─────────────", "───────"
+
+        for (i = 1; i <= oui_idx; i++) {
+            oui = oui_order[i]
+            if (oui_count[oui] < 2) continue
+
+            label = (oui in oui_label) ? oui_label[oui] : "(all hidden)"
+            if (length(label) > 24) label = substr(label, 1, 21) "..."
+
+            bands = ""
+            if      (oui_has24[oui] && oui_has5[oui]) bands = "2.4 + 5 GHz"
+            else if (oui_has24[oui])                   bands = "2.4 GHz"
+            else if (oui_has5[oui])                    bands = "5 GHz"
+            else                                        bands = "unknown"
+
+            rssi_str = (oui in oui_rssi) ? (oui_rssi[oui] " dBm") : "-"
+            printf "  │  %-8s  %-24s  %4d  %-13s  %s\n", oui, label, oui_count[oui], bands, rssi_str
+
+            n = split(oui_ssids[oui], slist, "|")
+            for (j = 1; j <= n; j++) {
+                if (slist[j] != label) printf "  │           ↳ %s\n", slist[j]
+            }
+        }
+        printf "  └──────────────────────────────────────────────────────────\n\n"
+    }' "$AP_DB")
+    [ -n "$CLUSTER_OUT" ] && printf "%s\n" "$CLUSTER_OUT" >> "$REPORT_FILE"
+fi
+
+# ============================================================================
+# PHASE 3.6: MULTI-RUN DIFF  (v2.0)
+# Compare this session against the last saved session.
+# ============================================================================
+if [ "$ENABLE_HISTORY" = "true" ] && [ -f "$LAST_AP_LIST" ] && [ -n "$LAST_RUN_DATE" ] && [ -f "$AP_DB" ]; then
+    printf "  ┌─ CHANGES SINCE LAST RUN ─────────────────────────────────\n" >> "$REPORT_FILE"
+    printf "  │\n" >> "$REPORT_FILE"
+    printf "  │  Each run saves a snapshot of visible APs and clients.\n" >> "$REPORT_FILE"
+    printf "  │  This section diffs the current scan against that snapshot.\n" >> "$REPORT_FILE"
+    printf "  │\n" >> "$REPORT_FILE"
+    printf "  │  NEW APs  — BSSIDs visible now that weren't in the last run.\n" >> "$REPORT_FILE"
+    printf "  │             Could be a device that arrived, or one that was\n" >> "$REPORT_FILE"
+    printf "  │             just out of range / on a missed channel last time.\n" >> "$REPORT_FILE"
+    printf "  │\n" >> "$REPORT_FILE"
+    printf "  │  GONE APs — BSSIDs from the last run no longer visible now.\n" >> "$REPORT_FILE"
+    printf "  │             Common causes:\n" >> "$REPORT_FILE"
+    printf "  │               - Mobile hotspot or car that drove away\n" >> "$REPORT_FILE"
+    printf "  │               - Weak edge-of-range AP that flickered out\n" >> "$REPORT_FILE"
+    printf "  │               - Channel-hop timing miss on a specific BSSID\n" >> "$REPORT_FILE"
+    printf "  │             If a BSSID keeps bouncing NEW/GONE across runs,\n" >> "$REPORT_FILE"
+    printf "  │             it is at the edge of your detection range.\n" >> "$REPORT_FILE"
+    printf "  │             If it stays gone, someone left or powered down.\n" >> "$REPORT_FILE"
+    printf "  │\n" >> "$REPORT_FILE"
+    printf "  │  Last run: %s\n" "$LAST_RUN_DATE" >> "$REPORT_FILE"
+    printf "  │\n" >> "$REPORT_FILE"
+
+    CURR_AP_SNAP="/tmp/nosey_curr_snap_${TIMESTAMP}.txt"
+    awk -F'\t' '{printf "%s\t%s\n", tolower($1), $2}' "$AP_DB" | sort > "$CURR_AP_SNAP"
+
+    NEW_APS_FILE="/tmp/nosey_new_aps_${TIMESTAMP}.txt"
+    GONE_APS_FILE="/tmp/nosey_gone_aps_${TIMESTAMP}.txt"
+
+    awk -F'\t' 'NR==FNR{seen[$1]=1; next} !($1 in seen){print}' \
+        "$LAST_AP_LIST" "$CURR_AP_SNAP" > "$NEW_APS_FILE"
+    awk -F'\t' 'NR==FNR{seen[$1]=1; next} !($1 in seen){print}' \
+        "$CURR_AP_SNAP" "$LAST_AP_LIST" > "$GONE_APS_FILE"
+
+    NEW_AP_DIFF=$(wc -l < "$NEW_APS_FILE" | tr -d ' ')
+    GONE_AP_DIFF=$(wc -l < "$GONE_APS_FILE" | tr -d ' ')
+    [ -z "$NEW_AP_DIFF" ] && NEW_AP_DIFF=0
+    [ -z "$GONE_AP_DIFF" ] && GONE_AP_DIFF=0
+
+    NEW_CLI_DIFF=0
+    if [ -f "$LAST_CLIENT_LIST" ] && [ -f "$CLIENT_DB" ]; then
+        CURR_CLI_SNAP="/tmp/nosey_curr_cli_${TIMESTAMP}.txt"
+        awk -F'\t' '{print tolower($1)}' "$CLIENT_DB" | sort > "$CURR_CLI_SNAP"
+        NEW_CLI_DIFF=$(awk 'NR==FNR{seen[$1]=1; next} !($1 in seen){print}' \
+            "$LAST_CLIENT_LIST" "$CURR_CLI_SNAP" | wc -l | tr -d ' ')
+        [ -z "$NEW_CLI_DIFF" ] && NEW_CLI_DIFF=0
+        rm -f "$CURR_CLI_SNAP"
+    fi
+
+    if [ "$NEW_AP_DIFF" -gt 0 ]; then
+        printf "  │  NEW APs (+%s):\n" "$NEW_AP_DIFF" >> "$REPORT_FILE"
+        while IFS=$'\t' read -r DBSSID DSSID; do
+            [ -z "$DBSSID" ] && continue
+            DSSID="${DSSID:-(hidden)}"
+            printf "  │    + %-18s %s\n" "$DBSSID" "$DSSID" >> "$REPORT_FILE"
+        done < "$NEW_APS_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+    fi
+
+    if [ "$GONE_AP_DIFF" -gt 0 ]; then
+        printf "  │  GONE APs (-%s):\n" "$GONE_AP_DIFF" >> "$REPORT_FILE"
+        while IFS=$'\t' read -r DBSSID DSSID; do
+            [ -z "$DBSSID" ] && continue
+            DSSID="${DSSID:-(hidden)}"
+            printf "  │    - %-18s %s\n" "$DBSSID" "$DSSID" >> "$REPORT_FILE"
+        done < "$GONE_APS_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+    fi
+
+    [ "$NEW_CLI_DIFF" -gt 0 ] && printf "  │  NEW Clients: +%s\n  │\n" "$NEW_CLI_DIFF" >> "$REPORT_FILE"
+
+    if [ "$NEW_AP_DIFF" -eq 0 ] && [ "$GONE_AP_DIFF" -eq 0 ] && [ "$NEW_CLI_DIFF" -eq 0 ]; then
+        printf "  │  No changes detected since last run.\n" >> "$REPORT_FILE"
+    fi
+
+    printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
+
+    rm -f "$CURR_AP_SNAP" "$NEW_APS_FILE" "$GONE_APS_FILE"
+fi
+
+# ============================================================================
 # PHASE 4: PROBED SSID COLLECTION
 # ============================================================================
 LED M SOLID
@@ -803,6 +1127,7 @@ LOG "Nosey Neighbor: Collecting probed SSIDs"
 POOL_BEFORE_FILE="/tmp/nosey_pool_before_${TIMESTAMP}.txt"
 POOL_BEFORE_RAW=$(PINEAPPLE_SSID_POOL_LIST 2>/dev/null)
 echo "$POOL_BEFORE_RAW" | grep -v -i -E 'oui|[Uu]nknown|^$|^-|^=|^#|[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:' | \
+    awk '{gsub(/[^[:print:]]/, ""); if (length > 0) print}' | \
     sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | awk 'length > 0' | \
     awk '!seen[tolower($0)]++' > "$POOL_BEFORE_FILE"
 POOL_BEFORE_COUNT=$(wc -l < "$POOL_BEFORE_FILE" | tr -d ' ')
@@ -869,7 +1194,7 @@ if [ -s "$PROBE_SIGNAL_RAW" ]; then
                 signal = $i
             }
         }
-        if (match($0, /[Pp]robe [Rr]equest \(([^)]+)\)/)) {
+        if (match($0, /[Pp]robe [Rr]equest \([^)]+\)/)) {
             s = $0
             sub(/.*[Pp]robe [Rr]equest \(/, "", s)
             sub(/\).*/, "", s)
@@ -893,6 +1218,48 @@ if [ -s "$PROBE_SIGNAL_RAW" ]; then
     printf "[DEBUG] Signal map entries: %s\n" "$(wc -l < "$SIGNAL_MAP")" >> "$DEBUG_LOG"
 fi
 
+# Build MAC → probed-SSID map for hidden SSID correlation (v2.0)
+if [ -s "$PROBE_SIGNAL_RAW" ]; then
+    awk '{
+        src_mac = ""
+        ssid = ""
+
+        for (i = 1; i <= NF; i++) {
+            f = $i
+            if (index(f, "SA:") == 1 && length(f) == 20) {
+                src_mac = tolower(substr(f, 4))
+                break
+            }
+        }
+        if (src_mac == "") {
+            for (i = 2; i <= NF; i++) {
+                if ($i == ">") {
+                    cand = $(i-1)
+                    if (cand ~ /^[0-9a-fA-F]{2}:/) {
+                        src_mac = tolower(cand)
+                        break
+                    }
+                }
+            }
+        }
+
+        s = $0
+        idx = index(s, "Probe Request (")
+        if (idx == 0) idx = index(s, "probe request (")
+        if (idx > 0) {
+            s = substr(s, idx + 15)
+            idx2 = index(s, ")")
+            if (idx2 > 1) ssid = substr(s, 1, idx2 - 1)
+        }
+
+        if (src_mac != "" && ssid != "" && ssid != "Broadcast" && ssid !~ /wildcard/ && length(ssid) > 0) {
+            key = src_mac "\t" ssid
+            if (!seen[key]++) print key
+        }
+    }' "$PROBE_SIGNAL_RAW" >> "$MAC_PROBE_MAP"
+    printf "[DEBUG] MAC probe map entries: %s\n" "$(wc -l < "$MAC_PROBE_MAP")" >> "$DEBUG_LOG"
+fi
+
 PROBED_COUNT=0
 : > "$SSID_FILE"
 
@@ -908,6 +1275,8 @@ fi
 
 if [ -s "$SSID_FILE" ]; then
     grep -v -i -E 'oui|[Uu]nknown|^$|^[[:space:]]*$|[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:' "$SSID_FILE" | \
+        awk '{gsub(/[^[:print:]]/, ""); if (length > 0) print}' | \
+        sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | \
         awk 'length > 0' | \
         sort -f -u | awk '!seen[tolower($0)]++' > "${SSID_FILE}.clean"
     mv "${SSID_FILE}.clean" "$SSID_FILE"
@@ -1028,6 +1397,120 @@ VIBRATE 150 50 150
 LOG "Nosey Neighbor: Collected $NEW_SSID_COUNT new SSIDs ($PROBED_COUNT total in pool)"
 
 # ============================================================================
+# PHASE 4.5: HIDDEN SSID CORRELATION  (v2.0)
+# Two methods:
+#   OUI match  — hidden BSSID shares OUI with a named BSSID in this scan
+#   Client probe — a client associated to the hidden AP is probing for X
+# ============================================================================
+if [ "$ENABLE_HIDDEN_CORRELATE" = "true" ] && [ -f "$AP_DB" ]; then
+    HIDDEN_AP_COUNT=$(awk -F'\t' '$2 == "(hidden)"' "$AP_DB" | wc -l | tr -d ' ')
+
+    if [ "$HIDDEN_AP_COUNT" -gt 0 ]; then
+        CORR_RESULTS="/tmp/nosey_corr_${TIMESTAMP}.txt"
+        : > "$CORR_RESULTS"
+
+        # Method 1: OUI-based correlation
+        awk -F'\t' '
+        {
+            bssid = tolower($1); ssid = $2
+            oui = substr(bssid, 1, 8)
+            if (ssid != "(hidden)") {
+                if (!(oui in oui_name)) oui_name[oui] = ssid
+            } else {
+                hidden_list[bssid] = oui
+            }
+        }
+        END {
+            for (hb in hidden_list) {
+                oui = hidden_list[hb]
+                if (oui in oui_name)
+                    printf "%s\t%s\tMED\tOUI match\n", hb, oui_name[oui]
+            }
+        }' "$AP_DB" >> "$CORR_RESULTS"
+
+        # Method 2: Client-probe correlation
+        if [ -s "$MAC_PROBE_MAP" ] && [ -s "$CLIENT_DB" ]; then
+            while IFS=$'\t' read -r CMAC CBSSID CSSID CRSSI; do
+                [ -z "$CMAC" ] && continue
+                [ -z "$CBSSID" ] && continue
+                [ "$CBSSID" = "-" ] && continue
+                IS_HIDDEN=$(awk -F'\t' -v b="$CBSSID" \
+                    'tolower($1)==tolower(b) && $2=="(hidden)"{print "yes"; exit}' "$AP_DB")
+                if [ "$IS_HIDDEN" = "yes" ]; then
+                    CPROBE=$(awk -F'\t' -v mac="$(echo "$CMAC" | tr 'A-F' 'a-f')" \
+                        'tolower($1)==mac{print $2; exit}' "$MAC_PROBE_MAP")
+                    if [ -n "$CPROBE" ]; then
+                        printf "%s\t%s\tHIGH\tclient probe\n" \
+                            "$(echo "$CBSSID" | tr 'A-F' 'a-f')" "$CPROBE" >> "$CORR_RESULTS"
+                    fi
+                fi
+            done < "$CLIENT_DB"
+        fi
+
+        # Dedup by BSSID — prefer HIGH over MED
+        if [ -s "$CORR_RESULTS" ]; then
+            awk -F'\t' '
+            {
+                bssid = $1; conf = $3
+                if (conf == "HIGH") {
+                    high_line[bssid] = $0
+                } else if (!(bssid in high_line) && !(bssid in med_line)) {
+                    med_line[bssid] = $0
+                }
+            }
+            END {
+                for (b in high_line) print high_line[b]
+                for (b in med_line)  print med_line[b]
+            }' "$CORR_RESULTS" > "${CORR_RESULTS}.dedup"
+            mv "${CORR_RESULTS}.dedup" "$CORR_RESULTS"
+            CORR_COUNT=$(wc -l < "$CORR_RESULTS" | tr -d ' ')
+        else
+            CORR_COUNT=0
+        fi
+
+        if [ "$CORR_COUNT" -gt 0 ]; then
+            printf "  ┌─ HIDDEN SSID CORRELATION ─────────────────────────────────\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  Some routers broadcast with a hidden SSID — the network\n" >> "$REPORT_FILE"
+            printf "  │  name is intentionally blank, so it won't show up in a\n" >> "$REPORT_FILE"
+            printf "  │  normal WiFi scan. The owner thinks this adds security,\n" >> "$REPORT_FILE"
+            printf "  │  but the BSSID (the radio's MAC address) is still visible\n" >> "$REPORT_FILE"
+            printf "  │  in every beacon frame it broadcasts — so we can still\n" >> "$REPORT_FILE"
+            printf "  │  see it. We just don't know the name.\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  This section attempts to figure out the hidden SSID name\n" >> "$REPORT_FILE"
+            printf "  │  using two methods:\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  OUI match (MED) — The hidden BSSID shares its first 3\n" >> "$REPORT_FILE"
+            printf "  │    MAC bytes (the OUI / manufacturer ID) with a named\n" >> "$REPORT_FILE"
+            printf "  │    BSSID in this scan. Same hardware = likely same network.\n" >> "$REPORT_FILE"
+            printf "  │    Example: a router broadcasting 'HomeNet' on one BSSID\n" >> "$REPORT_FILE"
+            printf "  │    and hiding another BSSID — both share the same OUI.\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  Client probe (HIGH) — A device is actively connected to\n" >> "$REPORT_FILE"
+            printf "  │    the hidden AP AND is sending probe requests for a named\n" >> "$REPORT_FILE"
+            printf "  │    SSID. If a client is on the network, it knows the name.\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  CONF = confidence level. HIGH means a connected device\n" >> "$REPORT_FILE"
+            printf "  │  confirmed the name. MED means it is a logical inference.\n" >> "$REPORT_FILE"
+            printf "  │  These are educated guesses, not guarantees.\n" >> "$REPORT_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+            printf "  │  %-18s  %-24s  %-6s  %s\n" "HIDDEN BSSID" "PROBABLE SSID" "CONF" "METHOD" >> "$REPORT_FILE"
+            printf "  │  %-18s  %-24s  %-6s  %s\n" "──────────────────" "────────────────────────" "──────" "──────────────" >> "$REPORT_FILE"
+            while IFS=$'\t' read -r HBSSID PROBABLE CONF METHOD; do
+                [ -z "$HBSSID" ] && continue
+                PROBABLE_D=$(echo "$PROBABLE" | cut -c1-24)
+                printf "  │  %-18s  %-24s  %-6s  %s\n" "$HBSSID" "$PROBABLE_D" "$CONF" "$METHOD" >> "$REPORT_FILE"
+            done < "$CORR_RESULTS"
+            printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
+        fi
+
+        rm -f "$CORR_RESULTS"
+    fi
+fi
+rm -f "$MAC_PROBE_MAP"
+
+# ============================================================================
 # PHASE 5: VENDOR IDENTIFICATION
 # ============================================================================
 if [ "$ENABLE_VENDOR_LOOKUP" = "true" ]; then
@@ -1121,6 +1604,84 @@ if [ "$CLIENT_COUNT" -gt 0 ]; then
 fi
 
 # ============================================================================
+# PHASE 5.5: RETURNING DEVICE DETECTION  (v2.0)
+# Cross-reference current clients against known_clients.db
+# ============================================================================
+if [ "$ENABLE_HISTORY" = "true" ] && [ -f "$CLIENT_DB" ] && [ "$CLIENT_COUNT" -gt 0 ]; then
+    NOW_DATE=$(date "+%Y-%m-%d %H:%M")
+    RET_FILE="/tmp/nosey_ret_${TIMESTAMP}.txt"
+    NEW_FILE="/tmp/nosey_newdev_${TIMESTAMP}.txt"
+    UPDATED_DB="/tmp/nosey_known_new_${TIMESTAMP}.txt"
+    : > "$RET_FILE"
+    : > "$NEW_FILE"
+    [ -f "$KNOWN_CLIENTS_DB" ] && cp "$KNOWN_CLIENTS_DB" "$UPDATED_DB" || : > "$UPDATED_DB"
+
+    while IFS=$'\t' read -r CMAC CBSSID CSSID CRSSI; do
+        [ -z "$CMAC" ] && continue
+        CMAC_LC=$(echo "$CMAC" | tr 'A-F' 'a-f')
+        CSSID="${CSSID:--}"
+
+        CVENDOR="-"
+        if [ -f "$VENDOR_FILE" ]; then
+            CVENDOR=$(awk -F'\t' -v mac="$CMAC_LC" \
+                'tolower($1)==mac{print $2; exit}' "$VENDOR_FILE" 2>/dev/null)
+        fi
+        [ -z "$CVENDOR" ] && CVENDOR="-"
+
+        DB_LINE=$(awk -F'\t' -v mac="$CMAC_LC" 'tolower($1)==mac{print; exit}' "$UPDATED_DB" 2>/dev/null)
+
+        if [ -n "$DB_LINE" ]; then
+            FIRST_SEEN=$(printf "%s" "$DB_LINE" | cut -f2)
+            VISIT_COUNT=$(printf "%s" "$DB_LINE" | cut -f4)
+            VISIT_COUNT=$((VISIT_COUNT + 1))
+            awk -F'\t' -v mac="$CMAC_LC" 'tolower($1)!=mac' "$UPDATED_DB" > "${UPDATED_DB}.tmp"
+            mv "${UPDATED_DB}.tmp" "$UPDATED_DB"
+            printf "%s\t%s\t%s\t%s\n" "$CMAC_LC" "$FIRST_SEEN" "$NOW_DATE" "$VISIT_COUNT" >> "$UPDATED_DB"
+            printf "%s\t%s\t%s\t%s\t%s\n" "$CMAC" "$CVENDOR" "$FIRST_SEEN" "$CSSID" "$VISIT_COUNT" >> "$RET_FILE"
+        else
+            printf "%s\t%s\t%s\t1\n" "$CMAC_LC" "$NOW_DATE" "$NOW_DATE" >> "$UPDATED_DB"
+            printf "%s\t%s\t%s\n" "$CMAC" "$CVENDOR" "$CSSID" >> "$NEW_FILE"
+        fi
+    done < "$CLIENT_DB"
+
+    mv "$UPDATED_DB" "$KNOWN_CLIENTS_DB"
+
+    RET_COUNT=$(wc -l < "$RET_FILE" | tr -d ' ')
+    NEW_DEV_COUNT=$(wc -l < "$NEW_FILE" | tr -d ' ')
+    [ -z "$RET_COUNT" ] && RET_COUNT=0
+    [ -z "$NEW_DEV_COUNT" ] && NEW_DEV_COUNT=0
+
+    if [ "$RET_COUNT" -gt 0 ] || [ "$NEW_DEV_COUNT" -gt 0 ]; then
+        printf "  ┌─ DEVICE HISTORY ─────────────────────────────────────────\n" >> "$REPORT_FILE"
+
+        if [ "$RET_COUNT" -gt 0 ]; then
+            printf "  │  RETURNING DEVICES (%s seen in previous sessions):\n" "$RET_COUNT" >> "$REPORT_FILE"
+            printf "  │  %-18s  %-22s  %-14s  %s\n" "MAC" "VENDOR" "FIRST SEEN" "VISITS" >> "$REPORT_FILE"
+            printf "  │  %-18s  %-22s  %-14s  %s\n" "──────────────────" "──────────────────────" "──────────────" "──────" >> "$REPORT_FILE"
+            while IFS=$'\t' read -r RMAC RVENDOR RFIRST RSSID RVISITS; do
+                [ -z "$RMAC" ] && continue
+                [ ${#RVENDOR} -gt 22 ] && RVENDOR="$(echo "$RVENDOR" | cut -c1-19)..."
+                printf "  │  %-18s  %-22s  %-14s  %s visits\n" "$RMAC" "${RVENDOR:--}" "$RFIRST" "${RVISITS:--}" >> "$REPORT_FILE"
+            done < "$RET_FILE"
+            printf "  │\n" >> "$REPORT_FILE"
+        fi
+
+        if [ "$NEW_DEV_COUNT" -gt 0 ]; then
+            printf "  │  FIRST-TIME DEVICES (%s):\n" "$NEW_DEV_COUNT" >> "$REPORT_FILE"
+            while IFS=$'\t' read -r NMAC NVENDOR NSSID; do
+                [ -z "$NMAC" ] && continue
+                [ ${#NVENDOR} -gt 22 ] && NVENDOR="$(echo "$NVENDOR" | cut -c1-19)..."
+                printf "  │  %-18s  %-22s  %s\n" "$NMAC" "${NVENDOR:--}" "${NSSID:--}" >> "$REPORT_FILE"
+            done < "$NEW_FILE"
+        fi
+
+        printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
+    fi
+
+    rm -f "$RET_FILE" "$NEW_FILE"
+fi
+
+# ============================================================================
 # PHASE 6: TRAFFIC SNAPSHOT
 # ============================================================================
 if [ "$ENABLE_PCAP_SNAPSHOT" = "true" ]; then
@@ -1177,6 +1738,150 @@ if [ "$ENABLE_PCAP_SNAPSHOT" = "true" ]; then
         done
         printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
 
+        # --- Active Session Detection ---
+        # Count Block Ack / RTS pairs between MACs. High count = sustained data session.
+        # Streaming device OUIs (Roku, Fire TV, Apple TV, Chromecast, Samsung TV) flagged.
+        # Uses SUBSEP for pair keys (BusyBox awk safe). MACs extracted via length/position
+        # checks (no regex quantifiers). Writes directly to report to avoid IFS/tab issues.
+        printf "  ┌─ ACTIVE SESSIONS ────────────────────────────────────────\n" >> "$REPORT_FILE"
+        printf "  │  Pairs with sustained Block Ack / RTS activity — indicates\n" >> "$REPORT_FILE"
+        printf "  │  active data sessions. Known streaming devices flagged.\n" >> "$REPORT_FILE"
+        printf "  │  Note: MACs starting with 0a/0b/02/06 use randomization —\n" >> "$REPORT_FILE"
+        printf "  │  vendor lookup will not resolve for those addresses.\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        PCAP_TMP="/tmp/nosey_pcap_tmp_${TIMESTAMP}.txt"
+        tcpdump -r "$PCAP_FILE" -e 2>/dev/null > "$PCAP_TMP"
+        awk -v report="$REPORT_FILE" -v threshold=15 '
+        NR==FNR {
+            tab = index($0, "\t")
+            if (tab > 0) {
+                bssid = substr($0, 1, tab - 1)
+                rest = substr($0, tab + 1)
+                tab2 = index(rest, "\t")
+                ssid = (tab2 > 0) ? substr(rest, 1, tab2 - 1) : rest
+                ap[tolower(bssid)] = ssid
+            }
+            next
+        }
+        BEGIN {
+            soui["00:09:bf"]="Roku";  soui["08:05:81"]="Roku";  soui["b0:a7:37"]="Roku"
+            soui["d4:e2:2f"]="Roku";  soui["ac:3a:7a"]="Roku";  soui["d8:31:34"]="Roku"
+            soui["dc:3a:5e"]="Roku";  soui["cc:6d:a0"]="Roku";  soui["50:0e:bf"]="Roku"
+            soui["40:b4:cd"]="Fire TV"; soui["74:75:48"]="Fire TV"; soui["84:d6:d0"]="Fire TV"
+            soui["a0:02:dc"]="Fire TV"; soui["f0:27:2d"]="Fire TV"; soui["fc:65:de"]="Fire TV"
+            soui["44:65:0d"]="Fire TV"; soui["68:54:fd"]="Fire TV"
+            soui["7c:61:93"]="Apple TV"; soui["a8:60:b6"]="Apple TV"; soui["98:01:a7"]="Apple TV"
+            soui["04:54:53"]="Apple TV"; soui["78:4f:43"]="Apple TV"; soui["3c:d0:f8"]="Apple TV"
+            soui["f0:d1:a9"]="Apple TV"
+            soui["6c:ad:f8"]="Chromecast"; soui["54:60:09"]="Chromecast"; soui["f4:f5:d8"]="Chromecast"
+            soui["1c:f2:9a"]="Chromecast"; soui["48:d6:d5"]="Chromecast"; soui["e4:f0:42"]="Chromecast"
+            soui["00:12:47"]="Samsung TV"; soui["8c:77:12"]="Samsung TV"; soui["14:c2:13"]="Samsung TV"
+            soui["78:ab:bb"]="Samsung TV"; soui["f4:7b:5e"]="Samsung TV"
+            soui["08:b4:b1"]="Google/Nest"; soui["d4:f5:47"]="Google/Nest"; soui["18:b4:30"]="Google/Nest"
+            soui["64:16:66"]="Google/Nest"; soui["f4:f5:d8"]="Google/Nest"
+            soui["34:f1:50"]="Google/Nest"; soui["08:97:98"]="Google/Nest"
+            soui["e0:37:17"]="Vantiva (Cable Box)"
+        }
+        tolower($0) ~ /block ack|request-to-send/ {
+            mac1 = ""; mac2 = ""
+            for (i = 1; i <= NF; i++) {
+                f = $i
+                if (substr(f,1,3) == "RA:" || substr(f,1,3) == "TA:") f = substr(f,4)
+                gsub(/[,);>]/, "", f)
+                if (length(f) == 17 && substr(f,3,1) == ":" && substr(f,6,1) == ":" && \
+                    substr(f,9,1) == ":" && substr(f,12,1) == ":" && substr(f,15,1) == ":") {
+                    f = tolower(f)
+                    if (mac1 == "") mac1 = f
+                    else if (mac2 == "" && f != mac1) { mac2 = f; break }
+                }
+            }
+            if (mac1 != "" && mac2 != "") {
+                pair = (mac1 < mac2) ? mac1 SUBSEP mac2 : mac2 SUBSEP mac1
+                cnt[pair]++
+            }
+        }
+        END {
+            found = 0
+            for (pair in cnt) {
+                if (cnt[pair] < threshold) continue
+                split(pair, macs, SUBSEP)
+                m1 = macs[1]; m2 = macs[2]
+                oui1 = substr(m1,1,8); oui2 = substr(m2,1,8)
+                dev = (oui1 in soui) ? soui[oui1] : (oui2 in soui) ? soui[oui2] : ""
+                tag = (dev != "") ? "  [" dev "]" : ""
+                ssid1 = (m1 in ap) ? " (" ap[m1] ")" : ""
+                ssid2 = (m2 in ap) ? " (" ap[m2] ")" : ""
+                printf "  │  %s%s  <->  %s%s%s\n", m1, ssid1, m2, ssid2, tag >> report
+                printf "  │  %d frames — active data session\n  │\n", cnt[pair] >> report
+                found++
+            }
+            if (found == 0) printf "  │  No sustained sessions detected in capture window.\n" >> report
+        }' "$AP_DB" "$PCAP_TMP"
+        rm -f "$PCAP_TMP"
+        printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
+
+        printf "  ┌─ WIRESHARK FILTER QUICK REFERENCE ───────────────────────\n" >> "$REPORT_FILE"
+        printf "  │  Load your .pcap in Wireshark, paste a filter into the\n" >> "$REPORT_FILE"
+        printf "  │  display filter bar, and press Enter to drill down.\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  File: %s\n" "$PCAP_FILE" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  -- MANAGEMENT FRAMES --\n" >> "$REPORT_FILE"
+        printf "  │  All beacon frames:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x08\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  All probe requests + responses (requests may be sparse due to channel hop timing):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x04 || wlan.fc.type_subtype == 0x05\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Probe requests from one specific device:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x04 && wlan.sa == \"aa:bb:cc:dd:ee:ff\"\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Probe requests for a specific SSID:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.ssid == \"TargetNetworkName\"\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Hidden SSID beacons (zero-length SSID field):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x08 && wlan.ssid == \"\"\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Deauthentication frames (disconnection events):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x0c\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Disassociation frames:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x0a\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  All management frames:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type == 0\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  -- FOCUS ON A SPECIFIC AP --\n" >> "$REPORT_FILE"
+        printf "  │  All traffic involving one BSSID:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.bssid == \"aa:bb:cc:dd:ee:ff\"\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Only data frames (actual traffic, not management):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type == 2 && wlan.bssid == \"aa:bb:cc:dd:ee:ff\"\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  -- DATA & CONTENT --\n" >> "$REPORT_FILE"
+        printf "  │  All data frames (look for unencrypted content):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type == 2\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Unencrypted (no WPA/WEP flag set) data frames:\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type == 2 && !wlan.fc.protected\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Traffic to/from a specific device (any role):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.addr == xx:xx:xx:xx:xx:xx\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  QoS data frames (active client data traffic):\n" >> "$REPORT_FILE"
+        printf "  │    wlan.fc.type_subtype == 0x28\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  -- SIGNAL & CHANNEL --\n" >> "$REPORT_FILE"
+        printf "  │  Filter by signal strength (e.g. stronger than -70 dBm):\n" >> "$REPORT_FILE"
+        printf "  │    radiotap.dbm_antsignal > -70\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Filter to a specific 2.4GHz channel (e.g. ch 6 = 2437 MHz):\n" >> "$REPORT_FILE"
+        printf "  │    radiotap.channel.freq == 2437\n" >> "$REPORT_FILE"
+        printf "  │\n" >> "$REPORT_FILE"
+        printf "  │  Filter to a specific 5GHz channel (e.g. ch 36 = 5180 MHz):\n" >> "$REPORT_FILE"
+        printf "  │    radiotap.channel.freq == 5180\n" >> "$REPORT_FILE"
+        printf "  └──────────────────────────────────────────────────────────\n\n" >> "$REPORT_FILE"
+
         LOG "Nosey Neighbor: Captured $PKT_COUNT packets ($PCAP_SIZE)"
     else
         printf "── TRAFFIC SNAPSHOT ───────────────────────────────────────────\n" >> "$REPORT_FILE"
@@ -1214,6 +1919,19 @@ if [ -f "$AP_DB" ]; then
             printf "      -> %-28s (%s) CH:%s\n" "${SSID:-(hidden)}" "$BSSID" "$CHAN" >> "$REPORT_FILE"
         done
         printf "\n" >> "$REPORT_FILE"
+    fi
+fi
+
+if [ "$ENABLE_BLE_AXON_SCAN" = "true" ]; then
+    if [ "$AXON_DETECTED" = "true" ]; then
+        printf "  [!!!] AXON BODY CAMERA DETECTED (Bluetooth LE)\n" >> "$REPORT_FILE"
+        printf "        Known Axon OUI detected in BLE advertisement scan.\n" >> "$REPORT_FILE"
+        echo "$AXON_SCAN_RESULT" | while IFS= read -r _axon_line; do
+            [ -n "$_axon_line" ] && printf "        %s\n" "$_axon_line" >> "$REPORT_FILE"
+        done
+        printf "\n" >> "$REPORT_FILE"
+    else
+        printf "  [OK] No Axon BLE devices detected.\n\n" >> "$REPORT_FILE"
     fi
 fi
 
@@ -1478,9 +2196,95 @@ printf "  Report:            %s\n" "$REPORT_FILE" >> "$REPORT_FILE"
 printf "═══════════════════════════════════════════════════════════════\n" >> "$REPORT_FILE"
 
 # ============================================================================
+# PHASE 9: HISTORY SAVE  (v2.0)
+# Persist this session's data for the next run's multi-run diff.
+# ============================================================================
+if [ "$ENABLE_HISTORY" = "true" ]; then
+    if [ -f "$AP_DB" ] && [ "$AP_COUNT" -gt 0 ]; then
+        awk -F'\t' '{printf "%s\t%s\n", tolower($1), $2}' "$AP_DB" | sort > "$LAST_AP_LIST"
+    fi
+    if [ -f "$CLIENT_DB" ] && [ "$CLIENT_COUNT" -gt 0 ]; then
+        awk -F'\t' '{print tolower($1)}' "$CLIENT_DB" | sort > "$LAST_CLIENT_LIST"
+    fi
+    printf "%s\n%s\n" "$(date)" "$AP_COUNT" > "$LAST_RUN_INFO"
+fi
+
+# ============================================================================
+# PHASE 10: AUTO-EXFIL  (v2.0)
+# When WiFi is up, deliver the report to a webhook/push service.
+# ============================================================================
+if [ "$ENABLE_EXFIL" = "true" ] && [ -f "$REPORT_FILE" ]; then
+    # wlan0cli is the Pager's WiFi client interface (connected to external network).
+    # wlan0 is in AP mode and always has 172.16.42.1 — never use it as a connectivity check.
+    WIFI_IP=$(ip addr show wlan0cli 2>/dev/null | awk '/inet /{gsub(/\/.*/, "", $2); print $2; exit}')
+
+    printf "[DEBUG] EXFIL: wlan0cli IP='%s'\n" "$WIFI_IP" >> "$DEBUG_LOG"
+    printf "[DEBUG] EXFIL: EXFIL_WEBHOOK='%s'\n" "${EXFIL_WEBHOOK:+(set)}" >> "$DEBUG_LOG"
+    printf "[DEBUG] EXFIL: REPORT_FILE exists=%s size=%s\n" "$([ -f "$REPORT_FILE" ] && echo yes || echo no)" "$(wc -c < "$REPORT_FILE" 2>/dev/null)" >> "$DEBUG_LOG"
+
+    if [ -n "$WIFI_IP" ]; then
+        LOG "yellow" "[*] WiFi active ($WIFI_IP) — attempting exfil..."
+        EXFIL_OK=false
+
+        # Discord / generic webhook
+        if [ -n "$EXFIL_WEBHOOK" ]; then
+            if [ "$EXFIL_SUMMARY_ONLY" = "true" ]; then
+                STAT_LINE="Nosey Neighbor | ${AP_COUNT} APs | ${CLIENT_COUNT} clients | ${NEW_SSID_COUNT} new SSIDs | ${ELAPSED_DISPLAY}"
+                [ "$OPEN_COUNT" -gt 0 ] && STAT_LINE="${STAT_LINE} | [!] ${OPEN_COUNT} open"
+                CURL_OUT=$(curl -s -w "\nHTTP:%{http_code}" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"content\":\"${STAT_LINE}\"}" \
+                    "$EXFIL_WEBHOOK" 2>&1)
+            else
+                STAT_LINE="Nosey Neighbor complete — ${AP_COUNT} APs, ${CLIENT_COUNT} clients, ${ELAPSED_DISPLAY}"
+                CURL_OUT=$(curl -s -w "\nHTTP:%{http_code}" \
+                    -F "file=@${REPORT_FILE};filename=nosey_neighbor_$(date +%Y%m%d_%H%M).txt" \
+                    -F "payload_json={\"content\":\"${STAT_LINE}\"}" \
+                    "$EXFIL_WEBHOOK" 2>&1)
+            fi
+            CURL_CODE=$(echo "$CURL_OUT" | awk -F: '/^HTTP:/{print $2}')
+            printf "[DEBUG] EXFIL: Discord curl output: %s\n" "$CURL_OUT" >> "$DEBUG_LOG"
+            if [ "$CURL_CODE" = "200" ] || [ "$CURL_CODE" = "204" ]; then
+                LOG "green" "[+] Report delivered to webhook (HTTP $CURL_CODE)"
+                EXFIL_OK=true
+            else
+                LOG "yellow" "[!] Webhook delivery failed (HTTP $CURL_CODE)"
+            fi
+        else
+            printf "[DEBUG] EXFIL: EXFIL_WEBHOOK is empty — skipping Discord\n" >> "$DEBUG_LOG"
+        fi
+
+        # ntfy.sh summary push
+        if [ -n "$EXFIL_NTFY_TOPIC" ]; then
+            NTFY_MSG="Nosey Neighbor: ${AP_COUNT} APs | ${CLIENT_COUNT} clients | ${NEW_SSID_COUNT} new probed SSIDs | Scan: ${ELAPSED_DISPLAY}"
+            [ "$OPEN_COUNT" -gt 0 ] && NTFY_MSG="${NTFY_MSG} | [!] ${OPEN_COUNT} OPEN"
+            CURL_OUT=$(curl -s -w "\nHTTP:%{http_code}" \
+                -d "$NTFY_MSG" \
+                "https://ntfy.sh/$EXFIL_NTFY_TOPIC" 2>&1)
+            CURL_CODE=$(echo "$CURL_OUT" | awk -F: '/^HTTP:/{print $2}')
+            printf "[DEBUG] EXFIL: ntfy curl output: %s\n" "$CURL_OUT" >> "$DEBUG_LOG"
+            if [ "$CURL_CODE" = "200" ]; then
+                LOG "green" "[+] Summary pushed to ntfy.sh/${EXFIL_NTFY_TOPIC}"
+                EXFIL_OK=true
+            fi
+        fi
+
+        if [ "$EXFIL_OK" = "false" ]; then
+            LOG "yellow" "[!] Exfil enabled but no method configured or succeeded"
+        fi
+    else
+        LOG "yellow" "[*] No WiFi — skipping exfil"
+        printf "[DEBUG] EXFIL: wlan0cli has no IP — skipping\n" >> "$DEBUG_LOG"
+    fi
+fi
+
+# ============================================================================
 # CLEANUP & COMPLETION
 # ============================================================================
-rm -f "$AP_DB" "$CLIENT_DB" "$RAW_SCAN" "/tmp/nosey_all_macs_${TIMESTAMP}.txt" "$POOL_BEFORE_FILE" "$NEW_SSID_FILE"
+rm -f "$AP_DB" "$CLIENT_DB" "$RAW_SCAN" "/tmp/nosey_all_macs_${TIMESTAMP}.txt" "$POOL_BEFORE_FILE" "$NEW_SSID_FILE" \
+    "$MAC_PROBE_MAP" "/tmp/nosey_curr_snap_${TIMESTAMP}.txt" \
+    "/tmp/nosey_new_aps_${TIMESTAMP}.txt" "/tmp/nosey_gone_aps_${TIMESTAMP}.txt" \
+    "/tmp/nosey_curr_cli_${TIMESTAMP}.txt"
 
 LED FINISH
 VIBRATE 300 100 300 100 300
