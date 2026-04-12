@@ -1,11 +1,10 @@
 #!/bin/bash
 
 # Title: wifi_snatcher_server
-# Author:f3bandit
-# Description: First-run dependency bootstrap + local file server
-# Version: 2.1
+# Author: f3bandit
+# Description: First-run dependency bootstrap + local file server + menu control
+# Version: 3.0
 
-HTTP_PORT=42
 BASE_DIR="/mmc/root/payloads/user/exfiltration/wifi_loot_viewer"
 DEPS_DIR="$BASE_DIR/deps"
 SERVE_DIR="/mmc/root/scripts"
@@ -14,14 +13,17 @@ UPLOAD_DIR="/mmc/root/loot/wifi"
 LOG_FILE="/tmp/webserver.log"
 PID_FILE="/tmp/webserver.pid"
 PY_FILE="/tmp/upload_server.py"
-STATE_FILE="/tmp/wifi_snatcher_bootstrap_done"
+STATE_FILE="$BASE_DIR/.wifi_snatcher_bootstrap_done"
+PORT_FILE="$BASE_DIR/.port"
 
 PYTHON_BIN="/mmc/usr/bin/python3"
 LIB_DIR_PRIMARY="/mmc/usr/lib"
 LIB_DIR_FALLBACK="/mmc/lib"
 
+DEFAULT_HTTP_PORT=42
+
 LED SETUP
-mkdir -p "$SERVE_DIR" "$UPLOAD_DIR"
+mkdir -p "$BASE_DIR" "$SERVE_DIR" "$UPLOAD_DIR"
 : > "$LOG_FILE"
 
 log() {
@@ -30,6 +32,46 @@ log() {
 
 have_cmd() {
     command -v "$1" >/dev/null 2>&1
+}
+
+get_http_port() {
+    local port
+    if [ -f "$PORT_FILE" ]; then
+        read -r port < "$PORT_FILE"
+        case "$port" in
+            ''|*[!0-9]*) echo "$DEFAULT_HTTP_PORT" ;;
+            *)
+                if [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+                    echo "$port"
+                else
+                    echo "$DEFAULT_HTTP_PORT"
+                fi
+                ;;
+        esac
+    else
+        echo "$DEFAULT_HTTP_PORT"
+    fi
+}
+
+set_http_port() {
+    echo "$1" > "$PORT_FILE"
+}
+
+get_current_ip() {
+    local ip
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    if [ -n "$ip" ]; then
+        echo "$ip"
+        return
+    fi
+
+    ip="$(ip addr 2>/dev/null | awk '/inet / && $2 !~ /^127\./ {sub(/\/.*/, "", $2); print $2; exit}')"
+    if [ -n "$ip" ]; then
+        echo "$ip"
+        return
+    fi
+
+    echo "172.16.52.1"
 }
 
 python_works() {
@@ -99,6 +141,9 @@ bootstrap_first_launch() {
 }
 
 write_python_server() {
+    local HTTP_PORT
+    HTTP_PORT="$(get_http_port)"
+
 cat > "$PY_FILE" <<EOF
 #!/usr/bin/env python3
 import http.server
@@ -156,6 +201,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 <h2>Theme Transfer Server</h2>
 <p>Upload with HTTP POST to <code>/upload</code> using header <code>X-Filename</code>.</p>
 <p>Downloads are available below.</p>
+<p>Port: {PORT}</p>
 <ul>{''.join(items)}</ul>
 </body>
 </html>""")
@@ -261,6 +307,18 @@ EOF
     chmod +x "$PY_FILE"
 }
 
+server_is_running() {
+    [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null
+}
+
+server_status() {
+    if server_is_running; then
+        echo "started"
+    else
+        echo "stopped"
+    fi
+}
+
 start_python_server() {
     export LD_LIBRARY_PATH="$LIB_DIR_PRIMARY:$LIB_DIR_FALLBACK:$LD_LIBRARY_PATH"
     write_python_server
@@ -272,6 +330,9 @@ start_python_server() {
 }
 
 start_busybox_fallback() {
+    local HTTP_PORT
+    HTTP_PORT="$(get_http_port)"
+
     if have_cmd busybox; then
         log "Starting BusyBox fallback server on port $HTTP_PORT"
         busybox httpd -f -p "$HTTP_PORT" -h "$SERVE_DIR" >>"$LOG_FILE" 2>&1 &
@@ -284,79 +345,201 @@ start_busybox_fallback() {
     return 1
 }
 
-cleanup() {
-    if [ -f "$PID_FILE" ]; then
-        kill "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null
-    fi
-    rm -f "$PID_FILE" "$PY_FILE"
-    LED OFF
-}
+start_server() {
+    LED SOLID GREEN
 
-LED SOLID GREEN
-log "Starting file transfer server on port $HTTP_PORT"
-log "Pager IP: 172.16.52.1"
-
-MODE=""
-
-if [ ! -f "$STATE_FILE" ]; then
-    log "First launch detected"
-    bootstrap_first_launch
-else
-    log "Bootstrap already completed previously"
-fi
-
-if python_works; then
-    if start_python_server; then
-        MODE="python"
-        log "Python server started successfully"
+    if [ ! -f "$STATE_FILE" ]; then
+        log "First launch detected"
+        bootstrap_first_launch
     else
-        log "Python server failed to start"
+        log "Bootstrap already completed previously"
     fi
-fi
 
-if [ -z "$MODE" ]; then
+    if server_is_running; then
+        log "Server already running"
+        return 0
+    fi
+
+    if python_works; then
+        if start_python_server; then
+            log "Python server started successfully"
+            return 0
+        else
+            log "Python server failed to start"
+        fi
+    fi
+
     if start_busybox_fallback; then
-        MODE="busybox"
         log "BusyBox fallback server started successfully"
-    else
-        log "BusyBox fallback failed"
-        LED OFF
-        ERROR_DIALOG "Server failed to start
+        return 0
+    fi
+
+    LED OFF
+    ERROR_DIALOG "Server failed to start
 
 Check:
 $LOG_FILE"
-        cleanup
-        exit 1
+    return 1
+}
+
+stop_server() {
+    local pid
+    local http_port
+
+    http_port="$(get_http_port)"
+
+    if [ -f "$PID_FILE" ]; then
+        pid="$(cat "$PID_FILE" 2>/dev/null)"
+        kill "$pid" 2>/dev/null
+        sleep 1
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -9 "$pid" 2>/dev/null
+        fi
     fi
+
+    if have_cmd fuser; then
+        fuser -k "${http_port}/tcp" >/dev/null 2>&1
+    fi
+
+    rm -f "$PID_FILE" "$PY_FILE"
+    LED OFF
+    log "Server stopped"
+    return 0
+}
+
+show_status_prompt() {
+    local ip port status
+    ip="$(get_current_ip)"
+    port="$(get_http_port)"
+    status="$(server_status)"
+
+    PROMPT "Server status: $status
+
+IP: $ip
+Port: $port"
+}
+
+pick_new_port() {
+    local current_port resp rc
+    current_port="$(get_http_port)"
+
+    resp=$(NUMBER_PICKER "Enter port number" "$current_port")
+    rc=$?
+    case $rc in
+        $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
+            return 1
+            ;;
+    esac
+
+    printf "%s" "$resp"
+    return 0
+}
+
+validate_port() {
+    local port="$1"
+    case "$port" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+}
+
+change_port_menu() {
+    local original_port working_port choice was_running=0
+
+    original_port="$(get_http_port)"
+    working_port="$original_port"
+
+    while true; do
+        choice=$(LIST_PICKER "Change Port" \
+            "Save port ($working_port)" \
+            "Edit port" \
+            "Cancel" \
+            "Edit port")
+
+        case "$choice" in
+            "Edit port")
+                new_port="$(pick_new_port)" || continue
+                if validate_port "$new_port"; then
+                    working_port="$new_port"
+                else
+                    ERROR_DIALOG "Invalid port number"
+                fi
+                ;;
+            "Save port ($working_port)")
+                if ! validate_port "$working_port"; then
+                    ERROR_DIALOG "Invalid port number"
+                    continue
+                fi
+
+                if [ "$working_port" != "$original_port" ]; then
+                    if server_is_running; then
+                        was_running=1
+                        stop_server
+                    fi
+
+                    set_http_port "$working_port"
+                    log "Port changed to $working_port"
+
+                    if [ "$was_running" -eq 1 ]; then
+                        start_server
+                    fi
+                fi
+
+                ip="$(get_current_ip)"
+                port="$(get_http_port)"
+                status="$(server_status)"
+                PROMPT "Port updated
+
+Server status: $status
+IP: $ip
+Port: $port"
+                return 0
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    done
+}
+
+cleanup_and_exit() {
+    stop_server
+    exit 0
+}
+
+run_menu() {
+    local port choice
+
+    while true; do
+        port="$(get_http_port)"
+        choice=$(LIST_PICKER "Theme Transfer Server" \
+            "Start server" \
+            "Stop server" \
+            "Change port ($port)" \
+            "Exit" \
+            "Start server")
+
+        case "$choice" in
+            "Start server")
+                start_server
+                show_status_prompt
+                ;;
+            "Stop server")
+                stop_server
+                show_status_prompt
+                ;;
+            "Change port ($port)")
+                change_port_menu
+                ;;
+            *)
+                cleanup_and_exit
+                ;;
+        esac
+    done
+}
+
+if [ ! -f "$PORT_FILE" ]; then
+    set_http_port "$DEFAULT_HTTP_PORT"
 fi
 
-if [ "$MODE" = "python" ]; then
-    PROMPT "Theme Transfer Server Running
-
-Mode: $MODE
-IP: 172.16.52.1
-Port: $HTTP_PORT
-
-Uploads: $UPLOAD_DIR
-Downloads: $SERVE_DIR
-
-Log: $LOG_FILE
-
-Press OK when done"
-else
-    PROMPT "Theme Transfer Server Running
-
-Mode: $MODE
-IP: 172.16.52.1
-Port: $HTTP_PORT
-
-Downloads only: $SERVE_DIR
-Uploads unavailable in fallback mode
-
-Log: $LOG_FILE
-
-Press OK when done"
-fi
-
-cleanup
-exit 0
+run_menu
