@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 1.7
+# Version: 1.8
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -183,7 +183,7 @@ if [ "$TARGET_MODE" = "lan" ]; then
         uci del_list network.br_evil.ports="${CURRENT_IFACE}"
         uci add_list network.brlan.ports="${CURRENT_IFACE}"
         uci commit network
-        uci del wireless.${CURRENT_IFACE}.network
+        uci set wireless.${CURRENT_IFACE}.network='lan'
         uci commit wireless
     fi
 
