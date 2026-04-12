@@ -4,7 +4,7 @@ Name: wifi snatcher/viewer
 
 Author: f3bandit
 
-Version: 2.0
+Version: 3.0
 
 Devices: omg cable, wifi pager
 
