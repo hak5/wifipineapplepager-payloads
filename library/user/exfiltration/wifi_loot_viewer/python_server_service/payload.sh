@@ -3,8 +3,10 @@
 # ============================================================
 # Name: python_server
 # Author: f3bandit
-# Version: 3.2
+# Version: 4.0
 # ============================================================
+
+SCRIPT_VERSION="4.0"
 
 BASE_DIR="/mmc/root/payloads/user/exfiltration/python_server"
 DEPS_DIR="$BASE_DIR/deps"
@@ -17,9 +19,11 @@ PID_FILE="/tmp/python_transfer_server.pid"
 PY_SERVER_FILE="$BASE_DIR/upload_server.py"
 LAUNCHER_FILE="$BASE_DIR/python_transfer_server_launcher.sh"
 
-BOOTSTRAP_STATE_FILE="$BASE_DIR/.bootstrap_done"
+BOOTSTRAP_VERSION_FILE="$BASE_DIR/.bootstrap_version"
 SERVICE_INSTALL_STATE_FILE="$BASE_DIR/.service_installed"
 PORT_FILE="$BASE_DIR/.port"
+
+LEGACY_BOOTSTRAP_FILE="$BASE_DIR/.bootstrap_done"
 
 SERVICE_NAME="python_transfer_server"
 INIT_SCRIPT="/etc/init.d/$SERVICE_NAME"
@@ -129,12 +133,12 @@ show_prompt_message() {
     fi
 
     if have_cmd whiptail; then
-        whiptail --title "Python Transfer Server" --msgbox "$msg" 14 60
+        whiptail --title "Python Transfer Server" --msgbox "$msg" 20 72
         return 0
     fi
 
     if have_cmd dialog; then
-        dialog --title "Python Transfer Server" --msgbox "$msg" 14 60
+        dialog --title "Python Transfer Server" --msgbox "$msg" 20 72
         return 0
     fi
 
@@ -158,6 +162,7 @@ main_menu() {
             "Stop server" \
             "Server status" \
             "Change port ($current_port)" \
+            "Debug" \
             "Exit" \
             "Start server")
         case "$choice" in
@@ -165,6 +170,7 @@ main_menu() {
             "Stop server") echo "stop" ;;
             "Server status") echo "status" ;;
             "Change port ($current_port)") echo "change_port" ;;
+            "Debug") echo "debug" ;;
             *) echo "exit" ;;
         esac
         return
@@ -172,18 +178,20 @@ main_menu() {
 
     if have_cmd whiptail; then
         choice=$(whiptail --title "Python Transfer Server" \
-            --menu "Choose action:" 18 60 5 \
+            --menu "Choose action:" 20 70 6 \
             "1" "Start server" \
             "2" "Stop server" \
             "3" "Server status" \
             "4" "Change port ($current_port)" \
-            "5" "Exit" \
+            "5" "Debug" \
+            "6" "Exit" \
             3>&1 1>&2 2>&3)
         case "$choice" in
             1) echo "start" ;;
             2) echo "stop" ;;
             3) echo "status" ;;
             4) echo "change_port" ;;
+            5) echo "debug" ;;
             *) echo "exit" ;;
         esac
         return
@@ -193,7 +201,8 @@ main_menu() {
     echo "2) Stop server"
     echo "3) Server status"
     echo "4) Change port ($current_port)"
-    echo "5) Exit"
+    echo "5) Debug"
+    echo "6) Exit"
     printf "Choose: "
     read -r choice
     case "$choice" in
@@ -201,8 +210,55 @@ main_menu() {
         2) echo "stop" ;;
         3) echo "status" ;;
         4) echo "change_port" ;;
+        5) echo "debug" ;;
         *) echo "exit" ;;
     esac
+}
+
+debug_menu() {
+    local choice
+    if type LIST_PICKER >/dev/null 2>&1; then
+        choice=$(LIST_PICKER "Debug Menu" \
+            "Show debug status" \
+            "Repair generated files" \
+            "Reinstall service" \
+            "Reset install state" \
+            "Show last log lines" \
+            "Back" \
+            "Show debug status")
+        case "$choice" in
+            "Show debug status") echo "status" ;;
+            "Repair generated files") echo "repair" ;;
+            "Reinstall service") echo "reinstall_service" ;;
+            "Reset install state") echo "reset_state" ;;
+            "Show last log lines") echo "logs" ;;
+            *) echo "back" ;;
+        esac
+        return
+    fi
+
+    if have_cmd whiptail; then
+        choice=$(whiptail --title "Debug Menu" \
+            --menu "Choose action:" 18 70 6 \
+            "1" "Show debug status" \
+            "2" "Repair generated files" \
+            "3" "Reinstall service" \
+            "4" "Reset install state" \
+            "5" "Show last log lines" \
+            "6" "Back" \
+            3>&1 1>&2 2>&3)
+        case "$choice" in
+            1) echo "status" ;;
+            2) echo "repair" ;;
+            3) echo "reinstall_service" ;;
+            4) echo "reset_state" ;;
+            5) echo "logs" ;;
+            *) echo "back" ;;
+        esac
+        return
+    fi
+
+    echo "back"
 }
 
 pick_port_with_number_picker() {
@@ -312,26 +368,34 @@ install_deps_from_bundle() {
     return 0
 }
 
-bootstrap_first_launch() {
-    if [ -f "$BOOTSTRAP_STATE_FILE" ]; then
-        return 0
+current_bootstrap_version() {
+    if [ -f "$BOOTSTRAP_VERSION_FILE" ]; then
+        cat "$BOOTSTRAP_VERSION_FILE" 2>/dev/null
+        return
     fi
 
-    mkdir -p "$BASE_DIR" "$DEPS_DIR" "$SERVE_DIR" "$UPLOAD_DIR"
-
-    if python_works; then
-        touch "$BOOTSTRAP_STATE_FILE"
-        return 0
+    if [ -f "$LEGACY_BOOTSTRAP_FILE" ]; then
+        echo "legacy"
+        return
     fi
 
-    install_deps_from_bundle || return 1
+    echo "none"
+}
 
-    if python_works; then
-        touch "$BOOTSTRAP_STATE_FILE"
-        return 0
+bootstrap_needed() {
+    local current
+    current="$(current_bootstrap_version)"
+
+    if [ "$current" = "$SCRIPT_VERSION" ]; then
+        return 1
     fi
 
-    return 1
+    return 0
+}
+
+mark_bootstrap_complete() {
+    echo "$SCRIPT_VERSION" > "$BOOTSTRAP_VERSION_FILE"
+    rm -f "$LEGACY_BOOTSTRAP_FILE"
 }
 
 write_python_server() {
@@ -543,6 +607,93 @@ EOF
     chmod 755 "$INIT_SCRIPT"
 }
 
+validate_python_server_file() {
+    [ -f "$PY_SERVER_FILE" ] || return 1
+
+    if grep -q '^export LD_LIBRARY_PATH=' "$PY_SERVER_FILE" 2>/dev/null; then
+        return 1
+    fi
+
+    if ! grep -q '^#!/usr/bin/env python3' "$PY_SERVER_FILE" 2>/dev/null; then
+        return 1
+    fi
+
+    if ! grep -q '^import http.server' "$PY_SERVER_FILE" 2>/dev/null; then
+        return 1
+    fi
+
+    if ! grep -q "PID_FILE = \"${PID_FILE}\"" "$PY_SERVER_FILE" 2>/dev/null; then
+        return 1
+    fi
+
+    set_python_env
+    "$PYTHON_BIN" -m py_compile "$PY_SERVER_FILE" >/dev/null 2>&1 || return 1
+
+    return 0
+}
+
+validate_launcher_file() {
+    [ -f "$LAUNCHER_FILE" ] || return 1
+    grep -q "exec \"${PYTHON_BIN}\" \"${PY_SERVER_FILE}\"" "$LAUNCHER_FILE" 2>/dev/null || return 1
+    return 0
+}
+
+validate_init_script() {
+    [ -f "$INIT_SCRIPT" ] || return 1
+    grep -q "PID_FILE=\"${PID_FILE}\"" "$INIT_SCRIPT" 2>/dev/null || return 1
+    grep -q "LAUNCHER=\"${LAUNCHER_FILE}\"" "$INIT_SCRIPT" 2>/dev/null || return 1
+    return 0
+}
+
+heal_generated_files() {
+    local healed
+    healed=0
+
+    if ! validate_python_server_file; then
+        write_python_server
+        healed=1
+    fi
+
+    if ! validate_launcher_file; then
+        write_launcher_script
+        healed=1
+    fi
+
+    if [ -d "/etc/init.d" ] && [ -w "/etc/init.d" ]; then
+        if ! validate_init_script; then
+            write_init_script
+            "$INIT_SCRIPT" enable >/dev/null 2>&1
+            touched_service_state=1
+            healed=1
+        fi
+    fi
+
+    return "$healed"
+}
+
+bootstrap_or_upgrade() {
+    mkdir -p "$BASE_DIR" "$DEPS_DIR" "$SERVE_DIR" "$UPLOAD_DIR"
+
+    if bootstrap_needed; then
+        if ! python_works; then
+            install_deps_from_bundle || return 1
+        fi
+
+        if ! python_works; then
+            return 1
+        fi
+
+        write_python_server
+        write_launcher_script
+        install_service_if_possible || return 1
+        mark_bootstrap_complete
+        return 0
+    fi
+
+    heal_generated_files >/dev/null 2>&1
+    return 0
+}
+
 install_service_if_possible() {
     write_python_server
     write_launcher_script
@@ -579,12 +730,10 @@ server_start() {
         return 0
     fi
 
-    bootstrap_first_launch || return 1
-    install_service_if_possible
+    bootstrap_or_upgrade || return 1
+    heal_generated_files >/dev/null 2>&1
 
     if [ -x "$INIT_SCRIPT" ]; then
-        write_python_server
-        write_launcher_script
         write_init_script
         "$INIT_SCRIPT" start >/dev/null 2>&1
         sleep 2
@@ -643,7 +792,9 @@ change_port() {
                 set_http_port "$candidate_port"
                 write_python_server
                 write_launcher_script
-                write_init_script
+                if [ -d "/etc/init.d" ] && [ -w "/etc/init.d" ]; then
+                    write_init_script
+                fi
                 server_start >/dev/null 2>&1
                 changed=1
                 break
@@ -662,6 +813,121 @@ change_port() {
     fi
 
     return 0
+}
+
+bool_text() {
+    if [ "$1" = "1" ]; then
+        echo "yes"
+    else
+        echo "no"
+    fi
+}
+
+debug_status_message() {
+    local bootstrap_ver bootstrap_ok service_ok running pid_text port ip py_ok launcher_ok init_ok log_ok
+
+    bootstrap_ver="$(current_bootstrap_version)"
+    [ "$bootstrap_ver" != "none" ] && bootstrap_ok=1 || bootstrap_ok=0
+    [ -f "$SERVICE_INSTALL_STATE_FILE" ] && service_ok=1 || service_ok=0
+    server_is_running && running=1 || running=0
+
+    if [ -f "$PID_FILE" ]; then
+        pid_text="$(cat "$PID_FILE" 2>/dev/null)"
+        [ -n "$pid_text" ] || pid_text="missing"
+    else
+        pid_text="missing"
+    fi
+
+    port="$(get_http_port)"
+    ip="$(get_current_ip)"
+
+    validate_python_server_file && py_ok=1 || py_ok=0
+    validate_launcher_file && launcher_ok=1 || launcher_ok=0
+    validate_init_script && init_ok=1 || init_ok=0
+    [ -f "$LOG_FILE" ] && log_ok=1 || log_ok=0
+
+    printf "Debug status\n\n"
+    printf "Script version: %s\n" "$SCRIPT_VERSION"
+    printf "Bootstrap version: %s\n" "$bootstrap_ver"
+    printf "Bootstrap complete: %s\n" "$(bool_text "$bootstrap_ok")"
+    printf "Service installed: %s\n" "$(bool_text "$service_ok")"
+    printf "Server status: %s\n" "$(server_status)"
+    printf "PID: %s\n" "$pid_text"
+    printf "Port: %s\n" "$port"
+    printf "IP: %s\n" "$ip"
+    printf "\n"
+    printf "upload_server.py: %s\n" "$( [ "$py_ok" = "1" ] && echo valid || echo corrupted_or_missing )"
+    printf "launcher: %s\n" "$( [ "$launcher_ok" = "1" ] && echo valid || echo missing_or_bad )"
+    printf "init script: %s\n" "$( [ "$init_ok" = "1" ] && echo valid || echo missing_or_bad )"
+    printf "log file: %s\n" "$( [ "$log_ok" = "1" ] && echo present || echo missing )"
+    printf "\nPress any button to continue"
+}
+
+show_debug_status() {
+    show_prompt_message "$(debug_status_message)"
+}
+
+show_log_tail() {
+    local msg
+    if [ -f "$LOG_FILE" ]; then
+        msg="Last log lines\n\n$(tail -n 15 "$LOG_FILE" 2>/dev/null)\n\nPress any button to continue"
+    else
+        msg="Last log lines\n\nLog file is missing.\n\nPress any button to continue"
+    fi
+    show_prompt_message "$msg"
+}
+
+repair_generated_files() {
+    server_stop >/dev/null 2>&1
+    write_python_server
+    write_launcher_script
+    if [ -d "/etc/init.d" ] && [ -w "/etc/init.d" ]; then
+        write_init_script
+        "$INIT_SCRIPT" enable >/dev/null 2>&1
+        touch "$SERVICE_INSTALL_STATE_FILE"
+    fi
+    show_status_prompt "Generated files repaired"
+}
+
+reinstall_service() {
+    rm -f "$SERVICE_INSTALL_STATE_FILE"
+    rm -f "$INIT_SCRIPT"
+    install_service_if_possible
+    show_status_prompt "Service reinstalled"
+}
+
+reset_install_state() {
+    rm -f "$BOOTSTRAP_VERSION_FILE"
+    rm -f "$LEGACY_BOOTSTRAP_FILE"
+    rm -f "$SERVICE_INSTALL_STATE_FILE"
+    show_status_prompt "Install state reset"
+}
+
+run_debug_menu() {
+    local action
+    while true; do
+        action="$(debug_menu)"
+        case "$action" in
+            status)
+                show_debug_status
+                ;;
+            repair)
+                repair_generated_files
+                ;;
+            reinstall_service)
+                reinstall_service
+                ;;
+            reset_state)
+                reset_install_state
+                ;;
+            logs)
+                show_log_tail
+                ;;
+            back|*)
+                return 0
+                ;;
+        esac
+    done
 }
 
 run_menu() {
@@ -684,6 +950,9 @@ run_menu() {
                 ;;
             change_port)
                 change_port
+                ;;
+            debug)
+                run_debug_menu
                 ;;
             exit)
                 server_stop >/dev/null 2>&1
@@ -718,6 +987,10 @@ case "$1" in
         ;;
     status)
         show_status_prompt
+        exit 0
+        ;;
+    debug)
+        show_debug_status
         exit 0
         ;;
     *)
