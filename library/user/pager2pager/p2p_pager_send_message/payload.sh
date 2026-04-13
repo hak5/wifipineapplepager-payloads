@@ -19,25 +19,19 @@ else
     LOG "Networks configuration file not found at $NETWORKS_CONF" && exit 1
 fi
 
-# give user a list of available networks to choose from counting from 1 to n
-LOG "Available Networks:"
-i=1
-NETWORKS=$(cat "$NETWORKS_CONF")
+# build network list and let the user choose via LIST_PICKER
+mapfile -t networks < "$NETWORKS_CONF"
 
-for network in $NETWORKS; do
-    LOG "$i) $network"
-    i=$((i + 1))
-done
+if [ ${#networks[@]} -eq 0 ]; then
+    LOG "No networks configured. Exiting." && exit 1
+fi
 
-LOG " "
-LOG "Waiting for user input..."
-WAIT_FOR_INPUT
+selected_network=$(LIST_PICKER "Select network" "${networks[@]}" "<- Back" "${networks[0]}")
 
-# pick a network using a number
-network_choice=$(NUMBER_PICKER "Select a network to send the message on:" 1 || {
-    LOG "Invalid network choice. Exiting." && exit 1
-})
-selected_network=$(echo $NETWORKS | awk -v choice=$network_choice '{print $choice}')
+if [ "$selected_network" = "<- Back" ] || [ -z "$selected_network" ]; then
+    LOG "No network selected. Exiting." && exit 0
+fi
+
 LOG "Selected Network: $selected_network"
 
 # get message from user

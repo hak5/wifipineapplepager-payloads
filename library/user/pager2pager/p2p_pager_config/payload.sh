@@ -149,6 +149,7 @@ change_settings_menu() {
 
     if [ "$choice" = "<- Back" ]; then
         LOG "Returning to main menu."
+        exit_config_menu
         return
     fi
 
@@ -187,6 +188,27 @@ change_settings_menu() {
     fi
 }
 
+start_pager_service() {
+    # Start the pager service in the background
+    /etc/init.d/p2p_pager start &
+    LOG green "P2P Pager service started."
+}
+
+
+stop_pager_service() {
+    LOG "Stopping P2P Pager service..."
+    /etc/init.d/p2p_pager stop
+    LOG green "P2P Pager service stopped."
+}
+
+restart_pager_service() {
+    LOG "Restarting P2P Pager service..."
+    stop_pager_service
+    start_pager_service
+    LOG green "P2P Pager service restarted."
+}
+
+
 # ====== Exit: ======
 # Changes:
 # - setting: old value -> new value
@@ -204,13 +226,14 @@ exit_config_menu() {
             LOG "User cancelled applying changes. Discarding changes and exiting." && rm -f "$TEMP_CONFIG" && exit 0
         fi
         mv "$TEMP_CONFIG" "$PAGER_CONFIG"
-        LOG "Changes applied to pager configuration. Exiting."
-        exit 0
+        LOG "Changes applied to pager configuration."
+        LOG "Restarting pager service to apply new configuration..."
+        restart_pager_service
+        LOG "Pager service restarted with new configuration."
     else
         LOG "No changes to apply. Exiting."
     fi
 }
-
 
 main() {
     # Check if pager configuration file exists, if not create it with default values
