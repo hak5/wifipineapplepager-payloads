@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 1.8
+# Version: 1.9
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -270,6 +270,7 @@ set dhcp.evil.start='100'
 set dhcp.evil.limit='150'
 set dhcp.evil.leasetime='1h'
 UCIEOF
+    uci commit dhcp
 
     # Remove target interface from br-lan and add to br-evil
     uci del_list network.brlan.ports="${TARGET_IFACE}"
@@ -393,18 +394,7 @@ if [ "$TARGET_MODE" = "isolated" ]; then
     LOG "Step 12: Bringing up ${TARGET_IFACE}..."
     uci set wireless.${TARGET_IFACE}.disabled='0'
     uci commit wireless
-    RELOAD_LOG_LINES=$(logread | wc -l)
     wifi reload
-    LOG "Waiting for radio0 to be ready..."
-    RELOAD_TIME=$(date +%s)
-    until logread | tail -n +$((RELOAD_LOG_LINES + 1)) | grep -q "Wireless device 'radio0' is now up"; do
-        sleep 2
-        if [ $(( $(date +%s) - RELOAD_TIME )) -ge 30 ]; then
-            LOG "WARNING: radio0 up message not seen, continuing anyway..."
-            break
-        fi
-    done
-    sleep 2
     LOG "Waiting for ${TARGET_IFACE} to come up..."
     WAIT_COUNT=0
     until ip link show ${TARGET_IFACE} 2>/dev/null | grep -q "UP"; do
@@ -433,12 +423,7 @@ fi
 [ -n "$PENDING_SSID_MGMT" ] && uci set wireless.wlan0mgmt.ssid="$PENDING_SSID_MGMT"
 [ -n "$PENDING_KEY_MGMT" ] && uci set wireless.wlan0mgmt.key="$PENDING_KEY_MGMT"
 
-# Reload wifi if any values were restaged so interfaces reflect pending changes
-if [ -n "$PENDING_SSID_WPA" ] || [ -n "$PENDING_KEY_WPA" ] || \
-   [ -n "$PENDING_SSID_OPEN" ] || [ -n "$PENDING_KEY_OPEN" ] || \
-   [ -n "$PENDING_SSID_MGMT" ] || [ -n "$PENDING_KEY_MGMT" ]; then
-    wifi reload
-fi
+# Note: pending SSID/key changes are restaged but not applied until next wifi reload or reboot
 
 # ====================================================================
 # STEP 13: Verify
@@ -478,6 +463,13 @@ if [ "$TARGET_MODE" = "isolated" ]; then
         exit 1
     fi
 
+    LOG "Verifying DHCP pool..."
+    if uci show dhcp.evil &>/dev/null; then
+        LOG "SUCCESS: DHCP pool configured"
+    else
+        LOG "ERROR: DHCP pool not configured"
+        exit 1
+    fi
     LOG "Verifying br-evil ports..."
     if uci show network | grep "name='br-evil'" -A5 2>/dev/null || \
        cat /etc/config/network | grep -A5 "br-evil" | grep -q "ports '${TARGET_IFACE}'"; then
