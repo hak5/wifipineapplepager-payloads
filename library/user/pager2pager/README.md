@@ -33,7 +33,7 @@ To get started with the P2P Pager, follow these steps:
 3. Configure the networks you want to listen to and send messages to using the `p2p_pager_networks` payload.
 4. Send messages using the `p2p_pager_send_message` payload.
 
-> [!INFO]
+> [!NOTE]
 > The service will be automatically enabled when installing it you can disable it using the `p2p_pager` payload.
 
 ## How it works
