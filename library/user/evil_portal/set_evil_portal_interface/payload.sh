@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 1.9
+# Version: 2.0
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -13,7 +13,7 @@ BRIDGE_IF_LAN="br-lan"
 # ====================================================================
 # STEP 1: Select target interface
 # ====================================================================
-# Detect current Evil Portal interface for display
+# Detect current Evil Portal interface for default selection
 DISPLAY_CURRENT=$(grep -o 'iifname "[^"]*"' /etc/init.d/evilportal 2>/dev/null | head -1 | grep -o '"[^"]*"' | tr -d '"')
 DISPLAY_IFACE=""
 if [ "$DISPLAY_CURRENT" = "br-evil" ]; then
@@ -24,39 +24,36 @@ if [ "$DISPLAY_CURRENT" = "br-evil" ]; then
     fi
 fi
 
-WPA_CURRENT=""
-OPEN_CURRENT=""
-LAN_CURRENT=""
-[ "$DISPLAY_IFACE" = "wlan0wpa" ] && WPA_CURRENT=" (Current)"
-[ "$DISPLAY_IFACE" = "wlan0open" ] && OPEN_CURRENT=" (Current)"
-[ "$DISPLAY_CURRENT" = "br-lan" ] && LAN_CURRENT=" (Current)"
+if [ "$DISPLAY_IFACE" = "wlan0wpa" ]; then
+    DEFAULT="Evil WPA (wlan0wpa)"
+elif [ "$DISPLAY_IFACE" = "wlan0open" ]; then
+    DEFAULT="Open AP (wlan0open)"
+else
+    DEFAULT="All Interfaces (br-lan)"
+fi
 
-LOG "Select target interface:\n\n1) Evil WPA (wlan0wpa)${WPA_CURRENT}\n2) Open AP (wlan0open)${OPEN_CURRENT}\n3) All interfaces (br-lan)${LAN_CURRENT}\n"
-LOG "Press 'A' button to select interface."
-WAIT_FOR_BUTTON_PRESS A
-
-CHOICE=$(NUMBER_PICKER "Enter interface number" "")
+CHOICE=$(LIST_PICKER "Select Interface" "Evil WPA (wlan0wpa)" "Open AP (wlan0open)" "All Interfaces (br-lan)" "$DEFAULT")
 if [ $? -ne 0 ]; then
     PROMPT "Selection cancelled"
     exit 0
 fi
 
 case "$CHOICE" in
-    1)
+    "Evil WPA (wlan0wpa)")
         TARGET_IFACE="wlan0wpa"
         OTHER_IFACE="wlan0open"
         TARGET_MODE="isolated"
         PORTAL_IP="${PORTAL_IP_EVIL}"
         FIREWALL_SRC="evil"
         ;;
-    2)
+    "Open AP (wlan0open)")
         TARGET_IFACE="wlan0open"
         OTHER_IFACE="wlan0wpa"
         TARGET_MODE="isolated"
         PORTAL_IP="${PORTAL_IP_EVIL}"
         FIREWALL_SRC="evil"
         ;;
-    3)
+    "All Interfaces (br-lan)")
         TARGET_IFACE=""
         OTHER_IFACE=""
         TARGET_MODE="lan"
