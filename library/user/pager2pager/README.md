@@ -17,20 +17,30 @@ ERR0RW0LF
 
 ## Payloads
 
-| Payload | Description |
-| ------- | ----------- |
-|p2p_pager | Install and manage the P2P Pager service. |
-|p2p_pager_send_message | Send a message to other P2P pagers in range. |
-|p2p_pager_config | Configure the P2P Pager service. |
-|p2p_pager_networks | Configure the networks that the P2P Pager will listen to and rebroadcast messages for. |
+| Payload                | Description                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| p2p_pager              | Install and manage the P2P Pager service.                                              |
+| p2p_pager_send_message | Send a message to other P2P pagers in range.                                           |
+| p2p_pager_config       | Configure the P2P Pager service.                                                       |
+| p2p_pager_networks     | Configure the networks that the P2P Pager will listen to and rebroadcast messages for. |
+
+## Getting Started
+
+To get started with the P2P Pager, follow these steps:
+
+1. Get the payloads from the repository and the other files in the folders.
+2. Install the service using the `p2p_pager` payload.
+3. Configure the networks you want to listen to and send messages to using the `p2p_pager_networks` payload.
+4. Send messages using the `p2p_pager_send_message` payload.
+
+> [!INFO]
+> The service will be automatically enabled when installing it you can disable it using the `p2p_pager` payload.
 
 ## How it works
 
 The P2P Pager works by creating a beacon frame with the message embedded in an IE (Information Element), with the tag 221 (Vendor Specific). Other pagers in range will pick up the beacon frames, extract the message, and rebroadcast it to extend the range.
 
 To avoid message flooding, each pager keeps track of the messages it has already seen and will not rebroadcast the same message more than once.
-
-
 
 ```mermaid
 flowchart TD
@@ -43,14 +53,17 @@ flowchart TD
     BB --> BC[Add message with ssid to the message queue]
     BC --> BA
 
-    C -->|on recive| CA[parse frame]
+    C --> CC[Await for reciving]
+    CC -->|on recive| CA[parse frame]
     CA --> CB{Check if the Network is included in the Networks specified}
     CB -->|Yes| CBA(Try geting message from the vendor tag 221)
     CB -->|No| CBD(Continue)
+    CBD --> CC
     CBA --> CBB{Check if message in seen messages}
-    CBB -->|Yes| CBBA(Continue)
+    CBB -->|Yes| CBD
     CBB -->|No| CBBB[Add message+ssid to seen messages to block it]
     CBBB --> CBBC[Add message+ssid to the message queue]
+    CBBC --> CBD
 
     D --> DA[Awaite for message queue to get anything]
     DA --> DAA[Display an alert with following format: 
