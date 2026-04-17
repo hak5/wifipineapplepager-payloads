@@ -60,6 +60,17 @@ disable_pager_service() {
 install_pager_service() {
     LOG "Installing P2P Pager service..."
 
+    # Install python if not installed
+    if ! command -v python3 &> /dev/null; then
+        LOG "Python3 not found, installing..."
+        resp=$(CONFIRMATION_DIALOG "Python3 is required for the P2P Pager service. Do you want to install it?") || exit 1
+        if [ "$resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+            LOG "Updating package lists and installing Python3..."
+            opkg update
+            opkg install python3
+        fi
+    fi
+
     # Copy service file to init.d
     LOG "Copying service files..."
     cp init_p2p_pager "$SERVICE_LOCATION"

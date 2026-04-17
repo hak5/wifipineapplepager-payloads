@@ -53,6 +53,8 @@ main() {
             else
                 LOG "No networks configured."
             fi
+            LOG red "To get back into the main menu press the A button"
+            WAIT_FOR_BUTTON_PRESS "A"
             ;;
         "Exit")
             resp=$(CONFIRMATION_DIALOG "Exit Payload?") || exit 1
