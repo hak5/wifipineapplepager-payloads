@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 2.4
+# Version: 2.5
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -417,6 +417,11 @@ if [ -n "$PENDING_SSID_WPA" ] || [ -n "$PENDING_KEY_WPA" ] || \
    [ -n "$PENDING_SSID_OPEN" ] || [ -n "$PENDING_KEY_OPEN" ] || \
    [ -n "$PENDING_SSID_MGMT" ] || [ -n "$PENDING_KEY_MGMT" ]; then
     wifi reload
+    if [ "$TARGET_MODE" = "isolated" ]; then
+        sleep 5
+        ifup evil
+        wait_for_internet
+    fi
 fi
 
 # ====================================================================
@@ -492,9 +497,9 @@ if [ "$TARGET_MODE" = "isolated" ]; then
         iface_ready "$OTHER_IFACE" && OTHER_OK=1
 
         if [ $TARGET_OK -eq 1 ] && [ $OTHER_OK -eq 1 ]; then
-            log "SUCCESS: Both interfaces fully up"
-            log "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
-            log "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            LOG "SUCCESS: Both interfaces fully up"
+            LOG "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            LOG "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
 
             # Verify TARGET_IFACE is mastered to br-evil - retry for up to 30 seconds
             MASTER_ELAPSED=0
@@ -502,15 +507,15 @@ if [ "$TARGET_MODE" = "isolated" ]; then
             while [ $MASTER_ELAPSED -lt $MASTER_MAX ]; do
                 MASTER=$(ip link show "$TARGET_IFACE" 2>/dev/null | grep -o 'master [^ ]*' | cut -d' ' -f2)
                 if [ "$MASTER" = "br-evil" ]; then
-                    log "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
+                    LOG "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
                     break
                 fi
-                log "Waiting for ${TARGET_IFACE} to be mastered to br-evil... (${MASTER_ELAPSED}s / ${MASTER_MAX}s)"
+                LOG "Waiting for ${TARGET_IFACE} to be mastered to br-evil... (${MASTER_ELAPSED}s / ${MASTER_MAX}s)"
                 sleep 5
                 MASTER_ELAPSED=$((MASTER_ELAPSED + 5))
                 if [ $MASTER_ELAPSED -ge $MASTER_MAX ]; then
-                    log "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil after ${MASTER_MAX}s"
-                    return 1
+                    LOG "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil after ${MASTER_MAX}s"
+                    exit 1
                 fi
             done
 
@@ -518,20 +523,20 @@ if [ "$TARGET_MODE" = "isolated" ]; then
             if [ -n "$PENDING_SSID_WPA" ]; then
                 BROADCASTING_WPA=$(iwinfo wlan0wpa info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
                 if [ "$BROADCASTING_WPA" = "$PENDING_SSID_WPA" ]; then
-                    log "SUCCESS: wlan0wpa broadcasting staged SSID: ${PENDING_SSID_WPA}"
+                    LOG "SUCCESS: wlan0wpa broadcasting staged SSID: ${PENDING_SSID_WPA}"
                 else
-                    log "ERROR: wlan0wpa broadcasting '${BROADCASTING_WPA}' but expected staged SSID '${PENDING_SSID_WPA}'"
-                    return 1
+                    LOG "ERROR: wlan0wpa broadcasting '${BROADCASTING_WPA}' but expected staged SSID '${PENDING_SSID_WPA}'"
+                    exit 1
                 fi
             fi
 
             if [ -n "$PENDING_SSID_OPEN" ]; then
                 BROADCASTING_OPEN=$(iwinfo wlan0open info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
                 if [ "$BROADCASTING_OPEN" = "$PENDING_SSID_OPEN" ]; then
-                    log "SUCCESS: wlan0open broadcasting staged SSID: ${PENDING_SSID_OPEN}"
+                    LOG "SUCCESS: wlan0open broadcasting staged SSID: ${PENDING_SSID_OPEN}"
                 else
-                    log "ERROR: wlan0open broadcasting '${BROADCASTING_OPEN}' but expected staged SSID '${PENDING_SSID_OPEN}'"
-                    return 1
+                    LOG "ERROR: wlan0open broadcasting '${BROADCASTING_OPEN}' but expected staged SSID '${PENDING_SSID_OPEN}'"
+                    exit 1
                 fi
             fi
 
