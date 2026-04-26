@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 2.3
+# Version: 2.4
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -496,14 +496,23 @@ if [ "$TARGET_MODE" = "isolated" ]; then
             log "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
             log "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
 
-            # Verify TARGET_IFACE is mastered to br-evil
-            MASTER=$(ip link show "$TARGET_IFACE" 2>/dev/null | grep -o 'master [^ ]*' | cut -d' ' -f2)
-            if [ "$MASTER" = "br-evil" ]; then
-                log "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
-            else
-                log "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil"
-                return 1
-            fi
+            # Verify TARGET_IFACE is mastered to br-evil - retry for up to 30 seconds
+            MASTER_ELAPSED=0
+            MASTER_MAX=30
+            while [ $MASTER_ELAPSED -lt $MASTER_MAX ]; do
+                MASTER=$(ip link show "$TARGET_IFACE" 2>/dev/null | grep -o 'master [^ ]*' | cut -d' ' -f2)
+                if [ "$MASTER" = "br-evil" ]; then
+                    log "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
+                    break
+                fi
+                log "Waiting for ${TARGET_IFACE} to be mastered to br-evil... (${MASTER_ELAPSED}s / ${MASTER_MAX}s)"
+                sleep 5
+                MASTER_ELAPSED=$((MASTER_ELAPSED + 5))
+                if [ $MASTER_ELAPSED -ge $MASTER_MAX ]; then
+                    log "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil after ${MASTER_MAX}s"
+                    return 1
+                fi
+            done
 
             # Verify broadcasting SSIDs match pending staged values
             if [ -n "$PENDING_SSID_WPA" ]; then
