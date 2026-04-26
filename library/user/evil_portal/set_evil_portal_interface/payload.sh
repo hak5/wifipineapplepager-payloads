@@ -2,7 +2,7 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 2.2
+# Version: 2.3
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
@@ -492,28 +492,37 @@ if [ "$TARGET_MODE" = "isolated" ]; then
         iface_ready "$OTHER_IFACE" && OTHER_OK=1
 
         if [ $TARGET_OK -eq 1 ] && [ $OTHER_OK -eq 1 ]; then
-            LOG "SUCCESS: Both interfaces fully up"
-            LOG "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
-            LOG "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            log "SUCCESS: Both interfaces fully up"
+            log "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            log "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+
+            # Verify TARGET_IFACE is mastered to br-evil
+            MASTER=$(ip link show "$TARGET_IFACE" 2>/dev/null | grep -o 'master [^ ]*' | cut -d' ' -f2)
+            if [ "$MASTER" = "br-evil" ]; then
+                log "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
+            else
+                log "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil"
+                return 1
+            fi
 
             # Verify broadcasting SSIDs match pending staged values
             if [ -n "$PENDING_SSID_WPA" ]; then
                 BROADCASTING_WPA=$(iwinfo wlan0wpa info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
                 if [ "$BROADCASTING_WPA" = "$PENDING_SSID_WPA" ]; then
-                    LOG "SUCCESS: wlan0wpa broadcasting staged SSID: ${PENDING_SSID_WPA}"
+                    log "SUCCESS: wlan0wpa broadcasting staged SSID: ${PENDING_SSID_WPA}"
                 else
-                    LOG "ERROR: wlan0wpa broadcasting '${BROADCASTING_WPA}' but expected staged SSID '${PENDING_SSID_WPA}'"
-                    exit 1
+                    log "ERROR: wlan0wpa broadcasting '${BROADCASTING_WPA}' but expected staged SSID '${PENDING_SSID_WPA}'"
+                    return 1
                 fi
             fi
 
             if [ -n "$PENDING_SSID_OPEN" ]; then
                 BROADCASTING_OPEN=$(iwinfo wlan0open info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
                 if [ "$BROADCASTING_OPEN" = "$PENDING_SSID_OPEN" ]; then
-                    LOG "SUCCESS: wlan0open broadcasting staged SSID: ${PENDING_SSID_OPEN}"
+                    log "SUCCESS: wlan0open broadcasting staged SSID: ${PENDING_SSID_OPEN}"
                 else
-                    LOG "ERROR: wlan0open broadcasting '${BROADCASTING_OPEN}' but expected staged SSID '${PENDING_SSID_OPEN}'"
-                    exit 1
+                    log "ERROR: wlan0open broadcasting '${BROADCASTING_OPEN}' but expected staged SSID '${PENDING_SSID_OPEN}'"
+                    return 1
                 fi
             fi
 
