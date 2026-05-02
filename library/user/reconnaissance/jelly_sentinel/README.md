@@ -1,123 +1,100 @@
-JELLY SENTINEL
-Authorized Network Security Assessment for Home \& SMB Environments
-by hackagocthi
+# Jelly Sentinel
 
-WHAT IT DOES
+**Category:** Reconnaissance  
+**Platform:** WiFi Pineapple Pager  
+**Author:** Hacka-Gotchi  
+**Version:** 1.1  
+**License:** For authorized security testing only
 
-Jelly Sentinel is a native network security assessment tool built for the WiFi Pineapple Pager.
+---
 
-Drop it on a network, run it, and walk away with a structured, scored report covering:
+## Description
 
-* devices
-* vulnerabilities
-* misconfigurations
-* network anomalies
+Jelly Sentinel is a comprehensive authorized network security assessment payload for the WiFi Pineapple Pager. It performs a multi-phase audit of home and SMB networks, producing a scored loot report with prioritized findings, device inventory, and delta comparison against previous scans.
 
-No laptop required.
+---
 
-Built for pentesters, IT consultants, and security-conscious users.
+## Features
 
+- **9-phase assessment** covering WiFi audit, device discovery, fingerprinting, risk checks, Bluetooth scan, and passive traffic analysis
+- **CVSS-weighted risk scoring** (0–100) with confidence-adjusted severity
+- **Vendor-specific router credential testing** — validates actual authentication, not just HTTP status codes
+- **OUI-based device classification** — identifies routers, cameras, NAS, printers, IoT, smart TVs, VoIP, and mobile devices
+- **CVE banner matching** — detects vulnerable software versions from HTTP server headers
+- **SSL certificate inspection** — flags self-signed and expired certificates
+- **Bluetooth enumeration** — discovers nearby discoverable BT devices
+- **DNS rebinding detection** — tests real external domains, not synthetic hostnames
+- **Delta tracking** — compares findings and devices against previous scan sessions
+- **Executive summary** — top issues, risk level, and finding counts at a glance
+- **CSV export** — machine-readable findings output
 
+---
 
-AUTHORIZATION REQUIRED
+## Output Files
 
-Jelly Sentinel is designed for authorized security testing only.
+| File | Contents |
+|------|----------|
+| `report.txt` | Full report with executive summary, findings, and device inventory |
+| `executive_summary.txt` | Standalone summary for quick review |
+| `findings.txt` | Raw pipe-delimited findings |
+| `findings.csv` | CSV findings export |
+| `fingerprint.txt` | Device fingerprint database |
+| `devices.txt` | Raw device list with vendor |
+| `wifi.txt` | AP scan results and probe SSIDs |
+| `bluetooth.txt` | Bluetooth devices discovered |
+| `ssl_certs.txt` | SSL certificate details |
+| `dns_queries.txt` | DNS queries observed during traffic capture |
+| `top_talkers.txt` | Top IP pairs by traffic volume |
+| `traffic.pcap` | Raw packet capture |
+| `ipv6.txt` | IPv6 neighbor table |
 
-The tool enforces a consent step before execution.
-Use only on networks you own or have permission to assess.
+---
 
+## Scan Modes
 
+| Mode | Description |
+|------|-------------|
+| `1` QUICK | Fast sweep, reduced port list, 30s traffic capture |
+| `2` FULL | Complete assessment, full port list, 60s traffic capture (default) |
+| `3` STEALTH | Slow timing, no WiFi scan, no traffic capture |
 
-HOW IT WORKS
+---
 
-Jelly Sentinel runs multiple phases to build a complete network picture:
+## Requirements
 
-Phase 0 — Preflight
-Battery check, GPS capture (if available), interface validation.
+- WiFi Pineapple Pager with client mode interface (`wlan0cli`) configured and connected to target network
+- `nmap` (included in Pager firmware)
+- `tcpdump` (included in Pager firmware)
+- `whoismac` with OUI database at `~/.hcxtools/oui.txt`
 
-Phase 0B — Authorization
-Tester + target input, scan mode selection, explicit consent required.
+### Installing the OUI database
 
-Phase 1 — WiFi Audit
-Open networks, WPS detection, hidden SSIDs, PMF and isolation checks.
+Download `oui.txt` from `https://standards-oui.ieee.org/oui/oui.txt` and place it at `/root/.hcxtools/oui.txt` on the Pager. Without this file vendor lookup will return blank but the payload will still run.
 
-Phase 2 — Device Discovery
-Fast subnet scan (nmap -sn), device inventory, vendor lookup, IPv6 discovery.
+---
 
-Phase 3 — Fingerprinting + CVE + SSL
-Port scanning, banner extraction, CVE matching, SSL inspection.
+## Usage
 
-Phase 4 — Risk Checks
-Default credentials, admin panels, Telnet/FTP/SMB/SNMP, RTSP/MQTT/SIP/TR-069, DNS rebinding.
+1. Connect the Pager to the target network via client mode
+2. Deploy `payload.sh` to `/root/payloads/user/reconnaissance/Jelly_Sentinel/`
+3. Run from the Pager payload UI or via SSH:
+   ```sh
+   bash /root/payloads/user/reconnaissance/Jelly_Sentinel/payload.sh
+   ```
+4. Enter tester name, target name, scan mode, and confirm authorization
+5. Retrieve loot from `/root/loot/jelly_sentinel/<timestamp>/`
 
-Phase 5 — Bluetooth Scan
-Detects nearby devices and flags discoverable ones.
+---
 
-Phase 6 — Passive Traffic Analysis
-Traffic capture, DNS analysis, top talkers, anomaly detection.
+## Known Limitations
 
-Phase 7 — Delta Comparison
-Tracks new findings, resolved issues, and new devices.
+- Traffic capture (Phase 6) requires `WIFI_PCAP_START` Pager SDK support
+- GPS coordinates require Pager GPS module
+- Connected SSID/BSSID display requires `iwgetid` to report correctly on `wlan0cli`
+- Banner CVE matching is heuristic — treat medium/low confidence matches as leads, not confirmed vulnerabilities
 
-Phase 8/9 — Reporting
-Executive summary, CVSS-weighted score, structured findings, CSV export.
+---
 
+## Changelog
 
-
-CVE DETECTION
-
-HIGH   = exact vulnerable version
-MEDIUM = likely affected product
-LOW    = vendor observed
-
-Confidence affects severity and wording to reduce false positives.
-
-
-
-RISK SCORING
-
-Score range: 0–100
-
-75–100 = CRITICAL
-50–74  = HIGH
-25–49  = MEDIUM
-0–24   = LOW
-
-
-
-SCAN MODES
-
-Quick   = fast scan, minimal checks
-Full    = complete assessment
-Stealth = minimal footprint
-
-
-
-LOOT STRUCTURE
-
-/root/loot/jelly\_sentinel/<timestamp>/
-
-Includes report.txt, executive\_summary.txt, findings.csv, fingerprint.txt, devices.txt,
-wifi.txt, bluetooth.txt, ssl\_certs.txt, banner\_cves.txt, dns\_queries.txt,
-top\_talkers.txt, traffic.pcap, ipv6.txt, raw.txt
-
-
-
-NOTES
-
-* Ensure wlan0cli is connected
-* Uses native Pineapple tools only
-* No external dependencies
-
-
-
-REQUIREMENTS
-
-WiFi Pineapple Pager
-
-
-
-DISCLAIMER
-
-For authorized testing only.
-
+See [CHANGELOG.md](CHANGELOG.md)
