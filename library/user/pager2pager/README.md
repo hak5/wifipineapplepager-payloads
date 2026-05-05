@@ -44,19 +44,19 @@ To avoid message flooding, each pager keeps track of the messages it has already
 
 ```mermaid
 flowchart TD
-    A[Start of service] --> B(Start lissenling on 127.0.0.1:8999 for messages to send)
-    A --> C(Start reciving beacon frames from socket)
+    A[Start of service] --> B(Start listening on 127.0.0.1:8999 for messages to send)
+    A --> C(Start receiving beacon frames from socket)
     A --> D(Start message queue handler)
 
     B --> BA[Await for socket bind]
-    BA -->|Socket bind| BB[Recive a message and it network. Format: ssid,message]
+    BA -->|Socket bind| BB[Receive a message and it network. Format: ssid,message]
     BB --> BC[Add message with ssid to the message queue]
     BC --> BA
 
-    C --> CC[Await for reciving]
-    CC -->|on recive| CA[parse frame]
+    C --> CC[Await for receiving]
+    CC -->|on receive| CA[parse frame]
     CA --> CB{Check if the Network is included in the Networks specified}
-    CB -->|Yes| CBA(Try geting message from the vendor tag 221)
+    CB -->|Yes| CBA(Try getting message from the vendor tag 221)
     CB -->|No| CBD(Continue)
     CBD --> CC
     CBA --> CBB{Check if message in seen messages}
@@ -65,7 +65,7 @@ flowchart TD
     CBBB --> CBBC[Add message+ssid to the message queue]
     CBBC --> CBD
 
-    D --> DA[Awaite for message queue to get anything]
+    D --> DA[Await for message queue to get anything]
     DA --> DAA[Display an alert with following format: 
 Network:
 message
