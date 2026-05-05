@@ -3,7 +3,7 @@
 **Curly** transforms your WiFi Pineapple Pager into a portable web reconnaissance and vulnerability scanning tool using curl. Perfect for pentesting and bug bounty hunting on the go!
 
 - **Author:** curtthecoder
-- **Version:** 4.0
+- **Version:** 4.1
 
 ---
 
@@ -46,8 +46,10 @@ Curly performs comprehensive web security testing using only curl (plus nmap for
 
 ### 8 Scan Modes
 
+All modes are selected from the **LIST_PICKER** main menu (firmware 1.0.8+):
+
 1. **Quick Scan** - Fast reconnaissance (IP geo + protocol check + SSL/TLS + WAF + tech + WP vulns + info + endpoints + HTML source)
-2. **Full Scan (All Modules)** - Comprehensive security testing (all modules including DNS, email security, CT subdomains, CSP, port scan, and more)
+2. **Full Scan** - Comprehensive security testing (all modules including DNS, email security, CT subdomains, CSP, port scan, and more)
 3. **API Recon** - Focused API endpoint discovery + CT subdomain enumeration
 4. **Security Audit** - Deep security testing (IP geo + protocol + DNS + email security + SSL + tech + WP vulns + CSP + headers + cookies + CORS + redirects + cloud metadata)
 5. **Tech Fingerprint** - Identify IP location, protocol availability, SSL/TLS config, WAF, CDN, web server, technology stack, and WordPress vulnerabilities
@@ -73,28 +75,32 @@ Curly performs comprehensive web security testing using only curl (plus nmap for
 
 - **Discord Webhook** - Receive formatted scan results with all CRITICAL/HIGH/MEDIUM findings grouped by section
 - **Slack Webhook** - Alternative to Discord; sends severity summary + key findings to any Slack channel
-- **Optional:** Works seamlessly without either webhook — just leave them blank for local-only results
+- **Enable/Disable toggles** - Turn each integration on or off at runtime from the Settings menu without editing the script
+- **Optional:** Works seamlessly without either webhook configured — local-only results work fine
 
 ---
 
 ## Usage
 
 1. Load the **Curly** payload on your WiFi Pineapple Pager
-2. **(Optional)** Configure Discord webhook in `payload.sh`:
-   - Get webhook URL from Discord: Server Settings → Integrations → Webhooks → New Webhook
-   - Edit line 11: `DISCORD_WEBHOOK="https://discord.com/api/webhooks/YOUR_WEBHOOK_HERE"`
-3. **(Optional)** Configure Slack webhook in `payload.sh`:
-   - Get webhook URL from Slack: Apps → Incoming Webhooks → Add New Webhook
-   - Edit line 12: `SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR_WEBHOOK_HERE"`
-4. **(Optional)** Configure WPScan API token for WordPress vulnerability lookup:
-   - Register for a free token at https://wpscan.com/register (25 requests/day)
-   - Edit line 13: `WPSCAN_API_TOKEN="your_token_here"`
-   - Without a token, Curly still detects WP version and does basic age checks
-5. Enter target URL when prompted (e.g., `example.com` - no need for https://)
-6. Select scan mode (1-8) using number picker
-7. Press **A** to start the scan
-8. Watch results in real-time on the Pager display
-9. Results auto-saved to `/root/loot/curly/` (and sent to Discord/Slack if configured)
+2. Enter target URL when prompted (e.g., `example.com` - no need for https://)
+3. Use the **LIST_PICKER** main menu to select a scan mode — scroll with the D-pad, confirm with **A**, go back with **B**
+4. Watch results in real-time on the Pager display
+5. After each scan a post-scan menu appears — view the summary, send to Discord/Slack, run another scan, or exit
+6. Results auto-saved to `/root/loot/curly/`
+
+### Configuring Webhooks & Tokens (at runtime via Settings)
+
+No need to edit `payload.sh` manually. Use the **Settings** menu instead:
+
+- **Discord / Slack / WPScan** each have their own submenu with:
+  - **Enable / Disable** toggle — shown as `[ON]` or `[OFF]` in the menu
+  - **Set URL / Set Token** — opens a text picker; setting a value auto-enables it
+  - **Clear URL / Clear Token** — wipes the value and auto-disables
+- **Change Target** — switch to a new target without restarting the payload
+- **Timeout** — adjust the per-request timeout (seconds) via number picker
+
+You can still pre-configure values in `payload.sh` at the top of the CONFIG section if you prefer:
 
 ---
 
@@ -241,7 +247,7 @@ This tool is perfect for initial reconnaissance:
 # Scenario: Bug bounty reconnaissance
 
 1. Target: api.example.com (just type the domain!)
-2. Select: Quick Scan (mode 1)
+2. Select: Quick Scan from the LIST_PICKER main menu
 3. Results:
    [+] IP GEOLOCATION LOOKUP
    [*] Target IP: 104.26.*.*
@@ -275,7 +281,7 @@ This tool is perfect for initial reconnaissance:
    ╚════════════════════════════════════╝
 
 4. Loot saved to: /root/loot/curly/api.example.com_20260107_143022.txt
-5. Discord/Slack notification sent! (if webhook configured)
+5. Post-scan menu appears — tap "Send to Discord" or "Send to Slack" if enabled
 6. Next steps: Behind Cloudflare, WordPress stack, review swagger.json
 ```
 
@@ -295,6 +301,42 @@ When configured, you'll receive a message with:
 - Some tests may trigger WAFs or security monitoring
 - Results are indicators — manual verification recommended
 - Combine with other Pineapple payloads for complete assessment
+
+---
+
+## What's New in v4.1
+
+### LIST_PICKER Navigation (firmware 1.0.8)
+
+Curly's entire menu system has been rebuilt around the new `LIST_PICKER` DuckyScript command introduced in Pager firmware 1.0.8.
+
+**Persistent Main Menu Loop**
+- The payload no longer exits after one scan. The main menu stays open so you can run multiple scans back-to-back, switch targets, or adjust settings — all without restarting.
+- Scroll with the D-pad, confirm with **A**, go back with **B**.
+
+**Post-Scan Menu**
+After every scan a `LIST_PICKER` appears with:
+- **View Summary** — PROMPT showing target, scan mode, all severity counts, elapsed time, and loot file path
+- **Send to Discord** — spinner + send + success tone (shows a helpful message if not configured/enabled)
+- **Send to Slack** — spinner + send + success tone (shows a helpful message if not configured/enabled)
+- **New Scan** — returns to the main menu without restarting
+- **Exit** — exits the payload
+
+**Settings Submenu**
+A new **Settings** entry in the main menu gives access to:
+- **Change Target** — switch to a new URL mid-session; resolves redirects automatically
+- **Timeout** — adjust per-request timeout in seconds via number picker (displayed as `Timeout: 10s`)
+- **Discord [ON/OFF]** — nested submenu with Enable/Disable toggle, Set URL, Clear URL
+- **Slack [ON/OFF]** — nested submenu with Enable/Disable toggle, Set URL, Clear URL
+- **WPScan [ON/OFF]** — nested submenu with Enable/Disable toggle, Set Token, Clear Token
+
+Each integration shows its current state (`[ON]` or `[OFF]`) directly in the Settings list. Setting a URL/token automatically enables it; clearing automatically disables it. You can no longer accidentally send to a webhook you forgot was set.
+
+**About Screen**
+A read-only nested `LIST_PICKER` with version, description, and author info. All items return to the main menu (B button or any selection).
+
+**Exit Confirmation**
+Selecting **Exit** from the main menu requires confirming via `CONFIRMATION_DIALOG` so accidental B-button presses don't kill the payload mid-session.
 
 ---
 

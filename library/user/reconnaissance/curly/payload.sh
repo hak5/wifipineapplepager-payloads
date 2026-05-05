@@ -2,15 +2,18 @@
 # Title: Curly - Web Recon & Vuln Scanner
 # Description: Curl-based web reconnaissance and vulnerability testing for pentesting and bug bounty hunting
 # Author: curtthecoder - github.com/curthayman
-# Version: 4.0
+# Version: 4.1
 
 # === CONFIG ===
 LOOTDIR=/root/loot/curly
 INPUT=/dev/input/event0
 TIMEOUT=10
 DISCORD_WEBHOOK=""  # Set your Discord webhook URL here
+DISCORD_ENABLED=false
 SLACK_WEBHOOK=""    # Set your Slack incoming webhook URL here
+SLACK_ENABLED=false
 WPSCAN_API_TOKEN="" # Free API token from https://wpscan.com/register
+WPSCAN_ENABLED=false
 
 # Severity tracking
 CRITICAL_FINDINGS=0
@@ -3274,10 +3277,365 @@ scan_csp_analysis() {
     log_result ""
 }
 
-# === MAIN MENU ===
+# === MAIN MENU (firmware 1.0.8 LIST_PICKER) ===
 
-show_menu() {
-    PROMPT "=== CURLY SCANNER ===\n\nSelect scan mode:\n\n1. Quick Scan\n2. Full Scan (All Modules)\n3. API Recon\n4. Security Audit\n5. Tech Fingerprint\n6. Subdomain Enum\n7. DNS Recon\n8. Port Scan"
+# Post-scan action menu — shown after every scan completes
+post_scan_menu() {
+    local post_resp
+    local total=$((CRITICAL_FINDINGS + HIGH_FINDINGS + MEDIUM_FINDINGS + LOW_FINDINGS + INFO_FINDINGS))
+    local time_display="${ELAPSED_MINUTES}m ${ELAPSED_SECS}s"
+    [ "$ELAPSED_MINUTES" -eq 0 ] && time_display="${ELAPSED_SECS}s"
+
+    while true; do
+        post_resp=$(LIST_PICKER "Scan Done | $total findings" "View Summary" "Send to Discord" "Send to Slack" "New Scan" "Exit" "View Summary")
+
+        case "$post_resp" in
+            "View Summary")
+                PROMPT "Target: $TARGET_HOST\nMode: $SCAN_MODE\n\nCritical : $CRITICAL_FINDINGS\nHigh     : $HIGH_FINDINGS\nMedium   : $MEDIUM_FINDINGS\nLow      : $LOW_FINDINGS\nInfo     : $INFO_FINDINGS\nTotal    : $total\n\nTime: $time_display\nLoot: $LOOTFILE"
+                ;;
+            "Send to Discord")
+                if [ -z "$DISCORD_WEBHOOK" ]; then
+                    PROMPT "No Discord URL set.\nConfigure one in Settings."
+                elif [ "$DISCORD_ENABLED" != "true" ]; then
+                    PROMPT "Discord is disabled.\nEnable it in Settings."
+                else
+                    __sid=$(START_SPINNER "Sending to Discord...")
+                    send_to_discord
+                    STOP_SPINNER $__sid
+                    RINGTONE bonus
+                    PROMPT "Sent to Discord!"
+                fi
+                ;;
+            "Send to Slack")
+                if [ -z "$SLACK_WEBHOOK" ]; then
+                    PROMPT "No Slack URL set.\nConfigure one in Settings."
+                elif [ "$SLACK_ENABLED" != "true" ]; then
+                    PROMPT "Slack is disabled.\nEnable it in Settings."
+                else
+                    __sid=$(START_SPINNER "Sending to Slack...")
+                    send_to_slack
+                    STOP_SPINNER $__sid
+                    RINGTONE bonus
+                    PROMPT "Sent to Slack!"
+                fi
+                ;;
+            "New Scan")
+                return 0
+                ;;
+            "Exit")
+                exit 0
+                ;;
+            *)
+                # B button / back — return to main menu
+                return 0
+                ;;
+        esac
+    done
+}
+
+# Settings submenu — configure target, timeout, webhooks
+settings_menu() {
+    local set_resp
+    local discord_label slack_label wpscan_label
+
+    # Build labels showing current state
+    [ "$DISCORD_ENABLED" = "true" ] && discord_label="Discord [ON]" || discord_label="Discord [OFF]"
+    [ "$SLACK_ENABLED"   = "true" ] && slack_label="Slack [ON]"    || slack_label="Slack [OFF]"
+    [ "$WPSCAN_ENABLED"  = "true" ] && wpscan_label="WPScan [ON]"  || wpscan_label="WPScan [OFF]"
+
+    set_resp=$(LIST_PICKER "Settings" \
+        "Change Target" \
+        "Timeout: ${TIMEOUT}s" \
+        "$discord_label" \
+        "$slack_label" \
+        "$wpscan_label" \
+        "<- Back" \
+        "<- Back")
+
+    case "$set_resp" in
+        "Change Target")
+            local new_target
+            new_target=$(TEXT_PICKER "New target URL" "$TARGET_HOST")
+            if [ -n "$new_target" ]; then
+                TARGET_URL="$new_target"
+                if ! echo "$TARGET_URL" | grep -qE '^https?://'; then
+                    TARGET_URL="https://$TARGET_URL"
+                fi
+                parse_url "$TARGET_URL"
+                TARGET_URL="${TARGET_PROTO}://${TARGET_HOST}"
+                follow_redirects
+                RINGTONE bonus
+                LOG "Target updated: $TARGET_URL"
+            fi
+            ;;
+        "Timeout: ${TIMEOUT}s")
+            local new_timeout
+            new_timeout=$(NUMBER_PICKER "Timeout (seconds)" "$TIMEOUT")
+            [ -n "$new_timeout" ] && TIMEOUT=$new_timeout && LOG "Timeout: ${TIMEOUT}s"
+            ;;
+        "$discord_label")
+            local d_resp
+            local d_set_label
+            [ -n "$DISCORD_WEBHOOK" ] && d_set_label="Set URL (configured)" || d_set_label="Set URL"
+            [ "$DISCORD_ENABLED" = "true" ] && toggle_label="Disable" || toggle_label="Enable"
+            d_resp=$(LIST_PICKER "Discord Webhook" \
+                "$toggle_label" \
+                "$d_set_label" \
+                "Clear URL" \
+                "<- Back" \
+                "<- Back")
+            case "$d_resp" in
+                "Enable")
+                    if [ -z "$DISCORD_WEBHOOK" ]; then
+                        PROMPT "No URL set.\nSet a URL first."
+                    else
+                        DISCORD_ENABLED=true
+                        LOG "Discord: ENABLED"
+                    fi
+                    ;;
+                "Disable")
+                    DISCORD_ENABLED=false
+                    LOG "Discord: DISABLED"
+                    ;;
+                "$d_set_label")
+                    local new_wh
+                    new_wh=$(TEXT_PICKER "Discord Webhook URL" "${DISCORD_WEBHOOK:-https://discord.com/api/webhooks/...}")
+                    if [ -n "$new_wh" ]; then
+                        DISCORD_WEBHOOK="$new_wh"
+                        DISCORD_ENABLED=true
+                        LOG "Discord URL set and enabled"
+                    fi
+                    ;;
+                "Clear URL")
+                    DISCORD_WEBHOOK=""
+                    DISCORD_ENABLED=false
+                    LOG "Discord URL cleared"
+                    ;;
+            esac
+            ;;
+        "$slack_label")
+            local s_resp
+            local s_set_label
+            [ -n "$SLACK_WEBHOOK" ] && s_set_label="Set URL (configured)" || s_set_label="Set URL"
+            [ "$SLACK_ENABLED" = "true" ] && toggle_label="Disable" || toggle_label="Enable"
+            s_resp=$(LIST_PICKER "Slack Webhook" \
+                "$toggle_label" \
+                "$s_set_label" \
+                "Clear URL" \
+                "<- Back" \
+                "<- Back")
+            case "$s_resp" in
+                "Enable")
+                    if [ -z "$SLACK_WEBHOOK" ]; then
+                        PROMPT "No URL set.\nSet a URL first."
+                    else
+                        SLACK_ENABLED=true
+                        LOG "Slack: ENABLED"
+                    fi
+                    ;;
+                "Disable")
+                    SLACK_ENABLED=false
+                    LOG "Slack: DISABLED"
+                    ;;
+                "$s_set_label")
+                    local new_wh
+                    new_wh=$(TEXT_PICKER "Slack Webhook URL" "${SLACK_WEBHOOK:-https://hooks.slack.com/services/...}")
+                    if [ -n "$new_wh" ]; then
+                        SLACK_WEBHOOK="$new_wh"
+                        SLACK_ENABLED=true
+                        LOG "Slack URL set and enabled"
+                    fi
+                    ;;
+                "Clear URL")
+                    SLACK_WEBHOOK=""
+                    SLACK_ENABLED=false
+                    LOG "Slack URL cleared"
+                    ;;
+            esac
+            ;;
+        "$wpscan_label")
+            local w_resp
+            local w_set_label
+            [ -n "$WPSCAN_API_TOKEN" ] && w_set_label="Set Token (configured)" || w_set_label="Set Token"
+            [ "$WPSCAN_ENABLED" = "true" ] && toggle_label="Disable" || toggle_label="Enable"
+            w_resp=$(LIST_PICKER "WPScan API Token" \
+                "$toggle_label" \
+                "$w_set_label" \
+                "Clear Token" \
+                "<- Back" \
+                "<- Back")
+            case "$w_resp" in
+                "Enable")
+                    if [ -z "$WPSCAN_API_TOKEN" ]; then
+                        PROMPT "No token set.\nGet one at wpscan.com"
+                    else
+                        WPSCAN_ENABLED=true
+                        LOG "WPScan: ENABLED"
+                    fi
+                    ;;
+                "Disable")
+                    WPSCAN_ENABLED=false
+                    LOG "WPScan: DISABLED"
+                    ;;
+                "$w_set_label")
+                    local new_token
+                    new_token=$(TEXT_PICKER "WPScan API Token" "${WPSCAN_API_TOKEN:-get one at wpscan.com}")
+                    if [ -n "$new_token" ]; then
+                        WPSCAN_API_TOKEN="$new_token"
+                        WPSCAN_ENABLED=true
+                        LOG "WPScan token set and enabled"
+                    fi
+                    ;;
+                "Clear Token")
+                    WPSCAN_API_TOKEN=""
+                    WPSCAN_ENABLED=false
+                    LOG "WPScan token cleared"
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+# Execute a named scan mode, then show post-scan menu
+run_scan() {
+    local mode="$1"
+    SCAN_MODE="$mode"
+
+    # Reset counters for this scan session
+    CRITICAL_FINDINGS=0
+    HIGH_FINDINGS=0
+    MEDIUM_FINDINGS=0
+    LOW_FINDINGS=0
+    INFO_FINDINGS=0
+
+    init_loot
+    SCAN_START_TIME=$(date +%s)
+    play_scan
+
+    local __sid
+    __sid=$(START_SPINNER "Running $mode...")
+
+    case "$mode" in
+        "Quick Scan")
+            STOP_SPINNER $__sid
+            LOG "Starting Quick Scan (~30-45 sec)..."
+            scan_ip_geolocation
+            scan_protocol_availability
+            scan_whois
+            scan_ssl_tls
+            scan_waf
+            scan_tech
+            scan_wordpress_vulns
+            scan_info
+            scan_endpoints
+            scan_html_source
+            ;;
+        "Full Scan")
+            STOP_SPINNER $__sid
+            LOG "Starting Full Scan (~10-35 min)..."
+            scan_ip_geolocation
+            scan_protocol_availability
+            scan_whois
+            scan_dns_enum
+            scan_email_security
+            scan_ssl_tls
+            scan_waf
+            scan_tech
+            scan_wordpress_vulns
+            scan_crt_sh
+            scan_info
+            scan_csp_analysis
+            scan_html_source
+            scan_endpoints
+            scan_backups
+            scan_parameters
+            scan_methods
+            scan_headers
+            scan_cookies
+            scan_cors
+            scan_redirects
+            scan_cloud_metadata
+            scan_api
+            scan_ports
+            ;;
+        "API Recon")
+            STOP_SPINNER $__sid
+            LOG "Starting API Recon (~45-60 sec)..."
+            scan_crt_sh
+            scan_endpoints
+            scan_api
+            ;;
+        "Security Audit")
+            STOP_SPINNER $__sid
+            LOG "Starting Security Audit (~90-120 sec)..."
+            scan_ip_geolocation
+            scan_protocol_availability
+            scan_whois
+            scan_dns_enum
+            scan_email_security
+            scan_ssl_tls
+            scan_tech
+            scan_wordpress_vulns
+            scan_info
+            scan_csp_analysis
+            scan_html_source
+            scan_parameters
+            scan_methods
+            scan_headers
+            scan_cookies
+            scan_cors
+            scan_redirects
+            scan_cloud_metadata
+            ;;
+        "Tech Fingerprint")
+            STOP_SPINNER $__sid
+            LOG "Starting Tech Fingerprint (~20-30 sec)..."
+            scan_ip_geolocation
+            scan_protocol_availability
+            scan_whois
+            scan_ssl_tls
+            scan_waf
+            scan_tech
+            scan_wordpress_vulns
+            scan_info
+            ;;
+        "Subdomain Enum")
+            STOP_SPINNER $__sid
+            LOG "Starting Subdomain Enum (~30-45 sec)..."
+            scan_crt_sh
+            ;;
+        "DNS Recon")
+            STOP_SPINNER $__sid
+            LOG "Starting DNS Recon (~45-90 sec)..."
+            scan_dns_enum
+            scan_email_security
+            scan_crt_sh
+            ;;
+        "Port Scan")
+            STOP_SPINNER $__sid
+            LOG "Starting Port Scan (~3-8 min)..."
+            scan_ip_geolocation
+            scan_ports
+            scan_ssl_tls
+            ;;
+    esac
+
+    SCAN_END_TIME=$(date +%s)
+    ELAPSED_SECONDS=$((SCAN_END_TIME - SCAN_START_TIME))
+    ELAPSED_MINUTES=$((ELAPSED_SECONDS / 60))
+    ELAPSED_SECS=$((ELAPSED_SECONDS % 60))
+
+    show_severity_summary
+    led_success
+    play_complete
+    VIBRATE 50
+
+    LOG ""
+    LOG "Scan complete!"
+    LOG "Results: $LOOTFILE"
+    LOG ""
+
+    post_scan_menu
 }
 
 # === MAIN ===
@@ -3321,7 +3679,7 @@ fi
 LOG "    [OK] Internet connection verified"
 LOG ""
 
-CURRENT_VERSION="4.0"
+CURRENT_VERSION="4.1"
 VERSION_CHECK_URL="https://raw.githubusercontent.com/hak5/wifipineapplepager-payloads/master/library/user/reconnaissance/curly/VERSION"
 ENABLE_UPDATE_CHECK=true  # Set to false to disable
 
@@ -3385,149 +3743,54 @@ TARGET_URL="${TARGET_PROTO}://${TARGET_HOST}"
 # Follow any redirects to get final destination (e.g., example.com -> www.example.com)
 follow_redirects
 
-init_loot
-
 LOG ""
 LOG "Target: $TARGET_URL"
 LOG ""
 
-show_menu
-SCAN_MODE=$(NUMBER_PICKER "Select scan mode" "1")
+# === MAIN MENU LOOP ===
+while true; do
+    resp=$(LIST_PICKER "CURLY v4.1 | $TARGET_HOST" \
+        "Quick Scan" \
+        "Full Scan" \
+        "API Recon" \
+        "Security Audit" \
+        "Tech Fingerprint" \
+        "Subdomain Enum" \
+        "DNS Recon" \
+        "Port Scan" \
+        "Settings" \
+        "About" \
+        "Exit" \
+        "Quick Scan")
 
-case $? in
-    $DUCKYSCRIPT_CANCELLED|$DUCKYSCRIPT_REJECTED|$DUCKYSCRIPT_ERROR)
-        LOG "Operation cancelled"
-        exit 1
-        ;;
-esac
+    case "$resp" in
+        "Quick Scan"|"Full Scan"|"API Recon"|"Security Audit"|"Tech Fingerprint"|"Subdomain Enum"|"DNS Recon"|"Port Scan")
+            run_scan "$resp"
+            ;;
+        "Settings")
+            settings_menu
+            ;;
+        "About")
+            LIST_PICKER "About Curly" \
+                "Curly v4.1" \
+                "Web Recon & Vuln Scanner" \
+                "Curl-based pentest tool" \
+                "Author: curtthecoder" \
+                "github.com/curthayman" \
+                "<- Back" \
+                "<- Back"
+            ;;
+        "Exit")
+            exit_resp=$(CONFIRMATION_DIALOG "Exit Curly?")
+            if [ $? -eq 0 ] && [ "$exit_resp" = "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
+                exit 0
+            fi
+            ;;
+        *)
+            # B button or unknown — stay in loop
+            LOG "[*] $resp"
+            ;;
+    esac
+done
 
-LOG ""
-
-case $SCAN_MODE in
-    1) LOG "Starting Quick Scan (estimated: ~30-45 seconds)..." ;;
-    2) LOG "Starting Full Scan (estimated: ~10-35 minutes)..." ;;
-    3) LOG "Starting API Recon (estimated: ~45-60 seconds)..." ;;
-    4) LOG "Starting Security Audit (estimated: ~90-120 seconds)..." ;;
-    5) LOG "Starting Tech Fingerprint (estimated: ~20-30 seconds)..." ;;
-    6) LOG "Starting Subdomain Enumeration (estimated: ~30-45 seconds)..." ;;
-    7) LOG "Starting DNS Recon (estimated: ~45-90 seconds)..." ;;
-    8) LOG "Starting Port Scan (estimated: ~3-8 minutes)..." ;;
-esac
-
-SCAN_START_TIME=$(date +%s)
-play_scan
-
-case $SCAN_MODE in
-    1)  # Quick Scan
-        scan_ip_geolocation
-        scan_protocol_availability
-        scan_whois
-        scan_ssl_tls
-        scan_waf
-        scan_tech
-        scan_wordpress_vulns
-        scan_info
-        scan_endpoints
-        scan_html_source
-        ;;
-    2)  # Full Scan (All Modules)
-        scan_ip_geolocation
-        scan_protocol_availability
-        scan_whois
-        scan_dns_enum
-        scan_email_security
-        scan_ssl_tls
-        scan_waf
-        scan_tech
-        scan_wordpress_vulns
-        scan_crt_sh
-        scan_info
-        scan_csp_analysis
-        scan_html_source
-        scan_endpoints
-        scan_backups
-        scan_parameters
-        scan_methods
-        scan_headers
-        scan_cookies
-        scan_cors
-        scan_redirects
-        scan_cloud_metadata
-        scan_api
-        scan_ports
-        ;;
-    3)  # API Recon
-        scan_crt_sh
-        scan_endpoints
-        scan_api
-        ;;
-    4)  # Security Audit
-        scan_ip_geolocation
-        scan_protocol_availability
-        scan_whois
-        scan_dns_enum
-        scan_email_security
-        scan_ssl_tls
-        scan_tech
-        scan_wordpress_vulns
-        scan_info
-        scan_csp_analysis
-        scan_html_source
-        scan_parameters
-        scan_methods
-        scan_headers
-        scan_cookies
-        scan_cors
-        scan_redirects
-        scan_cloud_metadata
-        ;;
-    5)  # Tech Fingerprint
-        scan_ip_geolocation
-        scan_protocol_availability
-        scan_whois
-        scan_ssl_tls
-        scan_waf
-        scan_tech
-        scan_wordpress_vulns
-        scan_info
-        ;;
-    6)  # Subdomain Enumeration
-        scan_crt_sh
-        ;;
-    7)  # DNS Recon
-        scan_dns_enum
-        scan_email_security
-        scan_crt_sh
-        ;;
-    8)  # Port Scan
-        scan_ip_geolocation
-        scan_ports
-        scan_ssl_tls
-        ;;
-    *)
-        LOG "Invalid scan mode!"
-        exit 1
-        ;;
-esac
-
-SCAN_END_TIME=$(date +%s)
-ELAPSED_SECONDS=$((SCAN_END_TIME - SCAN_START_TIME))
-ELAPSED_MINUTES=$((ELAPSED_SECONDS / 60))
-ELAPSED_SECS=$((ELAPSED_SECONDS % 60))
-
-# Show severity summary
-show_severity_summary
-
-led_success
-play_complete
-VIBRATE 50
-
-LOG ""
-LOG "Scan complete!"
-LOG "Results: $LOOTFILE"
-LOG ""
-
-send_to_discord
-send_to_slack
-
-LOG "Check loot dir for details"
+exit 0

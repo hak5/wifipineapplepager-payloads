@@ -1,76 +1,14 @@
 #!/bin/bash
 # Name: Install Evil Portal
 # Description: Complete Evil Portal installation for WiFi Pineapple Pager (OpenWrt 24.10.1)
-# Author: PentestPlaybook
-# Version: 2.0
+# Author: PentestPlaybook / 0x4B
+# Version: 2.3
 # Category: Evil Portal
 
-# ====================================================================
-# STEP 0: Ask About Isolated Subnet Configuration
-# ====================================================================
-DIALOG_RESULT=$(CONFIRMATION_DIALOG "Configure isolated subnet? (recommended)")
-if [ "$DIALOG_RESULT" = "1" ]; then
-    # Check if wlan0wpa exists and is active
-    if ! iwinfo wlan0wpa info &>/dev/null; then
-        LOG "ERROR: Evil WPA (wlan0wpa) must be enabled before configuring isolated subnet"
-        LOG "Please enable Evil WPA in the Pineapple settings and run this payload again"
-        exit 1
-    fi
+PORTAL_IP="172.16.52.1"
+BRIDGE_IF="br-lan"
+FIREWALL_SRC="lan"
 
-    # YES selected - use isolated network
-    PORTAL_IP="10.0.0.1"
-    BRIDGE_IF="br-evil"
-    
-    LOG "=============================================="
-    LOG "Configuring Isolated Evil Network..."
-    LOG "=============================================="
-    
-    # Add evil network configuration with wlan0wpa as bridge port
-    LOG "Creating br-evil bridge and interface..."
-    echo -e "\nconfig device\n        option name 'br-evil'\n        option type 'bridge'\n\nconfig interface 'evil'\n        option device 'br-evil'\n        option proto 'static'\n        option ipaddr '10.0.0.1'\n        option netmask '255.255.255.0'" >> /etc/config/network
-    
-    # Add DHCP configuration for evil network
-    LOG "Configuring DHCP for evil network..."
-    echo -e "\nconfig dhcp 'evil'\n        option interface 'evil'\n        option start '100'\n        option limit '150'\n        option leasetime '1h'" >> /etc/config/dhcp
-    
-    # Assign wlan0wpa to evil network
-    LOG "Assigning wlan0wpa to evil network..."
-    uci set wireless.wlan0wpa.network='evil'
-    uci commit wireless
-    
-    # Remove wlan0wpa from br-lan bridge
-    LOG "Removing wlan0wpa from br-lan..."
-    uci del_list network.brlan.ports='wlan0wpa'
-    uci commit network
-    
-    # Add evil network to firewall with separate zone
-    LOG "Adding evil network to firewall..."
-    # Create separate zone for evil network
-    uci add firewall zone
-    uci set firewall.@zone[-1].name='evil'
-    uci set firewall.@zone[-1].network='evil'
-    uci set firewall.@zone[-1].input='ACCEPT'
-    uci set firewall.@zone[-1].output='ACCEPT'
-    uci set firewall.@zone[-1].forward='REJECT'
-    
-    # Allow evil zone to forward to wan for internet access
-    uci add firewall forwarding
-    uci set firewall.@forwarding[-1].src='evil'
-    uci set firewall.@forwarding[-1].dest='wan'
-    
-    uci commit firewall
-    
-    LOG "SUCCESS: Isolated subnet configured"
-    LOG ""
-else
-    # NO selected - use main network
-    PORTAL_IP="172.16.52.1"
-    BRIDGE_IF="br-lan"
-    
-    LOG "Skipping isolated subnet configuration..."
-    LOG "Using main network: ${BRIDGE_IF} (${PORTAL_IP})"
-    LOG ""
-fi
 LOG "Starting Evil Portal installation for WiFi Pineapple Pager..."
 LOG "Portal IP: ${PORTAL_IP}"
 LOG "Bridge Interface: ${BRIDGE_IF}"
@@ -142,18 +80,6 @@ if [ -n "$PACKAGES_NEEDED" ]; then
     LOG "SUCCESS: All missing packages installed"
 else
     LOG "SUCCESS: All required packages already installed (skipping installation)"
-fi
-
-# Apply network changes now that packages are installed
-if [ "$BRIDGE_IF" = "br-evil" ]; then
-    LOG "Applying network changes for isolated subnet..."
-    /etc/init.d/network restart
-    sleep 10
-    wifi
-    # Verify connectivity before proceeding
-    LOG "Waiting for network connectivity..."
-    until ping -c1 downloads.openwrt.org &>/dev/null; do sleep 2; done
-    LOG "SUCCESS: Network connectivity restored"
 fi
 
 # ====================================================================
@@ -331,6 +257,10 @@ LOG "SUCCESS: API files created"
 # ====================================================================
 LOG "Step 3: Creating portal interface files..."
 mkdir -p /root/portals/Default
+
+# Create symlink
+LOG "Creating default symlink..."
+ln -sf /root/portals/Default /root/portals/current
 
 LOG "Creating index.php..."
 cat > /root/portals/Default/index.php << 'EOF'
@@ -565,17 +495,14 @@ LOG "SUCCESS: Permissions configured"
 # ====================================================================
 LOG "Step 6: Creating Evil Portal init script..."
 
-# Determine source zone for firewall rules based on isolated subnet choice
-if [ "$BRIDGE_IF" = "br-evil" ]; then
-    FIREWALL_SRC="evil"
-else
-    FIREWALL_SRC="lan"
-fi
-
 cat > /etc/init.d/evilportal << INITEOF
 #!/bin/sh /etc/rc.common
 
 START=99
+
+# Add Extra Commands
+EXTRA_COMMANDS="switch"
+EXTRA_HELP="switch <portal>    Switch active Evil Portal"
 
 # Helper function to add temporary nft rules directly to dstnat chain
 # (dstnat always exists, dstnat_lan only exists when UCI rules are present)
@@ -636,11 +563,9 @@ start_services() {
     dnsmasq --no-hosts --no-resolv --address=/#/${PORTAL_IP} -p 5353 &
     rm -f /www/captiveportal
     ln -s /pineapple/ui/modules/evilportal/assets/api /www/captiveportal
-    ln -sf /root/portals/Default/index.php /www/index.php
-    ln -sf /root/portals/Default/MyPortal.php /www/MyPortal.php
-    ln -sf /root/portals/Default/helper.php /www/helper.php
-	ln -sf /root/portals/Default/generate_204.html /www/generate_204
-    ln -sf /root/portals/Default/hotspot-detect.html /www/hotspot-detect.html
+    for item in /root/portals/current/*; do
+        ln -sf "\$item" "/www/\$(basename \$item)"
+    done
 
     # Start whitelist daemon
     /usr/bin/evilportal-whitelist-daemon &
@@ -652,10 +577,51 @@ stop_services() {
     /etc/init.d/nginx stop
     kill \$(netstat -plant 2>/dev/null | grep ':5353' | awk '{print \$NF}' | sed 's/\/dnsmasq//g') 2>/dev/null
     killall evilportal-whitelist-daemon 2>/dev/null
-    rm -f /www/captiveportal /www/index.php /www/MyPortal.php /www/helper.php /www/generate_204 /www/hotspot-detect.html
+    for link in /www/*; do 
+        [ -L "\$link" ] && rm -f "\$link" 
+    done
 
     # Remove whitelist rules
     remove_whitelist_rules
+}
+
+# Helper function to switch portals 
+switch() {
+    NEW_PORTAL="\$1"
+    PORTAL_BASE="/root/portals"
+    CURRENT_LINK="\$PORTAL_BASE/current"
+
+    if [ -z "\$NEW_PORTAL" ]; then
+        echo "Usage: /etc/init.d/evilportal switch <portal_name>"
+        logger -t evilportal "Switch failed: no portal specified"
+        return 1
+    fi
+
+    if [ ! -d "\$PORTAL_BASE/\$NEW_PORTAL" ]; then
+        echo "Portal does not exist: \$NEW_PORTAL"
+        logger -t evilportal "Switch failed: portal not found (\$NEW_PORTAL)"
+        return 1
+    fi
+
+    # Remove current symlink
+    rm -rf "\$CURRENT_LINK"
+    # Update symlink atomically
+    ln -sfn "\$PORTAL_BASE/\$NEW_PORTAL" "\$PORTAL_BASE/current"
+    if [ \$? -ne 0 ]; then
+        echo "Failed to update portal symlink"
+        logger -t evilportal "Switch failed: symlink update error"
+        return 1
+    fi
+
+    # If Evil Portal is currently running, restart services
+    if pidof nginx >/dev/null 2>&1; then
+        restart
+    fi
+
+    echo "Portal switched to \$NEW_PORTAL"
+    logger -t evilportal "Evil portal switched to \$NEW_PORTAL. Refresh client browser if necessary"
+
+    return 0
 }
 
 start() {
@@ -767,12 +733,14 @@ while true; do
     if [ -f "$CLIENTS_FILE" ]; then
         # Read each IP from clients file
         while read -r ip; do
-            # Skip if already processed
-            if ! grep -q "^${ip}$" "$PROCESSED_FILE" 2>/dev/null; then
+            # Check actual NFT rules as source of truth
+            if ! nft list chain inet fw4 dstnat 2>/dev/null | grep -q "ip saddr $ip accept"; then
                 # Add nft rule - use dstnat chain directly (always exists)
                 nft insert rule inet fw4 dstnat ip saddr "$ip" accept
-                # Mark as processed
-                echo "$ip" >> "$PROCESSED_FILE"
+                # Only add to PROCESSED_FILE if not already there
+                if ! grep -q "^${ip}$" "$PROCESSED_FILE" 2>/dev/null; then
+                    echo "$ip" >> "$PROCESSED_FILE"
+                fi
                 logger -t evilportal "Whitelisted client: $ip"
             fi
         done < "$CLIENTS_FILE"
@@ -789,13 +757,6 @@ LOG "SUCCESS: Init script and daemon created"
 # STEP 7: Configure Firewall NAT Rules
 # ====================================================================
 LOG "Step 7: Configuring firewall NAT rules..."
-
-# Determine source zone based on isolated subnet choice
-if [ "$BRIDGE_IF" = "br-evil" ]; then
-    FIREWALL_SRC="evil"
-else
-    FIREWALL_SRC="lan"
-fi
 
 uci add firewall redirect
 uci set firewall.@redirect[-1].name='Evil Portal HTTPS'
@@ -942,7 +903,9 @@ LOG "  Enable:  /etc/init.d/evilportal enable   (Portal ON after reboot)"
 LOG "  Disable: /etc/init.d/evilportal disable  (Portal OFF after reboot)"
 LOG "  Start:   /etc/init.d/evilportal start    (Portal ON now)"
 LOG "  Stop:    /etc/init.d/evilportal stop     (Portal OFF now)"
+LOG "  Switch:  /etc/init.d/evilportal switch <portal-name> (Switch Active Portal)"
 LOG "  Restart: /etc/init.d/evilportal restart  (restart portal)"
+LOG "  Set Interface: run set_evil_portal_interface payload"
 LOG "=================================================="
 
 exit 0
