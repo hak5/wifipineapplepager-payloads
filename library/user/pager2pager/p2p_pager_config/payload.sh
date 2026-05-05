@@ -7,9 +7,9 @@ P2P_CONFIG_DIR="/root/.p2p_pager"
 PAGER_CONFIG="$P2P_CONFIG_DIR/pager.conf"
 TEMP_CONFIG="/tmp/pager.conf.tmp"
 
-STANDARD_CONFIG="""decay_time=300
-beacon_interval=10
-beacon_uptime=120
+STANDARD_CONFIG="""decay_time=180
+beacon_interval=102
+beacon_uptime=60
 ssid_prefix=P2PAGER
 channel=6
 max_message_length=50

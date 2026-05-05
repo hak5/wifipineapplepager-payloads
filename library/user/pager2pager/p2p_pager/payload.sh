@@ -99,9 +99,9 @@ install_pager_service() {
     if [ ! -s "$P2P_CONFIG_DIR/pager.conf" ]; then
         LOG "Creating default pager configuration..."
         echo """
-decay_time=300
-beacon_interval=10
-beacon_uptime=120
+decay_time=180
+beacon_interval=102
+beacon_uptime=60
 ssid_prefix=P2PAGER
 channel=6
 max_message_length=50
