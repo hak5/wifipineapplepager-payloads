@@ -1,0 +1,11 @@
+#!/bin/bash
+# Title: B+A Button LEDs ON
+# Description: Turn on the B+A button LEDs
+# Author: FadeddCompass
+# Version: 1
+
+#REM
+# The lines below turn on the B+A button LEDs
+
+echo 1 > /sys/devices/platform/leds/leds/a-button-led/brightness
+echo 1 > /sys/devices/platform/leds/leds/b-button-led/brightness
