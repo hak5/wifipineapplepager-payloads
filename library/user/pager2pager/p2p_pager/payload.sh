@@ -12,6 +12,15 @@ START_SCRIPT_LOCATION="/usr/bin/start_p2p_pager.sh"
 
 P2P_CONFIG_DIR="/root/.p2p_pager"
 
+setup() {
+    if ! which python > /dev/null; then
+        LOG "Installing python..."
+        opkg update
+        opkg install -d mmc python3
+    fi
+}
+
+
 
 start_pager_service() {
     # Start the pager service in the background
