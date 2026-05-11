@@ -28,33 +28,7 @@ create_tmp_config() {
     LOG "Temporary configuration file created at $TEMP_CONFIG."
 }
 
-# Functionality 
-# Configure the different parameters for the pager system
-# Reset to default values, or set custom values for each parameter
-# Only apply changes when the user confirms, otherwise discard the temporary config file before exiting the configuration menu
-
-# Menu:
-# ====== Main menu: ======
-# 1. Get current configuration
-# 2. Reset to default values
-# 3. Change settings
-# 0. Exit
-#
-# Waiting for user input...
-
 main_menu() {
-    #LOG "P2P Pager Configuration Management"
-    #LOG "1) Get current configuration"
-    #LOG "2) Reset to default values"
-    #LOG "3) Change settings"
-    #LOG "0) Exit"
-    
-    #LOG " "
-    #LOG "Waiting for user input..."
-    
-    #WAIT_FOR_INPUT
-
-    #choice=$(NUMBER_PICKER "Select an option:" 1)
     resp=$(LIST_PICKER "Main Menu" "Get current configuration" "Reset to default values" "Change settings" "Log" "About" "Exit" "Get current configuration")
     
     case $resp in
@@ -92,12 +66,6 @@ main_menu() {
     esac
 }
 
-# ====== Current configuration: ======
-# Name: value
-# 0. Back
-#
-# Waiting for user input...
-
 current_config_menu() {
     LOG "Current Pager Configuration:"
     while IFS= read -r line; do
@@ -116,13 +84,6 @@ current_config_menu() {
     WAIT_FOR_INPUT
 }
 
-# ====== Change settings: ======
-# 1. name of setting
-# 2. name of setting
-# ...
-# 0. Back
-#
-# Waiting for user input...
 
 change_settings_menu() {
     LOG "===== Change Pager Configuration Settings: ======"
@@ -207,14 +168,6 @@ restart_pager_service() {
     start_pager_service
     LOG green "P2P Pager service restarted."
 }
-
-
-# ====== Exit: ======
-# Changes:
-# - setting: old value -> new value
-# Are you sure you want to apply these changes?
-#
-# Waiting for user input...
 
 exit_config_menu() {
     LOG "Exiting pager configuration management."
