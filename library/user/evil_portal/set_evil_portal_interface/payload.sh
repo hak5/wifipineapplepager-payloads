@@ -2,13 +2,30 @@
 # Name: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
-# Version: 2.1
+# Version: 2.6
 # Category: Evil Portal
 
 PORTAL_IP_EVIL="10.0.0.1"
 PORTAL_IP_LAN="172.16.52.1"
 BRIDGE_IF_EVIL="br-evil"
 BRIDGE_IF_LAN="br-lan"
+
+iface_ready() {
+    local iface="$1"
+    ip link show "$iface" 2>/dev/null | grep -q "BROADCAST,MULTICAST,UP,LOWER_UP" && \
+    ip link show "$iface" 2>/dev/null | grep -q "state UP"
+}
+
+wait_for_internet() {
+    LOG "Waiting for internet connectivity..."
+    ELAPSED=0
+    while ! ping -c1 8.8.8.8 &>/dev/null; do
+        LOG "Waiting for internet connectivity... (${ELAPSED}s)"
+        sleep 10
+        ELAPSED=$((ELAPSED + 10))
+    done
+    LOG "SUCCESS: Internet connectivity confirmed"
+}
 
 # ====================================================================
 # STEP 1: Select target interface
@@ -107,12 +124,7 @@ fi
 # STEP 4: Verify internet connectivity
 # ====================================================================
 LOG "Step 4: Verifying internet connectivity..."
-if ! ping -c1 8.8.8.8 &>/dev/null; then
-    LOG "ERROR: No internet connectivity detected"
-    LOG "Enable WiFi Client Mode and try again"
-    exit 1
-fi
-LOG "SUCCESS: Internet connectivity confirmed"
+wait_for_internet
 
 # ====================================================================
 # STEP 5: Stop Evil Portal
@@ -149,12 +161,12 @@ LOG "Step 7: Updating network configuration..."
 
 # Save any pending SSID/key changes across all interfaces before any wireless commits
 # uci changes wireless output format: "wireless.wlan0wpa.ssid='value'" - extract value after =
-PENDING_SSID_WPA=$(uci changes wireless | grep "^wireless\.wlan0wpa\.ssid=" | cut -d= -f2- | tr -d "'")
-PENDING_KEY_WPA=$(uci changes wireless | grep "^wireless\.wlan0wpa\.key=" | cut -d= -f2- | tr -d "'")
-PENDING_SSID_OPEN=$(uci changes wireless | grep "^wireless\.wlan0open\.ssid=" | cut -d= -f2- | tr -d "'")
-PENDING_KEY_OPEN=$(uci changes wireless | grep "^wireless\.wlan0open\.key=" | cut -d= -f2- | tr -d "'")
-PENDING_SSID_MGMT=$(uci changes wireless | grep "^wireless\.wlan0mgmt\.ssid=" | cut -d= -f2- | tr -d "'")
-PENDING_KEY_MGMT=$(uci changes wireless | grep "^wireless\.wlan0mgmt\.key=" | cut -d= -f2- | tr -d "'")
+PENDING_SSID_WPA=$(uci changes wireless | grep "^wireless\.wlan0wpa\.ssid=" | cut -d= -f2- | tr -d "'" | tail -1)
+PENDING_KEY_WPA=$(uci changes wireless | grep "^wireless\.wlan0wpa\.key=" | cut -d= -f2- | tr -d "'" | tail -1)
+PENDING_SSID_OPEN=$(uci changes wireless | grep "^wireless\.wlan0open\.ssid=" | cut -d= -f2- | tr -d "'" | tail -1)
+PENDING_KEY_OPEN=$(uci changes wireless | grep "^wireless\.wlan0open\.key=" | cut -d= -f2- | tr -d "'" | tail -1)
+PENDING_SSID_MGMT=$(uci changes wireless | grep "^wireless\.wlan0mgmt\.ssid=" | cut -d= -f2- | tr -d "'" | tail -1)
+PENDING_KEY_MGMT=$(uci changes wireless | grep "^wireless\.wlan0mgmt\.key=" | cut -d= -f2- | tr -d "'" | tail -1)
 
 LOG "Pending SSID WPA: ${PENDING_SSID_WPA:-none}"
 LOG "Pending KEY WPA: ${PENDING_KEY_WPA:+set}"
@@ -335,9 +347,7 @@ LOG "Step 9: Applying network changes..."
 /etc/init.d/network restart
 sleep 10
 wifi
-LOG "Waiting for network connectivity..."
-until ping -c1 8.8.8.8 &>/dev/null; do sleep 2; done
-LOG "SUCCESS: Network connectivity restored"
+wait_for_internet
 
 # ====================================================================
 # STEP 10: Restart firewall
@@ -390,9 +400,7 @@ if [ "$TARGET_MODE" = "isolated" ]; then
     LOG "Step 12: Bringing up evil interface..."
     ifup evil
     sleep 5
-    LOG "Waiting for network connectivity..."
-    until ping -c1 8.8.8.8 &>/dev/null; do sleep 2; done
-    LOG "SUCCESS: Network connectivity restored"
+    wait_for_internet
 fi
 
 # Re-stage all pending SSID/key changes without committing
@@ -409,6 +417,11 @@ if [ -n "$PENDING_SSID_WPA" ] || [ -n "$PENDING_KEY_WPA" ] || \
    [ -n "$PENDING_SSID_OPEN" ] || [ -n "$PENDING_KEY_OPEN" ] || \
    [ -n "$PENDING_SSID_MGMT" ] || [ -n "$PENDING_KEY_MGMT" ]; then
     wifi reload
+    if [ "$TARGET_MODE" = "isolated" ]; then
+        sleep 5
+        ifup evil
+        wait_for_internet
+    fi
 fi
 
 # ====================================================================
@@ -467,12 +480,82 @@ elif [ "$TARGET_MODE" = "lan" ]; then
     fi
 fi
 
-LOG "Verifying internet connectivity..."
-if ping -c1 8.8.8.8 &>/dev/null; then
-    LOG "SUCCESS: Internet connectivity confirmed"
-else
-    LOG "ERROR: Internet connectivity lost"
-    exit 1
+# ====================================================================
+# STEP 14: Wait for interfaces to be fully up (isolated mode only)
+# ====================================================================
+if [ "$TARGET_MODE" = "isolated" ]; then
+    LOG "Step 14: Waiting for interfaces to be fully up..."
+    LOG "Waiting 15 seconds before checking..."
+    sleep 15
+
+    ELAPSED=0
+    MAX_WAIT=30
+    while [ $ELAPSED -lt $MAX_WAIT ]; do
+        TARGET_OK=0
+        OTHER_OK=0
+        iface_ready "$TARGET_IFACE" && TARGET_OK=1
+        iface_ready "$OTHER_IFACE" && OTHER_OK=1
+
+        if [ $TARGET_OK -eq 1 ] && [ $OTHER_OK -eq 1 ]; then
+            LOG "SUCCESS: Both interfaces fully up"
+            LOG "  ${TARGET_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            LOG "  ${OTHER_IFACE}: BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+
+            # Verify TARGET_IFACE is mastered to br-evil - retry for up to 30 seconds
+            MASTER_ELAPSED=0
+            MASTER_MAX=30
+            while [ $MASTER_ELAPSED -lt $MASTER_MAX ]; do
+                MASTER=$(ip link show "$TARGET_IFACE" 2>/dev/null | grep -o 'master [^ ]*' | cut -d' ' -f2)
+                if [ "$MASTER" = "br-evil" ]; then
+                    LOG "SUCCESS: ${TARGET_IFACE} mastered to br-evil"
+                    break
+                fi
+                LOG "Waiting for ${TARGET_IFACE} to be mastered to br-evil... (${MASTER_ELAPSED}s / ${MASTER_MAX}s)"
+                sleep 5
+                MASTER_ELAPSED=$((MASTER_ELAPSED + 5))
+                if [ $MASTER_ELAPSED -ge $MASTER_MAX ]; then
+                    LOG "ERROR: ${TARGET_IFACE} mastered to '${MASTER}' instead of br-evil after ${MASTER_MAX}s"
+                    exit 1
+                fi
+            done
+
+            # Verify broadcasting SSIDs match pending staged values
+            if [ -n "$PENDING_SSID_WPA" ]; then
+                BROADCASTING_WPA=$(iwinfo wlan0wpa info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
+                if [ "$BROADCASTING_WPA" = "$PENDING_SSID_WPA" ]; then
+                    LOG "SUCCESS: wlan0wpa broadcasting staged SSID: ${PENDING_SSID_WPA}"
+                else
+                    LOG "ERROR: wlan0wpa broadcasting '${BROADCASTING_WPA}' but expected staged SSID '${PENDING_SSID_WPA}'"
+                    exit 1
+                fi
+            fi
+
+            if [ -n "$PENDING_SSID_OPEN" ]; then
+                BROADCASTING_OPEN=$(iwinfo wlan0open info 2>/dev/null | grep 'ESSID' | cut -d'"' -f2)
+                if [ "$BROADCASTING_OPEN" = "$PENDING_SSID_OPEN" ]; then
+                    LOG "SUCCESS: wlan0open broadcasting staged SSID: ${PENDING_SSID_OPEN}"
+                else
+                    LOG "ERROR: wlan0open broadcasting '${BROADCASTING_OPEN}' but expected staged SSID '${PENDING_SSID_OPEN}'"
+                    exit 1
+                fi
+            fi
+
+            break
+        fi
+
+        [ $TARGET_OK -eq 0 ] && LOG "Waiting for ${TARGET_IFACE}... (${ELAPSED}s / ${MAX_WAIT}s)"
+        [ $OTHER_OK -eq 0 ] && LOG "Waiting for ${OTHER_IFACE}... (${ELAPSED}s / ${MAX_WAIT}s)"
+
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
+
+        if [ $ELAPSED -ge $MAX_WAIT ]; then
+            [ $TARGET_OK -eq 0 ] && LOG "WARNING: ${TARGET_IFACE} did not reach BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+            [ $OTHER_OK -eq 0 ] && LOG "WARNING: ${OTHER_IFACE} did not reach BROADCAST,MULTICAST,UP,LOWER_UP state UP"
+        fi
+    done
+
+    wait_for_internet
 fi
 
 # ====================================================================
