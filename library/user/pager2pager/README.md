@@ -30,6 +30,13 @@ To get started with the P2P Pager, follow these steps:
 > [!NOTE]
 > The service will be automatically enabled when installing it you can disable it using the `P2P - Manage Service` payload.
 
+## Known Issues
+
+- Messages are not encrypted
+- No authentication mechanism, anyone can send messages to the pagers in range.
+- around 50 percent chance of messages being not received (still working out the reason for this)
+- currently only supports the wifi pineapple pager, but shouldn't be hard to adapt it to other systems like raspberry pi zero w or similar devices with wifi capabilities
+
 ## Files
 
 ### Payloads
