@@ -10,7 +10,7 @@
 import os
 
 
-CONFIG_DIR = os.path.expanduser("~/.p2p_pager")
+CONFIG_DIR = os.path.expanduser("/root/.p2p_pager")
 NETWORKS_CONFIG_FILE = os.path.join(CONFIG_DIR, "networks.conf")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "p2p_pager.conf")
 

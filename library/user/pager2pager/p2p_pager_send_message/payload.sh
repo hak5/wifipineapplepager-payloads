@@ -40,5 +40,5 @@ MESSAGE=$(TEXT_PICKER "Enter the message to send:" "Hi" || {
 })
 
 
-LD_LIBRARY_PATH=/mmc/usr/lib:/mmc/lib /mmc/usr/bin/python3 /mmc/root/payloads/user/pager2pager/p2p_pager/p2p_pager_send.py --network "$selected_network" --message "$MESSAGE"
+LD_LIBRARY_PATH=/mmc/usr/lib:/mmc/lib /mmc/usr/bin/python3 /usr/bin/p2p_pager_send.py --network "$selected_network" --message "$MESSAGE"
 LOG "Message sent to network $selected_network"

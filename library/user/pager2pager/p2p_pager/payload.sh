@@ -8,18 +8,9 @@
 SERVICE_LOCATION="/etc/init.d/p2p_pager"
 BIN_LOCATION="/usr/bin/p2p_pager"
 START_SCRIPT_LOCATION="/usr/bin/start_p2p_pager.sh"
-
+SEND_MESSAGE_SCRIPT_LOCATION="/usr/bin/p2p_pager_send.py"
 
 P2P_CONFIG_DIR="/root/.p2p_pager"
-
-setup() {
-    if ! which python > /dev/null; then
-        LOG "Installing python..."
-        opkg update
-        opkg install -d mmc python3
-    fi
-}
-
 
 
 start_pager_service() {
@@ -97,6 +88,12 @@ install_pager_service() {
     cp start_p2p_pager.sh "$START_SCRIPT_LOCATION"
     chmod +x "$START_SCRIPT_LOCATION"
     LOG green "Start script copied to $START_SCRIPT_LOCATION."
+
+    # Copy send message script
+    LOG "Copying send message script..."
+    cp p2p_pager_send.py "$SEND_MESSAGE_SCRIPT_LOCATION"
+    chmod +x "$SEND_MESSAGE_SCRIPT_LOCATION"
+    LOG green "Send message script copied to $SEND_MESSAGE_SCRIPT_LOCATION."
 
     # Add Network file if needed
     # cp network_file_location /etc/config/networks
