@@ -70,6 +70,12 @@ Installation:
 - `/usr/bin/p2p_pager` - Main script for the P2P Pager service.
 - `/usr/bin/p2p_pager_send.py` - Script to send messages to other P2P pagers.
 
+Development files:
+> [!NOTE]  
+> These files are not required for the service to run, but I keep them here for development purposes and as examples of how to send and receive beacon frames.
+- `send_beacon.py` - Simple demo script to send beacon frames.
+- `receive_beacon.py` - Simple demo script to receive beacon frames.
+
 ## How it works
 
 The P2P Pager works by creating a beacon frame with the message embedded in an IE (Information Element), with the tag 221 (Vendor Specific). Other pagers in range will pick up the beacon frames, extract the message, and rebroadcast it to extend the range.
