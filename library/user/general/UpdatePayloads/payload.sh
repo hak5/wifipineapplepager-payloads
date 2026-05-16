@@ -101,7 +101,7 @@ process_payloads() {
         fi
 
         # 2. CHECK FOR CHANGES
-        if diff3 -r -q "$src_path" "$target_path" > /dev/null; then
+        if diff -r -q "$src_path" "$target_path" > /dev/null; then
             continue
         fi
 
