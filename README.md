@@ -14,7 +14,7 @@ This repository contains **community-developed payloads** for the Hak5 WiFi Pine
 <img src="https://img.shields.io/github/stars/hak5/wifipineapplepager-payloads?style=for-the-badge"/>
 <br/>
 <img src="https://img.shields.io/github/commit-activity/y/hak5/wifipineapplepager-payloads?style=for-the-badge">
-<img src="https://img.shields.io/github/contributors/hak5/wifipineapple-pager-payloads?style=for-the-badge">
+<img src="https://img.shields.io/github/contributors/hak5/wifipineapplepager-payloads?style=for-the-badge">
 </div>
 <br/>
 <p align="center">
