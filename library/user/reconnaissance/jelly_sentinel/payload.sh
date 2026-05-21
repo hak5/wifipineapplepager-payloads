@@ -3,7 +3,7 @@
 # Author:      hackagocthi
 # Category:    Recon
 # Description: Authorized network security assessment for home and SMB environments. Discovers devices, audits WiFi, checks vulnerabilities, inspects SSL, scans Bluetooth, captures traffic, and generates a scored loot report.
-# version: 1.0
+# version: 1.1
 
 # CONFIGURATION
 LOOT_BASE="/root/loot/jelly_sentinel"
@@ -86,7 +86,17 @@ add_finding() {
 }
 
 oui_vendor() {
-    whoismac -m "$1" 2>/dev/null | head -1 | cut -c1-25
+    local tmp="/tmp/jn_oui_$$.txt"
+    whoismac -m "$1" > "$tmp" 2>/dev/null
+    local result
+    result=$(grep -m1 "^VENDOR:" "$tmp" \
+        | sed 's/^VENDOR: //' \
+        | sed 's/ (UAA).*//' \
+        | sed 's/ (MAL).*//' \
+        | sed 's/ (IAB).*//' \
+        | cut -c1-25)
+    rm -f "$tmp"
+    echo "$result"
 }
 
 categorize_device() {
@@ -99,9 +109,24 @@ categorize_device() {
     gw=$(ip route | grep default | grep "$IFACE" | awk '{print $3}' | head -1)
     [ -n "$gw" ] && [ "$ip" = "$gw" ] && echo "ROUTER" && return
 
-    echo "$combined" | grep -qiE \
-        "asus|netgear|tp-link|tplink|dlink|d-link|linksys|ubiquiti|mikrotik|openwrt|zyxel|arris|motorola|technicolor|router|gateway|airport|fritzbox|fritz" \
-        && echo "ROUTER" && return
+    # Vendor-based router classification ONLY if open management ports confirm it
+    # This prevents TP-Link/ASUS EasyMesh nodes and other networking gear from
+    # being misclassified as routers when they're acting as APs or switches
+    local has_mgmt_ports=0
+    echo "$ports" | grep -qE "\b80\b|\b443\b|\b8080\b|\b8443\b" && has_mgmt_ports=1
+
+    if [ "$has_mgmt_ports" -eq 1 ]; then
+        echo "$combined" | grep -qiE \
+            "asus|netgear|tp-link|tplink|dlink|d-link|linksys|ubiquiti|mikrotik|openwrt|zyxel|arris|motorola|technicolor|router|gateway|airport|fritzbox|fritz" \
+            && echo "ROUTER" && return
+    else
+        # Without open management ports, only classify as ROUTER if hostname/title
+        # strongly implies it (not just vendor match)
+        echo "$combined" | grep -qiE \
+            "router|gateway|openwrt|fritzbox|fritz|mikrotik" \
+            && echo "ROUTER" && return
+    fi
+
     echo "$combined" | grep -qiE \
         "hikvision|dahua|axis|reolink|nest|ring|amcrest|lorex|camera|cam|nvr|dvr|ipcam|vivotek|foscam|wyze|eufy|arlo" \
         && echo "CAMERA" && return
@@ -314,7 +339,7 @@ _emit_eol() {
 
 phase_preflight() {
     LOG ""
-    LOG yellow "===== Jelly Sentinel v1.0 ====="
+    LOG yellow "===== Jelly Sentinel v1.1 ====="
     LOG ""
 
     local batt
@@ -416,7 +441,7 @@ phase_authorization() {
         echo "Scan Mode: $SCAN_MODE"
         echo "GPS      : $GPS_COORDS"
         echo "Consent  : CONFIRMED"
-        echo "Tool     : Jelly Sentinel v1.0 / WiFi Pineapple Pager"
+        echo "Tool     : Jelly Sentinel v1.1 / WiFi Pineapple Pager"
         echo "================================================"
         echo ""
     } > "$REPORT"
@@ -458,15 +483,27 @@ phase_wifi_audit() {
         sleep 2
 
         if [ -f "$RECON_DB" ]; then
+            # Scope to current scan session — time is unix epoch in this DB
+            local scan_start_epoch
+            scan_start_epoch=$(( $(date +%s) - WIFI_SCAN_TIME - 30 ))
+
             local ap_count
             ap_count=$(sqlite3 "$RECON_DB" \
-                "SELECT COUNT(DISTINCT bssid) FROM ssid WHERE bssid != '';" 2>/dev/null)
-            LOG green "Recon DB: $ap_count unique APs"
+                "SELECT COUNT(DISTINCT bssid) FROM ssid
+                 WHERE bssid != '' AND time >= $scan_start_epoch;" 2>/dev/null)
+            # Fall back to last 5 minutes if scan window returns nothing
+            if [ "${ap_count:-0}" -eq 0 ]; then
+                local fallback_epoch=$(( $(date +%s) - 300 ))
+                ap_count=$(sqlite3 "$RECON_DB" \
+                    "SELECT COUNT(DISTINCT bssid) FROM ssid
+                     WHERE bssid != '' AND time >= $fallback_epoch;" 2>/dev/null)
+            fi
+            LOG green "Recon DB: ${ap_count:-0} unique APs (this scan)"
 
-            # Export AP list to wifi file
+            # Export current scan AP list to wifi file
             sqlite3 "$RECON_DB" \
                 "SELECT bssid, ssid, channel, signal, encryption, hidden
-                 FROM ssid WHERE bssid != ''
+                 FROM ssid WHERE bssid != '' AND time >= $scan_start_epoch
                  GROUP BY bssid HAVING signal = MAX(signal)
                  ORDER BY signal DESC;" 2>/dev/null \
                 > "$WIFI_FILE"
@@ -475,17 +512,19 @@ phase_wifi_audit() {
             local open_count
             open_count=$(sqlite3 "$RECON_DB" \
                 "SELECT COUNT(DISTINCT bssid) FROM ssid
-                 WHERE encryption = 0 AND bssid != '';" 2>/dev/null)
+                 WHERE encryption = 0 AND bssid != ''
+                 AND time >= $scan_start_epoch;" 2>/dev/null)
             [ "${open_count:-0}" -gt 0 ] && \
                 add_finding "HIGH" "Open WiFi Networks ($open_count)" \
                     "$open_count unencrypted network(s) detected in range" \
                     "7.4" "N/A" "Enable WPA2/WPA3 on all wireless networks"
 
-            # Check for WPS (encryption bitmask includes WPS flag)
+            # Check for WPS
             local wps_count
             wps_count=$(sqlite3 "$RECON_DB" \
                 "SELECT COUNT(DISTINCT bssid) FROM ssid
-                 WHERE (encryption & 4096) != 0 AND bssid != '';" 2>/dev/null)
+                 WHERE (encryption & 4096) != 0 AND bssid != ''
+                 AND time >= $scan_start_epoch;" 2>/dev/null)
             [ "${wps_count:-0}" -gt 0 ] && \
                 add_finding "HIGH" "WPS Enabled ($wps_count APs)" \
                     "WPS detected on $wps_count AP(s) — Pixie Dust attack possible" \
@@ -495,7 +534,8 @@ phase_wifi_audit() {
             local hidden_count
             hidden_count=$(sqlite3 "$RECON_DB" \
                 "SELECT COUNT(DISTINCT bssid) FROM ssid
-                 WHERE hidden = 1 AND bssid != '';" 2>/dev/null)
+                 WHERE hidden = 1 AND bssid != ''
+                 AND time >= $scan_start_epoch;" 2>/dev/null)
             [ "${hidden_count:-0}" -gt 0 ] && \
                 add_finding "LOW" "Hidden SSIDs ($hidden_count)" \
                     "$hidden_count hidden network(s) — security through obscurity" \
@@ -525,14 +565,26 @@ phase_wifi_audit() {
     fi
 
     local scan_out
-    scan_out=$(iw dev "$IFACE" scan 2>/dev/null | head -200)
-    local has_wpa2 has_pmf
-    has_wpa2=$(echo "$scan_out" | grep -c "WPA2\|RSN" 2>/dev/null)
-    has_pmf=$(echo "$scan_out" | grep -c "MFP\|MFPC\|MFPR" 2>/dev/null)
-    [ "${has_wpa2:-0}" -gt 0 ] && [ "${has_pmf:-0}" -eq 0 ] && \
-        add_finding "MEDIUM" "PMF Not Enabled" \
-            "Protected Management Frames disabled — deauth attacks possible" \
-            "5.3" "CVE-2019-16275" "Enable 802.11w in router WiFi settings"
+    scan_out=$(iw dev "$IFACE" scan 2>/dev/null | head -400)
+
+    # Get connected BSSID to scope security checks to our AP only
+    local connected_bssid
+    connected_bssid=$(iw dev "$IFACE" link 2>/dev/null | grep "Connected to" | awk '{print $3}')
+
+    # Scope PMF check to connected AP only
+    if [ -n "$connected_bssid" ]; then
+        local ap_block has_wpa2 has_wpa3 has_pmf
+        # Extract the scan block for our connected AP
+        ap_block=$(echo "$scan_out" | awk "/BSS ${connected_bssid}/,/^BSS /" | head -50)
+        has_wpa2=$(echo "$ap_block" | grep -cE "WPA2|RSN" 2>/dev/null)
+        has_wpa3=$(echo "$ap_block" | grep -cE "SAE|WPA3|PSK-SHA256" 2>/dev/null)
+        has_pmf=$(echo "$ap_block" | grep -cE "MFP|MFPC|MFPR|80211w|ieee80211w|PMF" 2>/dev/null)
+        if [ "${has_wpa2:-0}" -gt 0 ] && [ "${has_pmf:-0}" -eq 0 ] && [ "${has_wpa3:-0}" -eq 0 ]; then
+            add_finding "MEDIUM" "PMF Not Enabled" \
+                "Protected Management Frames disabled on connected AP — deauth attacks possible" \
+                "5.3" "CVE-2019-16275" "Enable 802.11w in router WiFi settings"
+        fi
+    fi
 
     local cur_gw
     cur_gw=$(ip route | grep default | grep "$IFACE" | awk '{print $3}' | head -1)
@@ -841,18 +893,84 @@ phase_risk_checks() {
             local creds="admin:admin admin:password admin: admin:1234 root:root"
             local vendor_l
             vendor_l=$(echo "$vendor" | tr 'A-Z' 'a-z')
-            echo "$vendor_l" | grep -qi "asus"    && creds="admin:admin $creds"
-            echo "$vendor_l" | grep -qi "netgear" && creds="admin:password $creds"
+            echo "$vendor_l" | grep -qi "asus"     && creds="admin:admin $creds"
+            echo "$vendor_l" | grep -qi "netgear"  && creds="admin:password $creds"
             echo "$vendor_l" | grep -qi "tplink\|tp-link" && creds="admin:admin $creds"
             echo "$vendor_l" | grep -qi "mikrotik" && creds="admin: $creds"
-            echo "$vendor_l" | grep -qi "zyxel"   && creds="admin:1234 $creds"
+            echo "$vendor_l" | grep -qi "zyxel"    && creds="admin:1234 $creds"
+
+            # Vendor-specific auth check — returns 0 if credentials worked
+            _check_router_auth() {
+                local ip="$1" user="$2" pass="$3" vl="$4"
+
+                # TP-Link: POST to stok API, check for stok token in response
+                if echo "$vl" | grep -qi "tplink\|tp-link"; then
+                    local tplink_resp
+                    tplink_resp=$(curl -sk --max-time "$PORT_TIMEOUT" \
+                        -X POST "http://$ip/cgi-bin/luci/;stok=/login" \
+                        -H "Content-Type: application/json" \
+                        -d "{\"method\":\"do\",\"login\":{\"password\":\"$pass\"}}" \
+                        2>/dev/null)
+                    echo "$tplink_resp" | grep -q '"stok":"[a-f0-9]\+' && return 0
+                    return 1
+                fi
+
+                # ASUS: POST to login.cgi, look for asus_token cookie
+                if echo "$vl" | grep -qi "asus"; then
+                    local asus_resp
+                    asus_resp=$(curl -sk --max-time "$PORT_TIMEOUT" -c /tmp/jn_asus_cookie \
+                        -X POST "http://$ip/login.cgi" \
+                        -d "login_authorization=$(echo -n "$user:$pass" | base64)" \
+                        -D - 2>/dev/null)
+                    echo "$asus_resp" | grep -qi "asus_token" && return 0
+                    return 1
+                fi
+
+                # Netgear: POST to check.php or basic auth to setup.cgi
+                if echo "$vl" | grep -qi "netgear"; then
+                    local ng_resp
+                    ng_resp=$(curl -sk --max-time "$PORT_TIMEOUT" \
+                        -u "$user:$pass" "http://$ip/setup.cgi?next_file=BAS_ether.htm" \
+                        2>/dev/null)
+                    echo "$ng_resp" | grep -qi "NETGEAR\|router\|firmware" && \
+                        ! echo "$ng_resp" | grep -qi "login\|password\|unauthorized" && return 0
+                    return 1
+                fi
+
+                # MikroTik: basic auth to /webfig/
+                if echo "$vl" | grep -qi "mikrotik"; then
+                    local mt_code
+                    mt_code=$(curl -sk --max-time "$PORT_TIMEOUT" \
+                        -u "$user:$pass" "http://$ip/webfig/" \
+                        -w "%{http_code}" -o /tmp/jn_mt_body 2>/dev/null)
+                    [ "$mt_code" = "200" ] && \
+                        grep -qi "RouterOS\|webfig\|menu" /tmp/jn_mt_body 2>/dev/null && return 0
+                    return 1
+                fi
+
+                # Generic fallback: basic auth + verify body looks like dashboard not login page
+                local body code
+                body=$(curl -sk --max-time "$PORT_TIMEOUT" \
+                    -u "$user:$pass" "http://$ip/" \
+                    -w "\n%{http_code}" 2>/dev/null)
+                code=$(echo "$body" | tail -1)
+                body=$(echo "$body" | head -n -1)
+                # Must get 200/302 AND body must NOT look like a login page
+                if [ "$code" = "200" ] || [ "$code" = "302" ]; then
+                    echo "$body" | grep -qiE \
+                        "logout|dashboard|connected.devices|firmware|wan.status|lan.status|dhcp.lease" \
+                        && ! echo "$body" | grep -qiE \
+                        "type=['\"]password['\"]|login.form|sign.in|enter.password|local.password" \
+                        && return 0
+                fi
+                return 1
+            }
+
             for cred in $creds; do
                 local u p
-                u=$(echo "$cred" | cut -d: -f1); p=$(echo "$cred" | cut -d: -f2)
-                local resp
-                resp=$(curl -sk --max-time "$PORT_TIMEOUT" -u "$u:$p" \
-                    "http://$dip/" -w "%{http_code}" -o /dev/null 2>/dev/null)
-                if [ "$resp" = "200" ] || [ "$resp" = "302" ]; then
+                u=$(echo "$cred" | cut -d: -f1)
+                p=$(echo "$cred" | cut -d: -f2)
+                if _check_router_auth "$dip" "$u" "$p" "$vendor_l"; then
                     add_finding "CRITICAL" "Default Router Creds (ROUTER): $dip" \
                         "$dip${vendor:+ ($vendor)} accepts $u:$p" \
                         "9.8" "N/A" "Change router password immediately"
@@ -950,13 +1068,22 @@ phase_risk_checks() {
         fi
 
         if [ "$dip" = "$gw" ]; then
-            local dns_test
-            dns_test=$(nslookup "rebind-test.example.com" "$dip" 2>/dev/null \
-                | grep "Address" | tail -1 | awk '{print $2}')
-            echo "$dns_test" | grep -qE \
-                "^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\." 2>/dev/null && \
-                add_finding "HIGH" "DNS Rebinding Risk (ROUTER): $dip" \
-                    "Router DNS may resolve external names to LAN IPs" \
+            # Use a real external domain that should NEVER resolve to a private IP
+            # If it does, the router's DNS is rebinding external names to LAN space
+            local dns_test dns_hit=0
+            for test_domain in "doubleclick.net" "google.com" "example.com"; do
+                dns_test=$(nslookup "$test_domain" "$dip" 2>/dev/null \
+                    | grep "Address" | grep -v "#53" | tail -1 | awk '{print $2}')
+                [ -z "$dns_test" ] && continue
+                if echo "$dns_test" | grep -qE \
+                    "^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[01])\."; then
+                    dns_hit=1
+                    break
+                fi
+            done
+            [ "$dns_hit" -eq 1 ] && \
+                add_finding "HIGH" "DNS Rebinding Confirmed (ROUTER): $dip" \
+                    "Router DNS resolved $test_domain to LAN IP $dns_test — active rebinding" \
                     "8.1" "N/A" "Enable DNS rebinding protection in router"
         fi
 
@@ -1304,7 +1431,7 @@ phase_report() {
 
     {
         echo "================================================"
-        echo "Generated by Jelly Sentinel v1.0 / WiFi Pineapple Pager"
+        echo "Generated by Jelly Sentinel v1.1 / WiFi Pineapple Pager"
         echo "Tester: $TESTER | Target: $TARGET"
         echo "For authorized security testing only"
         echo "================================================"
@@ -1354,7 +1481,7 @@ LED FINISH
 RINGTONE "success"
 
 LOG ""
-LOG green "===== JELLY SENTINEL COMPLETE ====="
+LOG green "===== JELLY SENTINEL v1.1 COMPLETE ====="
 LOG ""
 LOG green "Loot saved to:"
 LOG "$LOOT_DIR"
