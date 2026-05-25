@@ -1999,6 +1999,8 @@ config_read() {
 	if [[ "$line" -eq 1 ]] ; then skip_ask_1st_scan=1; else skip_ask_1st_scan=0; fi
 	line=$(jq -r '.skip_ask_ringtones' "$SAVEDCONFIG_FILE")
 	if [[ "$line" -eq 1 ]] ; then skip_ask_ringtones=1; else skip_ask_ringtones=0; fi
+	line=$(jq -r '.selnum_main' "$SAVEDCONFIG_FILE")
+	if [[ "$line" =~ $re && "$line" -gt 0 ]] ; then selnum_main="$line"; else selnum_main=1; fi
 	
 	line=$(jq -r '.filter_multilocal' "$SAVEDCONFIG_FILE")
 	if [[ "$line" -eq 1 ]] ; then filter_multilocal=1; else filter_multilocal=0; fi
@@ -2060,6 +2062,7 @@ Confirm Overwrite?")
 		  --argjson val_scan_stealth "$scan_stealth" \
 		  --argjson val_skip_ask_1st_scan "$skip_ask_1st_scan" \
 		  --argjson val_skip_ask_ringtones "$skip_ask_ringtones" \
+		  --argjson val_selnum_main "$selnum_main" \
 		  --argjson val_filter_multilocal "$filter_multilocal" \
 		  --argjson val_filter_randomall "$filter_randomall" \
 		  --argjson val_filter_localall "$filter_localall" \
@@ -2070,7 +2073,7 @@ Confirm Overwrite?")
 		  --argjson val_total_scan_min "$total_scan_min" \
 		  --arg val_custom_oui "$custom_oui" \
 		  --arg val_custom_name "$custom_name" \
-		  '{DATA_SCAN_SECONDS: $val_DATA_SCAN_SECONDS, scan_btle: $val_scan_btle, scan_btclassic: $val_scan_btclassic, scan_infrepeat: $val_scan_infrepeat, scan_mute: $val_scan_mute, scan_debug: $val_scan_debug, scan_privacy: $val_scan_privacy, scan_friendly: $val_scan_friendly, scan_stealth: $val_scan_stealth, skip_ask_1st_scan: $val_skip_ask_1st_scan, skip_ask_ringtones: $val_skip_ask_ringtones, filter_multilocal: $val_filter_multilocal, filter_randomall: $val_filter_randomall, filter_localall: $val_filter_localall, filter_multiall: $val_filter_multiall, filter_emptyoui: $val_filter_emptyoui, total_scans: $val_total_scans, total_detected: $val_total_detected, total_scan_min: $val_total_scan_min, custom_oui: $val_custom_oui, custom_name: $val_custom_name}' > "$SAVEDCONFIG_FILE"
+		  '{DATA_SCAN_SECONDS: $val_DATA_SCAN_SECONDS, scan_btle: $val_scan_btle, scan_btclassic: $val_scan_btclassic, scan_infrepeat: $val_scan_infrepeat, scan_mute: $val_scan_mute, scan_debug: $val_scan_debug, scan_privacy: $val_scan_privacy, scan_friendly: $val_scan_friendly, scan_stealth: $val_scan_stealth, skip_ask_1st_scan: $val_skip_ask_1st_scan, skip_ask_ringtones: $val_skip_ask_ringtones, selnum_main: $val_selnum_main, filter_multilocal: $val_filter_multilocal, filter_randomall: $val_filter_randomall, filter_localall: $val_filter_localall, filter_multiall: $val_filter_multiall, filter_emptyoui: $val_filter_emptyoui, total_scans: $val_total_scans, total_detected: $val_total_detected, total_scan_min: $val_total_scan_min, custom_oui: $val_custom_oui, custom_name: $val_custom_name}' > "$SAVEDCONFIG_FILE"
 		if [[ "$silent_backup" -eq 0 ]] ; then LOG green "Configuration Backup complete!"; fi
 	fi
 	if [[ "$silent_backup" -eq 0 ]] ; then LOG " "; fi
@@ -2098,6 +2101,7 @@ config_restore() {
 		PAYLOAD_SET_CONFIG bluepinesuite scan_stealth "$scan_stealth"
 		PAYLOAD_SET_CONFIG bluepinesuite skip_ask_1st_scan "$skip_ask_1st_scan"
 		PAYLOAD_SET_CONFIG bluepinesuite skip_ask_ringtones "$skip_ask_ringtones"
+		PAYLOAD_SET_CONFIG bluepinesuite selnum_main "$selnum_main"
 		
 		PAYLOAD_SET_CONFIG bluepinesuite filter_multilocal "$filter_multilocal"
 		PAYLOAD_SET_CONFIG bluepinesuite filter_randomall "$filter_randomall"
