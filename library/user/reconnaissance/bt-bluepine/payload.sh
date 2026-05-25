@@ -18,6 +18,7 @@
 # https://github.com/aat440hz/CardSkimmerDetector-M5AtomS3LITE - (CC Skimmer Data)
 # https://github.com/colonelpanichacks/flock-you - (Flock OUIs + Names)
 # StamenScan - Author: FusedStamen - https://github.com/FusedStamen/StamenScan - (MAC filter idea)
+# Smart Glasses Detector - Noezsolution - https://github.com/Noezsolution/pineapple-pager-glasses-detector - (Smart Glasses Names)
 # 
 # ============================================
 # Includes: 
@@ -29,7 +30,7 @@
 #  -- -- -- Filters allowed, remove MAC addresses from scan that match Multicast/Random/Locally Administered.
 #  -- -- -- Verbose logging / debugging available, GPS coordinate logging if GPS device enabled.
 #  -- Bluetooth Device Detection: 
-#  -- -- -- Axon / CC Skimmer / Flipper / Flock / Meshtastic / USB Kill / WiFi Pineapple BT Scanner.
+#  -- -- -- Axon / CC Skimmer / Flipper / Flock / Meshtastic / Smart Glasses / USB Kill / WiFi Pineapple BT Scanner.
 #  -- -- -- Scan the airwaves, save targets, or scan your already saved target list from Device Hunter scans.
 #  -- Bluetooth Jammer Detector & Locator: 
 #  -- -- -- Detects & Locates Bluetooth Jammers/Interference Devices within close range.
@@ -295,6 +296,7 @@ scan_BT_AXONCAMS="false"
 scan_BT_CCSKIMMR="false"
 scan_BT_FLIPPERS="false"
 scan_BT_FLOCKCAM="false"
+scan_BT_SMRTGLAS="false"
 scan_BT_MESHTAST="false"
 scan_BT_USBKILLS="false"
 scan_BT_PINEAPPS="false"
@@ -345,6 +347,7 @@ declare -A BT_CCSKIMMR
 declare -A BT_FLIPPERS
 declare -A BT_FLOCKCAM
 declare -A BT_MESHTAST
+declare -A BT_SMRTGLAS
 declare -A BT_USBKILLS
 declare -A BT_PINEAPPS
 declare -A BT_CUSTOMOU
@@ -525,6 +528,7 @@ while true; do
 			scan_BT_FLIPPERS="false"
 			scan_BT_FLOCKCAM="false"
 			scan_BT_MESHTAST="false"
+			scan_BT_SMRTGLAS="false"
 			scan_BT_USBKILLS="false"
 			scan_BT_PINEAPPS="false"
 			scan_custom=0
@@ -541,6 +545,7 @@ while true; do
 				scan_BT_FLIPPERS="true"
 				scan_BT_FLOCKCAM="true"
 				scan_BT_MESHTAST="true"
+				scan_BT_SMRTGLAS="true"
 				scan_BT_USBKILLS="true"
 				scan_BT_PINEAPPS="true"
 				scan_detection
@@ -551,6 +556,7 @@ while true; do
 				scan_BT_FLIPPERS="true"
 				scan_BT_FLOCKCAM="true"
 				scan_BT_MESHTAST="true"
+				scan_BT_SMRTGLAS="true"
 				scan_BT_USBKILLS="true"
 				scan_BT_PINEAPPS="true"
 				scan_detect_from_scanned
@@ -586,10 +592,14 @@ while true; do
 				scan_BT_MESHTAST="true"
 				scan_detection
 			elif [[ "$submenu_option" -eq 9 ]]; then
+				LOG "Running Smart Glasses Detection...."
+				scan_BT_SMRTGLAS="true"
+				scan_detection
+			elif [[ "$submenu_option" -eq 10 ]]; then
 				LOG "Running USB Kill Detection...."
 				scan_BT_USBKILLS="true"
 				scan_detection
-			elif [[ "$submenu_option" -eq 10 ]]; then
+			elif [[ "$submenu_option" -eq 11 ]]; then
 				LOG "Running WiFi Pineapple Detection...."
 				scan_BT_PINEAPPS="true"
 				scan_detection
@@ -871,6 +881,7 @@ while true; do
 						scan_stealth=0
 						skip_ask_1st_scan=0
 						skip_ask_ringtones=0
+						selnum_main=1
 						filter_multilocal=0
 						filter_randomall=0
 						filter_localall=0
@@ -903,6 +914,7 @@ while true; do
 						PAYLOAD_SET_CONFIG bluepinesuite scan_stealth "$scan_stealth"
 						PAYLOAD_SET_CONFIG bluepinesuite skip_ask_1st_scan "$skip_ask_1st_scan"
 						PAYLOAD_SET_CONFIG bluepinesuite skip_ask_ringtones "$skip_ask_ringtones"
+						PAYLOAD_SET_CONFIG bluepinesuite selnum_main "$selnum_main"
 						PAYLOAD_SET_CONFIG bluepinesuite filter_multilocal "$filter_multilocal"
 						PAYLOAD_SET_CONFIG bluepinesuite filter_randomall "$filter_randomall"
 						PAYLOAD_SET_CONFIG bluepinesuite filter_localall "$filter_localall"
