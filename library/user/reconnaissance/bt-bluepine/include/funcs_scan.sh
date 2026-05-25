@@ -18,6 +18,7 @@
 # check_bt_flockcam
 # check_bt_flippers
 # check_bt_meshtast
+# check_bt_smrtglas
 # check_bt_usbkills
 # check_bt_pineapps
 # check_bt_customou
@@ -28,6 +29,7 @@
 # warn_bt_flippers
 # warn_bt_flockcam
 # warn_bt_meshtast
+# warn_bt_smrtglas
 # warn_bt_usbkills
 # warn_bt_customou
 # 
@@ -1370,6 +1372,7 @@ detect_bt_le() {
 		if [[ "$scan_BT_CCSKIMMR" == "true" ]] ; then check_bt_ccskimmr "$mac" "$name"; fi
 		if [[ "$scan_BT_FLOCKCAM" == "true" ]] ; then check_bt_flockcam "$mac" "$name"; fi
 		if [[ "$scan_BT_MESHTAST" == "true" ]] ; then check_bt_meshtast "$mac" "$name"; fi
+		if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then check_bt_smrtglas "$mac" "$name"; fi
 		if [[ "$scan_BT_FLIPPERS" == "true" ]] ; then check_bt_flippers "$mac" "$name"; fi
 		if [[ "$scan_BT_USBKILLS" == "true" ]] ; then check_bt_usbkills "$mac" "$name"; fi
 		# Pineapple pager is BT CLASSIC
@@ -1759,6 +1762,20 @@ scan_detection() {
 			btle_searchText="Meshtastic"
 		fi
 	fi
+	if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then
+		searchCount=$((searchCount + 1))
+		btle_searchCount=$((btle_searchCount + 1))
+		if [[ "$searchCount" -gt 1 ]] ; then
+			searchText="${searchText} / Smart Glasses"
+		else
+			searchText="Smart Glasses"
+		fi
+		if [[ "$btle_searchCount" -gt 1 ]] ; then
+			btle_searchText="${btle_searchText} / Smart Glasses"
+		else
+			btle_searchText="Smart Glasses"
+		fi
+	fi
 	if [[ "$scan_BT_USBKILLS" == "true" ]] ; then
 		searchCount=$((searchCount + 1))
 		btle_searchCount=$((btle_searchCount + 1))
@@ -1836,6 +1853,7 @@ scan_detection() {
 			BT_FLIPPERS=()
 			BT_FLOCKCAM=()
 			BT_MESHTAST=()
+			BT_SMRTGLAS=()
 			BT_USBKILLS=()
 			BT_PINEAPPS=()
 			
@@ -1866,7 +1884,7 @@ scan_detection() {
 				sleep 1
 			fi			
 			
-			if [[ "$scan_BT_AXONCAMS" == "true" || "$scan_BT_CCSKIMMR" == "true" || "$scan_BT_FLIPPERS" == "true" || "$scan_BT_FLOCKCAM" == "true" || "$scan_BT_MESHTAST" == "true" || "$scan_BT_USBKILLS" == "true" ]] ; then
+			if [[ "$scan_BT_AXONCAMS" == "true" || "$scan_BT_CCSKIMMR" == "true" || "$scan_BT_FLIPPERS" == "true" || "$scan_BT_FLOCKCAM" == "true" || "$scan_BT_MESHTAST" == "true" || "$scan_BT_SMRTGLAS" == "true" || "$scan_BT_USBKILLS" == "true" ]] ; then
 				if [[ "$scan_stealth" -eq 0 ]] ; then LED CYAN SLOW; fi
 				LOG cyan "Scanning for ${btle_searchText} BT Signals..."
 				LOG cyan "Scanning for ${DATA_SCAN_SECONDS}s..."
@@ -1906,6 +1924,12 @@ scan_detection() {
 
 			if [[ "$scan_BT_MESHTAST" == "true" ]] ; then
 				warn_bt_meshtast
+				LOG " "
+				sleep 0.25
+			fi
+
+			if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then
+				warn_bt_smrtglas
 				LOG " "
 				sleep 0.25
 			fi
@@ -2033,7 +2057,7 @@ check_bt_axoncams() {
 		# check if key exists, even if empty
 		if [[ -v BT_AXONCAMS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_AXONCAMS[$mac]="$name"
 			fi
 		else
@@ -2041,7 +2065,7 @@ check_bt_axoncams() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 			fi
 		else
@@ -2076,6 +2100,7 @@ check_bt_ccskimmr() {
 	
 	if [[ "$mac" =~ $VALID_MAC ]]; then
 		# Check against the MAC address pattern for manufacturing date
+		# local mac="08:13:01:31:00:00"
 		# local mac="20:13:01:31:00:00"
 		checkdateMAC=${mac:0:11}
 		# LOG "mac $mac is valid"
@@ -2086,19 +2111,23 @@ check_bt_ccskimmr() {
 		checkday="${checkdateMAC:9:2}"
 		curyear=$(date +%Y)
 		re='^[0-9]+$'
+		# echo "checkyear: $checkyear"; echo "checkmon: $checkmon"; echo "checkday: $checkday"
 		# check if numbers first
 		if [[ "$checkyear" =~ $re && "$checkmon" =~ $re && "$checkday" =~ $re ]] ; then
+			# remove leading zeroes
+			checkyear="${checkyear#${checkyear%%[1-9]*}}"; checkmon="${checkmon#${checkmon%%[1-9]*}}"; checkday="${checkday#${checkday%%[1-9]*}}"
 			if [[ "$checkyear" -ge 2013 && "$checkyear" -le "$curyear" && "$checkmon" -ge 1 && "$checkmon" -le 12 && "$checkday" -ge 1 && "$checkday" -le 31 ]] ; then
 				skimmerfound=1
 			fi
 		fi
+		# echo "skimmerfound: $skimmerfound"; echo "checkdateMAC: $checkdateMAC"; echo "checkyear: $checkyear"
 	fi
 	if [[ "$CCSKIMMR_OUI" == "$target_oui" || -v CCSKIMMR_NAMES["$name"] || "$name" =~ ^RNBT-[A-Za-z0-9]{4}$ || "$skimmerfound" -eq 1 ]] ; then
 		skimmerfound=1
 		# check if key exists, even if empty
 		if [[ -v BT_CCSKIMMR[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_CCSKIMMR[$mac]="$name"
 			fi
 		else
@@ -2106,7 +2135,7 @@ check_bt_ccskimmr() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 			fi
 		else
@@ -2120,6 +2149,7 @@ check_bt_ccskimmr() {
 check_bt_flockcam() {
 	local mac="$1"
 	local name="$2"
+	local namefound=0
 	local target_oui="${mac:0:8}"
 	
 	# Flock OUIs
@@ -2162,11 +2192,9 @@ check_bt_flockcam() {
 	FLOCKCAM_OUIS["d4:11:d6"]="y"
 
 	# CHECK Flock NAMES
-	declare -A FLOCKCAM_NAMES
-	FLOCKCAM_NAMES["FS Ext Battery"]="y"
-	FLOCKCAM_NAMES["Penguin"]="y"
-	FLOCKCAM_NAMES["Flock"]="y"
-	FLOCKCAM_NAMES["Pigvision"]="y"
+	if [[ "$name" == *"FS Ext Battery"* || "$name" == *"Penguin"* || "$name" == *"Flock"* || "$name" == *"Pigvision"* ]] ; then
+		namefound=1
+	fi
 	
 	# FLOCK Manufacturer ID
 	# BLE Manufacturer Company IDs
@@ -2179,11 +2207,11 @@ check_bt_flockcam() {
 	# AD Type: 0x03 → Complete List of 16-bit Service UUIDs
 	# Value: C8 09 → UUID 0x09C8 (little-endian!)
 
-	if [[ -v FLOCKCAM_OUIS["$target_oui"] || -v FLOCKCAM_NAMES["$name"] ]]; then
+	if [[ -v FLOCKCAM_OUIS["$target_oui"] || "$namefound" -eq 1 ]]; then
 		# check if key exists, even if empty
 		if [[ -v BT_FLOCKCAM[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_FLOCKCAM[$mac]="$name"
 			fi
 		else
@@ -2191,7 +2219,7 @@ check_bt_flockcam() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 			fi
 		else
@@ -2207,16 +2235,18 @@ check_bt_flippers() {
 	local name="$2"
 	local target_oui="${mac:0:8}"
 	
+	# Title: Flipper Detector, Author: nemanjan00, FLIPPER_OUI="80:E1:26"
 	local FLIPPER_OUI="0C:FA:22"
+	local FLIPPER_OUI2="80:E1:26"
 	local FLIPPER_NAME="flipper"
 	local FLIPPER_NAME2="badusb"
 	
 	# Add hits, devices that include string "flipper" in name or hardcoded OUI in MAC
-	if [[ "$target_oui" == "$FLIPPER_OUI" || "$name" == *"$FLIPPER_NAME"* || "$name" == *"$FLIPPER_NAME2"* ]] ; then
+	if [[ "$target_oui" == "$FLIPPER_OUI" || "$target_oui" == "$FLIPPER_OUI2" || "$name" == *"$FLIPPER_NAME"* || "$name" == *"$FLIPPER_NAME2"* ]] ; then
 		# check if key exists, even if empty
 		if [[ -v BT_FLIPPERS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_FLIPPERS[$mac]="$name"
 			fi
 		else
@@ -2224,7 +2254,7 @@ check_bt_flippers() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 			fi
 		else
@@ -2258,7 +2288,7 @@ check_bt_meshtast() {
 		# check if key exists, even if empty
 		if [[ -v BT_MESHTAST[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_MESHTAST[$mac]="$name"
 			fi
 		else
@@ -2266,13 +2296,80 @@ check_bt_meshtast() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 			fi
 		else
 			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "MESHTAST exists!"
+	fi
+}
+
+
+# smart glasses check
+check_bt_smrtglas() {
+	local mac="$1"
+	local name="$2"
+	local namefound=0
+	local target_oui="${mac:0:8}"
+	
+	# Smart Glasses OUIs
+	declare -A SMRTGLAS_OUIS
+	# Major Bluetooth Smart Glasses & Wearable Manufacturers
+	# Meta Platforms / Luxottica (Ray-Ban Meta, Oakley Meta)
+	SMRTGLAS_OUIS["04:F0:21"]="y"
+	# Snap Inc. (Spectacles)
+	SMRTGLAS_OUIS["0C:89:10"]="y"
+	# Amazon (Echo Frames)
+	SMRTGLAS_OUIS["44:6A:20"]="y"
+	SMRTGLAS_OUIS["00:03:9A"]="y"
+	# Vuzix (Blade, Z100)
+	SMRTGLAS_OUIS["00:18:23"]="y"
+	# Razer (Anzu Smart Glasses)
+	SMRTGLAS_OUIS["00:74:9C"]="y"
+	
+	# Major Component Manufacturers (Frequently found in third-party Smart Glasses)
+	# Many independent audio and AR smart glasses utilize off-the-shelf Bluetooth SoCs from these major tech companies:
+	# Qualcomm
+	SMRTGLAS_OUIS["00:1C:EF"]="y"
+	SMRTGLAS_OUIS["00:0A:F5"]="y"
+	SMRTGLAS_OUIS["E8:8D:28"]="y"
+	# Nordic Semiconductor (Popular for Bluetooth Low Energy in wearables)
+	SMRTGLAS_OUIS["E4:1D:2D"]="y"
+	SMRTGLAS_OUIS["F4:CE:36"]="y"
+	SMRTGLAS_OUIS["94:54:93"]="y"
+	# Realtek
+	SMRTGLAS_OUIS["E0:E7:51"]="y"
+	# Espressif Systems (Common in DIY/budget smart glasses)
+	SMRTGLAS_OUIS["24:0A:C4"]="y"
+	SMRTGLAS_OUIS["84:F3:EB"]="y"
+	SMRTGLAS_OUIS["78:21:84"]="y"
+
+	# CHECK Smart Glasses NAMES
+	if [[ "$name" == *"Ray-Ban"* || "$name" == *"RayBan"* || "$name" == *"Meta"* || "$name" == *"Spectacles"* || "$name" == *"Bose Frame"* || "$name" == *"Google Glass"* || "$name" == *"Vuzix"* || "$name" == *"XREAL"* || "$name" == *"Nreal"* || "$name" == *"Oakley"* || "$name" == *"Luxottica"* || "$name" == *"Snap Inc"* || "$name" == *"Snapchat"* ]] ; then
+		namefound=1
+	fi
+	
+	if [[ -v SMRTGLAS_OUIS["$target_oui"] || "$namefound" -eq 1 ]]; then
+		# check if key exists, even if empty
+		if [[ -v BT_SMRTGLAS[$mac] ]]; then
+			# only update if name not empty
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+				BT_SMRTGLAS[$mac]="$name"
+			fi
+		else
+			BT_SMRTGLAS[$mac]="$name"
+		fi
+		if [[ -v BT_TARGETS[$mac] ]]; then
+			# only update if name not empty
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+				BT_TARGETS[$mac]="$name"
+			fi
+		else
+			BT_TARGETS[$mac]="$name"
+		fi
+		# LOG "SMRTGLAS exists!"
 	fi
 }
 
@@ -2290,7 +2387,7 @@ check_bt_usbkills() {
 		# check if key exists, even if empty
 		if [[ -v BT_USBKILLS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_USBKILLS[$mac]="$name"
 			fi
 		else
@@ -2298,7 +2395,7 @@ check_bt_usbkills() {
 		fi
 		if [[ -v BT_TARGETS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" ]] ; then
+			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
 				BT_TARGETS[$mac]="$name"
 				# LOG "ADDING INSIDE! $mac Name: $name"
 			fi
@@ -2615,6 +2712,35 @@ warn_bt_meshtast() {
 	fi
 }
 
+# smart glasses warn
+warn_bt_smrtglas() {
+	if [[ ${#BT_SMRTGLAS[@]} -gt 0 ]]; then
+		curcount=1; totcount="${#BT_SMRTGLAS[@]}"
+		LOG red "-------------------------------------------------"
+		LOG red "WARNING: Found ${totcount} potential Smart Glass BT Device(s)"
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "WARNING: Found %s potential Smart Glass BT Device(s).\n" "${totcount}" >> "$REPORT_DETECT_FILE"
+		LOG " "
+		# Record each Smart Glass device found
+		for mac in "${!BT_SMRTGLAS[@]}"; do
+			name="${BT_SMRTGLAS[$mac]}"
+			printf "Potential Smart Glass Device:\nBT Name: %s\nBT MAC: %s\n" "${name}" "${mac}" >> "$REPORT_DETECT_FILE"
+			if [[ "$scan_privacy" -eq 1 ]] ; then mac="${mac:0:2}:░░:░░:░░:░░:░░"; name="$priv_name_txt"; fi
+			LOG red "Potential Smart Glass Device:\nBT Name: $name\nBT MAC: $mac"
+			detections=$((detections + 1))
+			total_detected=$((total_detected + 1))
+			if [[ "$curcount" -lt "$totcount" ]] ; then
+				LOG " "
+			fi
+			curcount=$((curcount + 1))
+		done
+		LOG red "-------------------------------------------------"
+	else 
+		LOG green "No obvious Smart Glass BT Devices detected."
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "No obvious Smart Glass BT Devices detected.\n" >> "$REPORT_DETECT_FILE"
+	fi
+}
 
 # usbkill warn
 warn_bt_usbkills() {
@@ -2682,6 +2808,7 @@ scan_detect_from_scanned() {
 	local total_BT_FLIPPERS=0
 	local total_BT_FLOCKCAM=0
 	local total_BT_MESHTAST=0
+	local total_BT_SMRTGLAS=0
 	local total_BT_USBKILLS=0
 	local total_BT_PINEAPPS=0
 	local total_BT_CUSTOMOU=0
@@ -2726,6 +2853,7 @@ scan_detect_from_scanned() {
 		BT_FLIPPERS=()
 		BT_FLOCKCAM=()
 		BT_MESHTAST=()
+		BT_SMRTGLAS=()
 		BT_USBKILLS=()
 		BT_PINEAPPS=()
 		BT_CUSTOMOU=()
@@ -2815,6 +2943,7 @@ scan_detect_from_scanned() {
 					check_bt_flippers "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_flockcam "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_meshtast "$mac" "$NEW_TARGET_MAC_NAME"
+					check_bt_smrtglas "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_usbkills "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_pineapps "$mac" "$NEW_TARGET_MAC_NAME"
 				fi
@@ -2836,11 +2965,12 @@ scan_detect_from_scanned() {
 			total_BT_FLIPPERS=${#BT_FLIPPERS[@]}
 			total_BT_FLOCKCAM=${#BT_FLOCKCAM[@]}
 			total_BT_MESHTAST=${#BT_MESHTAST[@]}
+			total_BT_SMRTGLAS=${#BT_SMRTGLAS[@]}
 			total_BT_USBKILLS=${#BT_USBKILLS[@]}
 			total_BT_PINEAPPS=${#BT_PINEAPPS[@]}
 			total_BT_CUSTOMOU=${#BT_CUSTOMOU[@]}
 
-			total_found_scans=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
+			total_found_scans=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_SMRTGLAS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
 			if [[ "$total_found_scans" -gt 0 ]] ; then
 				LOG red "Found ${total_found_scans} suspect scanned ${text_target_LC}(s)..."
 				printf "Found %s suspect scanned Target(s)...\n" "${total_found_scans}" >> "$REPORT_DETECT_FILE"
@@ -2864,6 +2994,7 @@ scan_detect_from_scanned() {
 		total_BT_FLIPPERS=0
 		total_BT_FLOCKCAM=0
 		total_BT_MESHTAST=0
+		total_BT_SMRTGLAS=0
 		total_BT_USBKILLS=0
 		total_BT_PINEAPPS=0
 		total_BT_CUSTOMOU=0
@@ -2905,6 +3036,7 @@ scan_detect_from_scanned() {
 						check_bt_flippers "$mac" "$name"
 						check_bt_flockcam "$mac" "$name"
 						check_bt_meshtast "$mac" "$name"
+						check_bt_smrtglas "$mac" "$name"
 						check_bt_usbkills "$mac" "$name"
 						check_bt_pineapps "$mac" "$name"
 					fi
@@ -2927,11 +3059,12 @@ scan_detect_from_scanned() {
 			total_BT_FLIPPERS=${#BT_FLIPPERS[@]}
 			total_BT_FLOCKCAM=${#BT_FLOCKCAM[@]}
 			total_BT_MESHTAST=${#BT_MESHTAST[@]}
+			total_BT_SMRTGLAS=${#BT_SMRTGLAS[@]}
 			total_BT_USBKILLS=${#BT_USBKILLS[@]}
 			total_BT_PINEAPPS=${#BT_PINEAPPS[@]}
 			total_BT_CUSTOMOU=${#BT_CUSTOMOU[@]}
 
-			total_found_saved=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
+			total_found_saved=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_SMRTGLAS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
 			if [[ "$total_found_saved" -gt 0 ]] ; then
 				LOG red "Found ${total_found_saved} suspect Saved ${text_target_LC}(s)..."
 				printf "Found %s suspect Saved Target(s)...\n" "${total_found_saved}" >> "$REPORT_DETECT_FILE"
@@ -2998,6 +3131,9 @@ scan_detect_from_scanned() {
 			LOG " "
 			sleep 0.25
 			warn_bt_meshtast
+			LOG " "
+			sleep 0.25
+			warn_bt_smrtglas
 			LOG " "
 			sleep 0.25
 			warn_bt_usbkills
