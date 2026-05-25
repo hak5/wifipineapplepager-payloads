@@ -1072,7 +1072,7 @@ main_menu() {
 	else
 		LOG "${#MENU_ITEMS[@]}: Exit BluePine"
 		while true; do
-			read -e -p "Select an option [1-${#MENU_ITEMS[@]}]: " output
+			read -e -p "Select an option [1-${#MENU_ITEMS[@]}]: " -i "$defaultselnum" output
 			if [[ "$output" == "${#MENU_ITEMS[@]}" ]] ; then output=0; fi 
 			# echo "opt: ${MENU_ITEMS[$output]}"
 			case "$output" in
@@ -1132,8 +1132,9 @@ sub_menu_detection() {
 	MENU_ITEMS[6]="Flipper"
 	MENU_ITEMS[7]="Flock Devices"
 	MENU_ITEMS[8]="Meshtastic"
-	MENU_ITEMS[9]="USB Kill"
-	MENU_ITEMS[10]="WiFi Pineapple"
+	MENU_ITEMS[9]="Smart Glasses"
+	MENU_ITEMS[10]="USB Kill"
+	MENU_ITEMS[11]="WiFi Pineapple"
 	local maxarritems=$(( ${#MENU_ITEMS[@]} - 1 ))
 	local defaultselnum=1
 	local text_pick_str="\"Detection\""
@@ -1156,9 +1157,9 @@ sub_menu_detection() {
 	LOG magenta "================================== Detection ===="
 	if [[ "$archCur" == "pager" ]] ; then
 		LOG "0: Return to Main Menu"
-		LOG green "Press OK..."
-		LOG " "
+		# LOG green "Press OK..."
 		WAIT_FOR_BUTTON_PRESS A
+		LOG " "
 		sleep 0.5
 		# can anyone recommend a better way to do this?
 		resp=$(eval "LIST_PICKER $text_pick_str")
@@ -1170,7 +1171,7 @@ sub_menu_detection() {
 			# echo "opt: ${MENU_ITEMS[$output]}"
 			case "$output" in
 				[1-9]) resp="${MENU_ITEMS[$output]}"; break ;;
-				0|10|11) resp="${MENU_ITEMS[$output]}"; break ;;
+				0|10|11|12) resp="${MENU_ITEMS[$output]}"; break ;;
 				*) echo "Invalid option. Please try again." ;;
 			esac
 		done
@@ -1186,6 +1187,7 @@ sub_menu_detection() {
 		"${MENU_ITEMS[8]}") selnum=8 ;;
 		"${MENU_ITEMS[9]}") selnum=9 ;;
 		"${MENU_ITEMS[10]}") selnum=10 ;;
+		"${MENU_ITEMS[11]}") selnum=11 ;;
 		"${MENU_ITEMS[0]}") selnum=0 ;;
 		*)
 		selnum=0 # LOG "Cancel pressed or unknown"
