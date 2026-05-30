@@ -2,75 +2,113 @@
 
 # Title: Weather
 # Author: spywill
-# Description:  A simple weather app to check local or enter city name 
-# Version: 1.2
+# Description:  A Bash script that checks internet access, gets a city name, uses Open-Meteo APIs to fetch weather data, and prints current conditions plus a 3-day forecast. 
+# Version: 1.3
+
+set -euo pipefail
 
 # Check internet connection
-if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-	LOG green "Online"
-else
-	LOG red "Offline internet connection is required exiting"
-	exit 1
+if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+	LOG red "Internet connection required"
+	exit 0
 fi
 
+LOG green "Online"
+
+# City input
 my_city=$( (curl -fs https://ipapi.co/city || curl -fs https://ipinfo.io/city || curl -fs http://ip-api.com/line?fields=city) | tr ' ' '+' )
-CITY=$(TEXT_PICKER "Enter cities name" "$my_city")
-DATA=$(curl -s "https://wttr.in/${CITY}?format=j1")
-ROOT=$(echo "$DATA" | jq -r 'if has("data") then ".data.weather" else ".weather" end')
+CITY=$(TEXT_PICKER "Enter city" "$my_city")
+CITY_ENC="${CITY// /%20}"
 
-spinnerid=$(START_SPINNER "Weather info")
+# Geocode city
+GEO=$(curl -fsS "https://geocoding-api.open-meteo.com/v1/search?name=${CITY_ENC}&count=1")
 
-# Functions
-cond() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].weatherDesc[0].value"; }
-max() { echo "$DATA" | jq -r "$ROOT[$1].maxtempC"; }
-min() { echo "$DATA" | jq -r "$ROOT[$1].mintempC"; }
-feels_like() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].FeelsLikeC"; }
-wind() {
-	speed=$(echo "$DATA" | jq -r "$ROOT[$1].hourly[4].windspeedKmph")
-	dir=$(echo "$DATA" | jq -r "$ROOT[$1].hourly[4].winddir16Point")
-	echo "${speed}${dir}"
+if [[ -z "$GEO" ]] || [[ "$(echo "$GEO" | jq '.results | length // 0')" -eq 0 ]]; then
+	LOG red "City not found"
+	exit 0
+fi
+
+LAT=$(echo "$GEO" | jq -r '.results[0].latitude')
+LON=$(echo "$GEO" | jq -r '.results[0].longitude')
+
+REGION=$(echo "$GEO" | jq -r '.results[0].admin1 // "Unknown"')
+COUNTRY=$(echo "$GEO" | jq -r '.results[0].country // "Unknown"')
+
+# Fetch weather data
+DATA=$(curl -fsS "https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,pressure_msl,visibility,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&forecast_days=3&timezone=auto")
+
+if [[ -z "$DATA" ]]; then
+	LOG red "Weather request failed"
+	exit 0
+fi
+
+# Current conditions
+TEMP=$(echo "$DATA" | jq -r '.current.temperature_2m // "N/A"')
+FEELS=$(echo "$DATA" | jq -r '.current.apparent_temperature // "N/A"')
+HUM=$(echo "$DATA" | jq -r '.current.relative_humidity_2m // "N/A"')
+WINDSPD=$(echo "$DATA" | jq -r '.current.wind_speed_10m // "N/A"')
+PRESSURE=$(echo "$DATA" | jq -r '.current.pressure_msl // "N/A"')
+VISIBILITY=$(echo "$DATA" | jq -r '.current.visibility // "N/A"')
+WEATHER_CODE=$(echo "$DATA" | jq -r '.current.weather_code // -1')
+
+WEATHER_DESC() {
+	case "$1" in
+		0) echo "Clear sky" ;;
+		1|2|3) echo "Partly cloudy" ;;
+		45|48) echo "Fog" ;;
+		51|53|55) echo "Drizzle" ;;
+		61|63|65) echo "Rain" ;;
+		71|73|75) echo "Snow" ;;
+		80|81|82) echo "Rain showers" ;;
+		95) echo "Thunderstorm" ;;
+		96|99) echo "Thunderstorm (hail)" ;;
+		*) echo "Unknown" ;;
+	esac
 }
-humidity() { echo "$DATA" | jq -r "$ROOT[$1].hourly[4].humidity"; }
-sunrise() { echo "$DATA" | jq -r "$ROOT[$1].astronomy[0].sunrise"; }
-sunset() { echo "$DATA" | jq -r "$ROOT[$1].astronomy[0].sunset"; }
 
-# Table header
+# Output
 LOG ""
-LOG yellow "Weather: $CITY"
+LOG yellow "Weather"
+LOG blue "--------------------------------"
+
+LOG "Location : $CITY"
+LOG "Region   : $REGION"
+LOG "Country  : $COUNTRY"
+
 LOG ""
-LOG blue "+------+------+------+------+-------+------+"
-LOG green "DAY   | COND | TEMP | FELL | WIND  | HUM   "
-LOG blue "+------+------+------+------+-------+------+"
+LOG yellow "Current conditions"
+LOG blue "--------------------------------"
+
+LOG "Condition  : $(WEATHER_DESC "$WEATHER_CODE")"
+LOG "Temp       : ${TEMP}°C"
+LOG "Feels Like : ${FEELS}°C"
+LOG "Humidity   : ${HUM}%"
+LOG "Wind       : ${WINDSPD} km/h"
+LOG "Pressure   : ${PRESSURE} mb"
+LOG "Visibility : ${VISIBILITY} m"
+
+# 3-day forecast
 LOG ""
+LOG yellow "3 Day Forecast"
+LOG blue "--------------------------------"
 
 for i in 0 1 2; do
-	case $i in
-		0) DAY="Today";;
-		1) DAY="Tmrw";;
-		2) DAY="Day+2";;
-	esac
-	W="$(cond $i)"
-	T="$(max $i)→$(min $i)"
-	F="$(feels_like $i)"
-	WN="$(wind $i)"
-	H="$(humidity $i)"
-	# Shorten condition to 3 chars
-	SHORTCOND="$(echo $W | cut -c1-3)"
-	LOG "$(printf "%-5s| %-3s | %-4s | %-4s | %-5s | %-2s" "$DAY" "$SHORTCOND" "$T" "$F" "$WN" "$H")"
-done
+	DATE=$(echo "$DATA" | jq -r ".daily.time[$i] // \"N/A\"")
+	MAX=$(echo "$DATA" | jq -r ".daily.temperature_2m_max[$i] // \"N/A\"")
+	MIN=$(echo "$DATA" | jq -r ".daily.temperature_2m_min[$i] // \"N/A\"")
 
-sleep 1
-STOP_SPINNER ${spinnerid}
+	LOG "$DATE High:${MAX}°C Low:${MIN}°C"
+done
 
 # Sunrise / Sunset
 LOG ""
-LOG yellow "Sunrise / Sunset:"
-LOG ""
+LOG yellow "Sunrise / Sunset"
+LOG blue "--------------------------------"
+
 for i in 0 1 2; do
-	case $i in
-		0) DAY="Today";;
-		1) DAY="Tomorrow";;
-		2) DAY="DayAfter";;
-	esac
-	LOG "$(printf "%-7s : %s / %s" "$DAY" "$(sunrise $i)" "$(sunset $i)")"
+	DATE=$(echo "$DATA" | jq -r ".daily.time[$i] // \"N/A\"")
+	SUNRISE=$(echo "$DATA" | jq -r ".daily.sunrise[$i] // \"\"")
+	SUNSET=$(echo "$DATA" | jq -r ".daily.sunset[$i] // \"\"")
+
+	LOG "$DATE ${SUNRISE#*T} / ${SUNSET#*T}"
 done
