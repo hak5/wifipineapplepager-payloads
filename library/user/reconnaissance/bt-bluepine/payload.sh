@@ -3,7 +3,7 @@
 # Author: cncartist
 # Description: Bluepine - Bluetooth Device Detection & Hunting Suite. Detection Scanner, Jammer Locator, Target Probing, Last Target and Saved Targets List Management, Save / Load Saved Target List from File, Configuration Saving, GPS, Debugging, Privacy, Stealth, and more.  Full functionality tested on Pagers internal Bluetooth & USB CSR8510 / CSR v4.0 Bluetooth Adapter.  Without a USB CSR v4.0 Bluetooth Adapter there will be a slightly limited experience due to less signal/range, no jammer location capabilities, and inability to change the built in MAC.
 # Category: reconnaissance
-# Version: 1.4
+# Version: 1.5
 # 
 # ============================================
 # Acknowledgements: 
@@ -18,7 +18,7 @@
 # https://github.com/aat440hz/CardSkimmerDetector-M5AtomS3LITE - (CC Skimmer Data)
 # https://github.com/colonelpanichacks/flock-you - (Flock OUIs + Names)
 # StamenScan - Author: FusedStamen - https://github.com/FusedStamen/StamenScan - (MAC filter idea)
-# Smart Glasses Detector - Noezsolution - https://github.com/Noezsolution/pineapple-pager-glasses-detector - (Smart Glasses Names)
+# Smart Glasses Detector - Author: Noezsolution - https://github.com/Noezsolution/pineapple-pager-glasses-detector - (Smart Glasses Names)
 # 
 # ============================================
 # Includes: 
@@ -30,7 +30,7 @@
 #  -- -- -- Filters allowed, remove MAC addresses from scan that match Multicast/Random/Locally Administered.
 #  -- -- -- Verbose logging / debugging available, GPS coordinate logging if GPS device enabled.
 #  -- Bluetooth Device Detection: 
-#  -- -- -- Axon / CC Skimmer / Flipper / Flock / Meshtastic / Smart Glasses / USB Kill / WiFi Pineapple BT Scanner.
+#  -- -- -- Axon / CC Skimmer / Flipper / Flock / Meshtastic / Nest Devices / Smart Glasses / Tiles / USB Kill / WiFi Pineapple BT Scanner.
 #  -- -- -- Scan the airwaves, save targets, or scan your already saved target list from Device Hunter scans.
 #  -- Bluetooth Jammer Detector & Locator: 
 #  -- -- -- Detects & Locates Bluetooth Jammers/Interference Devices within close range.
@@ -61,7 +61,8 @@
 #  -- -- -- Saved Target List can be named for archiving, alphanumerical characters only.
 #  -- Configuration saving / tracking number of scans and malicious items found over time:
 #  -- -- -- Configuration backed up to "savedconfig.json" on exit.
-#  -- -- -- If pager is updated/factory reset and config/history is wiped, configuration backup will restore settings.
+#  -- -- -- Configuration persists across pager firwmare updates.
+#  -- -- -- If pager is factory reset and payload config/history is wiped, backup will restore configuration if json file is intact.
 #  -- Privacy / Streamer Mode:
 #  -- -- -- (obscures MAC + Targets/Device Names) allows full functionality while obscuring ALL identifying information on screen, for both targets and self.
 #  -- Friendly Mode:
@@ -74,7 +75,7 @@
 #  -- Dependencies / Ringtones:
 #  -- -- -- evtest and GNU Grep are required dependencies, will install automatically if confirmed
 #  -- -- -- Will check for ringtones at start and copy if confirmed
-#  -- AArch64/ARM64/Debian Support
+#  -- AArch64/ARM64/Debian Support:
 #  -- -- -- Tested on ClockworkPi (Trixie) & Hackberry (Kali) and should work on other Raspberry Pi based systems.
 #  -- -- -- Support files are not included with the pager payload from the official repo, they can be found at: 
 #  -- -- -- https://github.com/cncartistsec/BluePine-WiFi-Pineapple-Pager/tree/main/bt-bluepine/include
@@ -113,6 +114,10 @@
 #  -- -- -- -- - Multi: ALL Locally Administered (x2, x6, xA, xE)
 #  -- -- -- -- - Multi: ALL Random (x3, x7, xB, xF)
 #  -- -- -- -- - WARNING: Filters REMOVE real devices from report/display and only applies to non-targeted scans!
+#  -- Bluetooth Device Detection: 
+#  -- -- -- Please be aware of false detections!
+#  -- -- -- Bluetooth MAC's + Names are customizable with certain consumer Bluetooth Adapters.
+#  -- -- -- Flock detection is limited and best performed with BT + WiFi combined, but some battery devices and other units can broadcast BT.
 #  -- Bluetooth Jammer Detector & Locator:
 #  -- -- -- "Jam" counter resets every 25 "nojams" to clean out errors, and the "Found" counter will only count true confirmed jams in the area.
 #  -- -- -- Confirmed jams are calculated at 5 jams per 25 scans.
@@ -141,6 +146,10 @@
 #  -- -- -- updated theme in /mmc/root/themes/THEME/components/templates
 #  -- -- -- -- - option_dialog_string.json  ( "max_chars": 38 )
 #  -- -- -- -- - option_dialog_string_selected.json  ( "max_chars": 40 )
+#  -- Data Migration for Persistent Configuration / Targets:
+#  -- -- -- If moving between devices after collecting data, three files need to be copied/migrated.
+#  -- -- -- "SavedTargets.txt" & "LastTarget.txt" can be copied between devices for persistent Targets.
+#  -- -- -- "savedconfig.json" can be copied between devices for persistent Configuration.
 # 
 # ============================================
 #       LOGGING STRUCTURE / DATA FILES
@@ -184,6 +193,7 @@
 # ============================================
 #            Version History
 # ============================================
+# v1.5 -- Add Nest, Smart Glasses, & Tile Detection
 # v1.4 -- AArch64/ARM64/Debian Support
 # v1.3 -- Filtering Options + Scantime Tracking
 # v1.2 -- GPS Updates + Bug Fixes
@@ -192,7 +202,6 @@
 # ============================================
 #          Future improvements
 # ============================================
-# build log viewer in?
 # change actual sound setting for system/alerts?
 # implement sql lite db instead of current method?
 # add node support for other data source?
@@ -255,7 +264,6 @@ DATASTREAMBT_FILE="$LOOT_SCAN/${TIMESTAMP}_DataBT.txt"
 DATASTREAMBT2_FILE="$LOOT_SCAN/${TIMESTAMP}_DataBT2.txt"
 DATASTREAMBT3_FILE="$LOOT_SCAN/${TIMESTAMP}_DataBT3.txt"
 DATASTREAMBTTMP_FILE="$LOOT_SCAN/${TIMESTAMP}_DataBTTMP.txt"
-DATASTREAMBTLE_FILE="$LOOT_DETECT/DataBTLE_${TIMESTAMP}.txt"
 DATASTREAMBTLETMP_FILE="$LOOT_DETECT/DataBTLETMP_${TIMESTAMP}.txt"
 SAVEDTARGETS_FILE="$LOOT_TARGETS/SavedTargets.txt"
 TARGETMAC_FILE="$LOOT_CONFIG/LastTarget.txt"
@@ -296,8 +304,10 @@ scan_BT_AXONCAMS="false"
 scan_BT_CCSKIMMR="false"
 scan_BT_FLIPPERS="false"
 scan_BT_FLOCKCAM="false"
-scan_BT_SMRTGLAS="false"
 scan_BT_MESHTAST="false"
+scan_BT_NESTCAMS="false"
+scan_BT_SMRTGLAS="false"
+scan_BT_TILETAGS="false"
 scan_BT_USBKILLS="false"
 scan_BT_PINEAPPS="false"
 # scan_BT_APLAIRTG="false"
@@ -347,6 +357,8 @@ declare -A BT_CCSKIMMR
 declare -A BT_FLIPPERS
 declare -A BT_FLOCKCAM
 declare -A BT_MESHTAST
+declare -A BT_NESTCAMS
+declare -A BT_TILETAGS
 declare -A BT_SMRTGLAS
 declare -A BT_USBKILLS
 declare -A BT_PINEAPPS
@@ -528,10 +540,13 @@ while true; do
 			scan_BT_FLIPPERS="false"
 			scan_BT_FLOCKCAM="false"
 			scan_BT_MESHTAST="false"
+			scan_BT_NESTCAMS="false"
 			scan_BT_SMRTGLAS="false"
+			scan_BT_TILETAGS="false"
 			scan_BT_USBKILLS="false"
 			scan_BT_PINEAPPS="false"
 			scan_custom=0
+			scan_detect_scanned=0
 			LOG "Detection...."
 			sub_menu_detection
 			submenu_option="$selnum"
@@ -545,6 +560,8 @@ while true; do
 				scan_BT_FLIPPERS="true"
 				scan_BT_FLOCKCAM="true"
 				scan_BT_MESHTAST="true"
+				scan_BT_NESTCAMS="true"
+				scan_BT_TILETAGS="true"
 				scan_BT_SMRTGLAS="true"
 				scan_BT_USBKILLS="true"
 				scan_BT_PINEAPPS="true"
@@ -556,9 +573,12 @@ while true; do
 				scan_BT_FLIPPERS="true"
 				scan_BT_FLOCKCAM="true"
 				scan_BT_MESHTAST="true"
+				scan_BT_NESTCAMS="true"
+				scan_BT_TILETAGS="true"
 				scan_BT_SMRTGLAS="true"
 				scan_BT_USBKILLS="true"
 				scan_BT_PINEAPPS="true"
+				scan_detect_scanned=1
 				scan_detect_from_scanned
 			elif [[ "$submenu_option" -eq 3 ]]; then
 				LOG "Detect Custom OUI/Name - Scanned/Saved ${text_target_UC}s...."
@@ -592,14 +612,22 @@ while true; do
 				scan_BT_MESHTAST="true"
 				scan_detection
 			elif [[ "$submenu_option" -eq 9 ]]; then
+				LOG "Running Nest Detection...."
+				scan_BT_NESTCAMS="true"
+				scan_detection
+			elif [[ "$submenu_option" -eq 10 ]]; then
 				LOG "Running Smart Glasses Detection...."
 				scan_BT_SMRTGLAS="true"
 				scan_detection
-			elif [[ "$submenu_option" -eq 10 ]]; then
+			elif [[ "$submenu_option" -eq 11 ]]; then
+				LOG "Running Tile Detection...."
+				scan_BT_TILETAGS="true"
+				scan_detection
+			elif [[ "$submenu_option" -eq 12 ]]; then
 				LOG "Running USB Kill Detection...."
 				scan_BT_USBKILLS="true"
 				scan_detection
-			elif [[ "$submenu_option" -eq 11 ]]; then
+			elif [[ "$submenu_option" -eq 13 ]]; then
 				LOG "Running WiFi Pineapple Detection...."
 				scan_BT_PINEAPPS="true"
 				scan_detection
@@ -840,15 +868,23 @@ while true; do
 				resp=$(CONFIRMATION_DIALOG "Do you want to CLEAR ALL ${text_target_UC}s / Saved ${text_target_UC}s? ")
 				if [[ "$resp" == "$DUCKYSCRIPT_USER_CONFIRMED" ]] ; then
 					sleep 1
-					resp=$(CONFIRMATION_DIALOG "CONFIRM CLEAR ALL ${text_target_UC}s / Saved ${text_target_UC}? - THIS ACTION CANNOT BE REVERSED!")
+					resp=$(CONFIRMATION_DIALOG "CONFIRM CLEAR ALL ${text_target_UC}s / Saved ${text_target_UC}s? - THIS ACTION CANNOT BE REVERSED!")
 					if [[ "$resp" == "$DUCKYSCRIPT_USER_CONFIRMED" ]] ; then
 						BT_RSSIS=()
 						BT_NAMES=()
 						BT_COMPS=()
+						BT_TARGETS=()
+						BT_AXONCAMS=()
+						BT_CCSKIMMR=()
 						BT_FLIPPERS=()
+						BT_FLOCKCAM=()
+						BT_MESHTAST=()
+						BT_NESTCAMS=()
+						BT_SMRTGLAS=()
+						BT_TILETAGS=()
 						BT_USBKILLS=()
 						BT_PINEAPPS=()
-						BT_TARGETS=()
+						BT_CUSTOMOU=()
 						LOG "ALL Scan ${text_target_UC}s cleared!"
 						rm "$SAVEDTARGETS_FILE" 2>/dev/null
 						saved_targets_check
