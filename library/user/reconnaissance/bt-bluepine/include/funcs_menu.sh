@@ -1,7 +1,7 @@
 #!/bin/bash
 # Menu Functions for BluePine
 # Author: cncartist
-# Version: 1.4
+# Version: 1.5
 # 
 # check_dependencies
 # check_ringtones
@@ -1132,9 +1132,11 @@ sub_menu_detection() {
 	MENU_ITEMS[6]="Flipper"
 	MENU_ITEMS[7]="Flock Devices"
 	MENU_ITEMS[8]="Meshtastic"
-	MENU_ITEMS[9]="Smart Glasses"
-	MENU_ITEMS[10]="USB Kill"
-	MENU_ITEMS[11]="WiFi Pineapple"
+	MENU_ITEMS[9]="Nest Devices"
+	MENU_ITEMS[10]="Smart Glasses"
+	MENU_ITEMS[11]="Tile"
+	MENU_ITEMS[12]="USB Kill"
+	MENU_ITEMS[13]="WiFi Pineapple"
 	local maxarritems=$(( ${#MENU_ITEMS[@]} - 1 ))
 	local defaultselnum=1
 	local text_pick_str="\"Detection\""
@@ -1171,7 +1173,7 @@ sub_menu_detection() {
 			# echo "opt: ${MENU_ITEMS[$output]}"
 			case "$output" in
 				[1-9]) resp="${MENU_ITEMS[$output]}"; break ;;
-				0|10|11|12) resp="${MENU_ITEMS[$output]}"; break ;;
+				0|10|11|12|13|14) resp="${MENU_ITEMS[$output]}"; break ;;
 				*) echo "Invalid option. Please try again." ;;
 			esac
 		done
@@ -1188,6 +1190,8 @@ sub_menu_detection() {
 		"${MENU_ITEMS[9]}") selnum=9 ;;
 		"${MENU_ITEMS[10]}") selnum=10 ;;
 		"${MENU_ITEMS[11]}") selnum=11 ;;
+		"${MENU_ITEMS[12]}") selnum=12 ;;
+		"${MENU_ITEMS[13]}") selnum=13 ;;
 		"${MENU_ITEMS[0]}") selnum=0 ;;
 		*)
 		selnum=0 # LOG "Cancel pressed or unknown"
