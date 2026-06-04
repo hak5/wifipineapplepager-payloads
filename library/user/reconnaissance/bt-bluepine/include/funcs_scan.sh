@@ -1,7 +1,7 @@
 #!/bin/bash
 # Scan Functions for BluePine
 # Author: cncartist
-# Version: 1.4
+# Version: 1.5
 # 
 # reset_bt_adapter
 # rssitxtsw_hci0
@@ -9,8 +9,7 @@
 # reset_gpsd
 # 
 # device_hunter
-# detect_bt_classic
-# detect_bt_le
+# detect_bt_scan
 # scan_detection
 # 
 # check_bt_axoncams
@@ -18,7 +17,9 @@
 # check_bt_flockcam
 # check_bt_flippers
 # check_bt_meshtast
+# check_bt_nestcams
 # check_bt_smrtglas
+# check_bt_tiletags
 # check_bt_usbkills
 # check_bt_pineapps
 # check_bt_customou
@@ -29,7 +30,9 @@
 # warn_bt_flippers
 # warn_bt_flockcam
 # warn_bt_meshtast
+# warn_bt_nestcams
 # warn_bt_smrtglas
+# warn_bt_tiletags
 # warn_bt_usbkills
 # warn_bt_customou
 # 
@@ -451,7 +454,7 @@ device_hunter() {
 			
 			if [[ "$scan_btle" == "true" ]] ; then
 				if [[ "$scan_stealth" -eq 0 ]] ; then LED CYAN SLOW; fi
-				#run le scan second	
+				# run le scan second
 				# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" lescan) &
 				((timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" lescan) &) > /dev/null 2>&1
 				sleep ${DATA_SCAN_SECONDS}
@@ -541,7 +544,8 @@ device_hunter() {
 				/Command: Write Extended I/ {N;N;d}; 
 				/Event: Local Name Chang/ {N;N;d}; 
 				/HCI Command: Read BD ADD/ {N;N;N;N;d}; 
-				/MGMT Event: Command Compl/ {N;N;N;N;d};
+				/MGMT Event: Command Compl/ {N;N;N;N;d}; 
+				/HCI Event: Return Link Keys/,+22d;
 				' "$DATASTREAMBTTMP_FILE"
 				
 				# -E extended regular expressions
@@ -720,7 +724,7 @@ device_hunter() {
 				s/Automotive Data Solutions Inc/Automotive Data Solutions/; 
 				s/Bestechnic(Shanghai),Ltd/Bestechnic/; 
 				s/Bluetrum Technology Co.,Ltd/Bluetrum/; 
-				s/Bose Corporation/Bose/; 
+				s/Bose Corporation/Bose Corp/; 
 				s/Broadcom Corporation/Broadcom/; 	
 				s/Canon Inc./Canon/; 	
 				s/CUBE TECHNOLOGIES/CUBE TECH/; 
@@ -754,7 +758,6 @@ device_hunter() {
 				s/Lippert Components, INC/Lippert/; 
 				s/LumiGeek LLC/LumiGeek/; 
 				s/Nerbio Medical Software Platforms Inc/Nerbio/; 
-				s/Nest Labs Inc/Nest/; 
 				s/Nikon Corporation/Nikon/; 
 				s/Nintendo Co., Ltd./Nintendo/; 
 				s/Nippon Seiki Co., Ltd./Nippon Seiki/; 
@@ -788,11 +791,9 @@ device_hunter() {
 				s/Surefire, LLC/Surefire/; 
 				s/Swirl Networks, Inc./Swirl Networks/; 
 				s/SZ DJI TECHNOLOGY CO.,LTD/DJI/; 
-				s/TASER International, Inc./TASER/; 
 				s/Telink Semiconductor Co. Ltd/Telink/; 
 				s/Texas Instruments Inc./TI/; 
 				s/The Chamberlain Group, Inc./Chamberlain/; 
-				s/Tile, Inc./Tile/; 
 				s/TomTom International BV/TomTom/; 
 				s/Toshiba Corp./Toshiba/; 
 				s/Trimble Navigation Ltd./Trimble/; 
@@ -808,11 +809,10 @@ device_hunter() {
 				
 				# 
 				# 
-				# try these
-				# [TV] Samsung 8 Series
-				# s/\[TV\] Samsung 8 Series/TV Series8/; 
-				# [LG] webOS TV
-				# s/\[LG\] webOS TV/LGwebOSTV/; 
+				# moved to detection
+				# s/Nest Labs Inc/Nest/; 
+				# s/TASER International, Inc./TASER/; 
+				# s/Tile, Inc./Tile/; 
 				# 
 				# echo "Amazon.com Services, Inc. (0xfe00)" > "amazon.txt"
 				# sed -i 's/Amazon.com Services, Inc../Amazon/; ' "amazon.txt"
@@ -845,7 +845,8 @@ device_hunter() {
 				while IFS= read -r line; do
 					# LOG "$line"
 					# LOG red "while IFS"
-					if echo "$line" | grep -q "Address:"; then
+					# if echo "$line" | grep -q "Address:"; then
+					if [[ "$line" == "Address: "* ]] ; then
 						# Capture the next few lines containing address, rssi, and data
 						mapfile -n 3 -t info < <(head -n 3)
 						
@@ -1349,55 +1350,14 @@ device_hunter() {
 }
 
 
-
-
-# le bt scan
-detect_bt_le() {
-	scannumber="$1"
-	TIMESTAMP="$2"
-	reset_bt_adapter
-	if [[ "$scan_stealth" -eq 0 ]] ; then LED CYAN SLOW; fi
-	# Enable case-insensitive matching
-	shopt -s nocasematch
-    while read -r line; do
-        mac=${line%% *}
-        name=${line#"$mac"}
-        name=${name# }
-        # Check if MAC is valid
-        # if [[ ! "$mac" =~ $VALID_MAC ]]; then
-        #     continue
-        # fi
-		# LOG "$line"
-		if [[ "$scan_BT_AXONCAMS" == "true" ]] ; then check_bt_axoncams "$mac" "$name"; fi
-		if [[ "$scan_BT_CCSKIMMR" == "true" ]] ; then check_bt_ccskimmr "$mac" "$name"; fi
-		if [[ "$scan_BT_FLOCKCAM" == "true" ]] ; then check_bt_flockcam "$mac" "$name"; fi
-		if [[ "$scan_BT_MESHTAST" == "true" ]] ; then check_bt_meshtast "$mac" "$name"; fi
-		if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then check_bt_smrtglas "$mac" "$name"; fi
-		if [[ "$scan_BT_FLIPPERS" == "true" ]] ; then check_bt_flippers "$mac" "$name"; fi
-		if [[ "$scan_BT_USBKILLS" == "true" ]] ; then check_bt_usbkills "$mac" "$name"; fi
-		# Pineapple pager is BT CLASSIC
-    done < <(
-        timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" lescan &> "$DATASTREAMBTLETMP_FILE"
-		sort -u "$DATASTREAMBTLETMP_FILE"
-    )
-	if [[ "$scan_debug" == "true" ]] ; then
-		cp "$DATASTREAMBTLETMP_FILE" "$LOOT_DETECT/${TIMESTAMP}_scanLE_${scannumber}.txt"
-	fi
-	# Disable case-insensitive matching to restore default behavior
-	shopt -u nocasematch
-	# timeout --signal=SIGINT 5s hcitool -i hci0 lescan
-}
-
-# classic bt scan
-detect_bt_classic() {
-	scannumber="$1"
-	TIMESTAMP="$2"
-	# ---- DEFAULTS ----
-	local PINEAPP_OUI="00:13:37"
-	local PINEAPP_NAME="pine"
-	local PINEAPP_NAME2="bluez"
-	local PINEAPP_NAME3="pager"
-		
+# detect bt scan
+detect_bt_scan() {
+	local scannumber="$1"
+	local TIMESTAMP="$2"
+	local scantype="$3"
+	# bcl or ble
+	
+	# ---- DEFAULTS ----		
 	local pattern1="Address:"
 	local pattern2="Company:"
 	local pattern3="Service Data:"
@@ -1410,11 +1370,21 @@ detect_bt_classic() {
 	(timeout --signal=SIGINT "$((DATA_SCAN_SECONDS+2))s" btmon &> "$DATASTREAMBTTMP_FILE") &
 	sleep 1
 	# LOG red "hcitool"
-	# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan) &
-	# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan --length=$DATA_SCAN_SECONDS) &
-	((timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan --length=$DATA_SCAN_SECONDS) &) > /dev/null 2>&1
-	# LOG red "sleep"
-	sleep ${DATA_SCAN_SECONDS}
+	
+	if [[ "$scantype" == "bcl" ]] ; then 
+		# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan) &
+		# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan --length=$DATA_SCAN_SECONDS) &
+		((timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" scan --length=$DATA_SCAN_SECONDS) &) > /dev/null 2>&1
+		# LOG red "sleep"
+		sleep ${DATA_SCAN_SECONDS}
+	fi
+	
+	if [[ "$scantype" == "ble" ]] ; then 
+		# (timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" lescan) &
+		((timeout --signal=SIGINT "${DATA_SCAN_SECONDS}s" hcitool -i "$BLE_IFACE" lescan) &) > /dev/null 2>&1
+		# LOG red "sleep"
+		sleep ${DATA_SCAN_SECONDS}
+	fi
 		
 	# finish scans
 	killall hcitool 2>/dev/null
@@ -1443,7 +1413,8 @@ detect_bt_classic() {
 		/Command: Write Extended I/ {N;N;d}; 
 		/Event: Local Name Chang/ {N;N;d}; 
 		/HCI Command: Read BD ADD/ {N;N;N;N;d}; 
-		/MGMT Event: Command Compl/ {N;N;N;N;d};
+		/MGMT Event: Command Compl/ {N;N;N;N;d}; 
+		/HCI Event: Return Link Keys/,+22d;
 		' "$DATASTREAMBTTMP_FILE"
 		
 		# -E extended regular expressions
@@ -1455,7 +1426,7 @@ detect_bt_classic() {
 		# cp "$DATASTREAMBT_FILE" "$LOOT_DIR/test.txt"
 		
 		if [[ "$scan_debug" == "true" ]] ; then
-			cp "$DATASTREAMBT_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}.txt"
+			cp "$DATASTREAMBT_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}_${scantype}.txt"
 		fi
 		# load addresses only into tmp file
 		grep -E "Address:" "$DATASTREAMBT_FILE" | sort -n | uniq > "$DATASTREAMBT2_FILE"
@@ -1486,8 +1457,8 @@ detect_bt_classic() {
 		done < "$DATASTREAMBT2_FILE"
 		
 		if [[ "$scan_debug" == "true" ]] ; then
-			cp "$DATASTREAMBTTMP_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}_TMP.txt"
-			cp "$DATASTREAMBT2_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}_ADDR.txt"
+			cp "$DATASTREAMBTTMP_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}_${scantype}_TMP.txt"
+			cp "$DATASTREAMBT2_FILE" "$LOOT_DETECT/${TIMESTAMP}_scan_${scannumber}_${scantype}_ADDR.txt"
 		fi
 		rm "$DATASTREAMBTTMP_FILE" 2>/dev/null
 		rm "$DATASTREAMBT2_FILE" 2>/dev/null
@@ -1513,7 +1484,8 @@ detect_bt_classic() {
 			# LOG "$line"
 			# LOG red "while IFS"
 			
-			if echo "$line" | grep -q "Address:"; then
+			# if echo "$line" | grep -q "Address:"; then
+			if [[ "$line" == "Address: "* ]] ; then
 				# Capture the next few lines containing address, and data
 				mapfile -n 3 -t info < <(head -n 3)
 				
@@ -1609,13 +1581,7 @@ detect_bt_classic() {
 				fi					
 			fi				
 		done < "$DATASTREAMBT_FILE"
-		
-		# if BT_NAMES[$mac] is empty, tell user no signals found
-		if [[ "${#BT_NAMES[@]}" -eq 0 ]] ; then
-			LOG "No classic bluetooth signals found..."
-			printf "No classic bluetooth signals found...\n" >> "$REPORT_DETECT_FILE"
-		fi
-		
+				
 		# exit after 1 loop for testing
 		# LOG "exit for testing"; exit 0
 		
@@ -1645,11 +1611,21 @@ detect_bt_classic() {
 					comp="/$comp"
 				fi 
 			fi
-			
-			check_bt_pineapps "$mac" "${name}${comp}"
-			
+			if [[ "$scantype" == "bcl" ]] ; then
+				if [[ "$scan_BT_PINEAPPS" == "true" ]] ; then check_bt_pineapps "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then check_bt_smrtglas "$mac" "${name}${comp}"; fi
+			else
+				if [[ "$scan_BT_AXONCAMS" == "true" ]] ; then check_bt_axoncams "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_CCSKIMMR" == "true" ]] ; then check_bt_ccskimmr "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_FLIPPERS" == "true" ]] ; then check_bt_flippers "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_FLOCKCAM" == "true" ]] ; then check_bt_flockcam "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_MESHTAST" == "true" ]] ; then check_bt_meshtast "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_NESTCAMS" == "true" ]] ; then check_bt_nestcams "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then check_bt_smrtglas "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_TILETAGS" == "true" ]] ; then check_bt_tiletags "$mac" "${name}${comp}"; fi
+				if [[ "$scan_BT_USBKILLS" == "true" ]] ; then check_bt_usbkills "$mac" "${name}${comp}"; fi	
+			fi
 			# printf "%s - %s%s\n" "${mac}" "${name}" "${comp}" >> "$REPORT_DETECT_FILE"
-			
 		done < <(
 			for key in "${!BT_NAMES[@]}"; do
 				echo "$key ${BT_NAMES[$key]}"
@@ -1664,10 +1640,14 @@ detect_bt_classic() {
 		# LOG "------------------------------"
 		
 	else
-		LOG "No classic bluetooth signals found..."
-		printf "No classic bluetooth signals found...\n" >> "$REPORT_DETECT_FILE"
+		if [[ "$scantype" == "bcl" ]] ; then 
+			LOG "No Classic Bluetooth signals found..."
+			printf "No Classic Bluetooth signals found...\n" >> "$REPORT_DETECT_FILE"
+		else
+			LOG "No LE Bluetooth signals found..."
+			printf "No LE Bluetooth signals found...\n" >> "$REPORT_DETECT_FILE"
+		fi
 	fi
-
 }
 
 # detection scans
@@ -1679,10 +1659,10 @@ scan_detection() {
 	detections=0
 	local scannumber=0
 	local searchText=""
-	local btcl_searchText=""
-	local btle_searchText=""
 	local searchCount=0
+	local btcl_searchText=""
 	local btcl_searchCount=0
+	local btle_searchText=""
 	local btle_searchCount=0
 	local totalmin=0
 	local runtime=0
@@ -1762,9 +1742,24 @@ scan_detection() {
 			btle_searchText="Meshtastic"
 		fi
 	fi
+	if [[ "$scan_BT_NESTCAMS" == "true" ]] ; then
+		searchCount=$((searchCount + 1))
+		btle_searchCount=$((btle_searchCount + 1))
+		if [[ "$searchCount" -gt 1 ]] ; then
+			searchText="${searchText} / Nest"
+		else
+			searchText="Nest"
+		fi
+		if [[ "$btle_searchCount" -gt 1 ]] ; then
+			btle_searchText="${btle_searchText} / Nest"
+		else
+			btle_searchText="Nest"
+		fi
+	fi
 	if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then
 		searchCount=$((searchCount + 1))
 		btle_searchCount=$((btle_searchCount + 1))
+		btcl_searchCount=$((btcl_searchCount + 1))
 		if [[ "$searchCount" -gt 1 ]] ; then
 			searchText="${searchText} / Smart Glasses"
 		else
@@ -1774,6 +1769,25 @@ scan_detection() {
 			btle_searchText="${btle_searchText} / Smart Glasses"
 		else
 			btle_searchText="Smart Glasses"
+		fi
+		if [[ "$btcl_searchCount" -gt 1 ]] ; then
+			btcl_searchText="${btcl_searchText} / Smart Glasses"
+		else
+			btcl_searchText="Smart Glasses"
+		fi
+	fi
+	if [[ "$scan_BT_TILETAGS" == "true" ]] ; then
+		searchCount=$((searchCount + 1))
+		btle_searchCount=$((btle_searchCount + 1))
+		if [[ "$searchCount" -gt 1 ]] ; then
+			searchText="${searchText} / Tile"
+		else
+			searchText="Tile"
+		fi
+		if [[ "$btle_searchCount" -gt 1 ]] ; then
+			btle_searchText="${btle_searchText} / Tile"
+		else
+			btle_searchText="Tile"
 		fi
 	fi
 	if [[ "$scan_BT_USBKILLS" == "true" ]] ; then
@@ -1804,7 +1818,7 @@ scan_detection() {
 			btcl_searchText="WiFi Pineapple"
 		fi
 	fi
-	# Check for BT device with WiFi Pineapple/Flipper/USB Killer characteristics
+	# Check for BT device with specified characteristics
 	# Confirm Scan
 	
 	resp=$(CONFIRMATION_DIALOG "Modify current scan settings?")
@@ -1829,7 +1843,6 @@ scan_detection() {
 		DATASTREAMBT2_FILE="$LOOT_DETECT/DataBT2_${TIMESTAMP}.txt"
 		DATASTREAMBT3_FILE="$LOOT_DETECT/DataBT3_${TIMESTAMP}.txt"
 		DATASTREAMBTTMP_FILE="$LOOT_DETECT/DataBTTMP_${TIMESTAMP}.txt"
-		DATASTREAMBTLE_FILE="$LOOT_DETECT/DataBTLE_${TIMESTAMP}.txt"
 		DATASTREAMBTLETMP_FILE="$LOOT_DETECT/DataBTLETMP_${TIMESTAMP}.txt"
 	
 		printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
@@ -1853,6 +1866,8 @@ scan_detection() {
 			BT_FLIPPERS=()
 			BT_FLOCKCAM=()
 			BT_MESHTAST=()
+			BT_NESTCAMS=()
+			BT_TILETAGS=()
 			BT_SMRTGLAS=()
 			BT_USBKILLS=()
 			BT_PINEAPPS=()
@@ -1870,28 +1885,27 @@ scan_detection() {
 				fi
 			fi
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
-			if [[ "$scan_BT_PINEAPPS" == "true" ]] ; then
+			
+			if [[ "$scan_BT_PINEAPPS" == "true" || "$scan_BT_SMRTGLAS" == "true" ]] ; then
 				if [[ "$scan_stealth" -eq 0 ]] ; then LED BLUE SLOW; fi
-				if [[ "$scan_BT_PINEAPPS" == "true" ]] ; then
-					LOG cyan "Scanning for WiFi Pineapple BT Signals..."
-				fi
-				LOG cyan "Scanning for ${DATA_SCAN_SECONDS}s..."
+				LOG cyan "Scanning for ${btcl_searchText} BT Signals..."
+				LOG cyan "Scanning Classic BT for ${DATA_SCAN_SECONDS}s..."
 				printf "Scanning for %s BT Signals...\n" "${btcl_searchText}" >> "$REPORT_DETECT_FILE"
-				printf "Scanning for %ss...\n" "${DATA_SCAN_SECONDS}" >> "$REPORT_DETECT_FILE"
-				# run function to search wifi pine Classic
-				detect_bt_classic "$scannumber" "$TIMESTAMP"
+				printf "Scanning Classic BT for %ss...\n" "${DATA_SCAN_SECONDS}" >> "$REPORT_DETECT_FILE"
+				# run function to search Classic
+				detect_bt_scan "$scannumber" "$TIMESTAMP" "bcl"
 				LOG " "
 				sleep 1
-			fi			
+			fi
 			
-			if [[ "$scan_BT_AXONCAMS" == "true" || "$scan_BT_CCSKIMMR" == "true" || "$scan_BT_FLIPPERS" == "true" || "$scan_BT_FLOCKCAM" == "true" || "$scan_BT_MESHTAST" == "true" || "$scan_BT_SMRTGLAS" == "true" || "$scan_BT_USBKILLS" == "true" ]] ; then
+			if [[ "$scan_BT_AXONCAMS" == "true" || "$scan_BT_CCSKIMMR" == "true" || "$scan_BT_FLIPPERS" == "true" || "$scan_BT_FLOCKCAM" == "true" || "$scan_BT_MESHTAST" == "true" || "$scan_BT_NESTCAMS" == "true" || "$scan_BT_SMRTGLAS" == "true" || "$scan_BT_TILETAGS" == "true" || "$scan_BT_USBKILLS" == "true" ]] ; then
 				if [[ "$scan_stealth" -eq 0 ]] ; then LED CYAN SLOW; fi
 				LOG cyan "Scanning for ${btle_searchText} BT Signals..."
-				LOG cyan "Scanning for ${DATA_SCAN_SECONDS}s..."
+				LOG cyan "Scanning BLE for ${DATA_SCAN_SECONDS}s..."
 				printf "Scanning for %s BT Signals...\n" "${btle_searchText}" >> "$REPORT_DETECT_FILE"
-				printf "Scanning for %ss...\n" "${DATA_SCAN_SECONDS}" >> "$REPORT_DETECT_FILE"
-				# run function to search flipper + usb kills LE
-				detect_bt_le "$scannumber" "$TIMESTAMP"
+				printf "Scanning BLE for %ss...\n" "${DATA_SCAN_SECONDS}" >> "$REPORT_DETECT_FILE"
+				# run function to search LE
+				detect_bt_scan "$scannumber" "$TIMESTAMP" "ble"
 				LOG " "
 				sleep 0.25
 			fi
@@ -1903,43 +1917,46 @@ scan_detection() {
 				LOG " "
 				sleep 0.25
 			fi
-			
 			if [[ "$scan_BT_CCSKIMMR" == "true" ]] ; then
 				warn_bt_ccskimmr
 				LOG " "
 				sleep 0.25
 			fi
-			
 			if [[ "$scan_BT_FLIPPERS" == "true" ]] ; then
 				warn_bt_flippers
 				LOG " "
 				sleep 0.25
 			fi
-			
 			if [[ "$scan_BT_FLOCKCAM" == "true" ]] ; then
 				warn_bt_flockcam
 				LOG " "
 				sleep 0.25
 			fi
-
 			if [[ "$scan_BT_MESHTAST" == "true" ]] ; then
 				warn_bt_meshtast
 				LOG " "
 				sleep 0.25
 			fi
-
+			if [[ "$scan_BT_NESTCAMS" == "true" ]] ; then
+				warn_bt_nestcams
+				LOG " "
+				sleep 0.25
+			fi
 			if [[ "$scan_BT_SMRTGLAS" == "true" ]] ; then
 				warn_bt_smrtglas
 				LOG " "
 				sleep 0.25
 			fi
-			
+			if [[ "$scan_BT_TILETAGS" == "true" ]] ; then
+				warn_bt_tiletags
+				LOG " "
+				sleep 0.25
+			fi
 			if [[ "$scan_BT_USBKILLS" == "true" ]] ; then 
 				warn_bt_usbkills
 				LOG " "
 				sleep 0.25
 			fi
-			
 			if [[ "$scan_BT_PINEAPPS" == "true" ]] ; then
 				warn_bt_pineapps
 				LOG " "
@@ -2020,9 +2037,8 @@ scan_detection() {
 			fi
 		fi
 		sleep 0.5
-		
 	else
-		LOG "Skipped Bluetooth Scan."
+		LOG "Skipped Bluetooth Detection Scan."
 	fi
 }
 
@@ -2053,23 +2069,25 @@ check_bt_axoncams() {
 	AXONCAMS_OUI["00:C0:D4"]="y"
 	AXONCAMS_OUI["84:70:03"]="y"
 
-	if [[ -v AXONCAMS_OUI["$target_oui"] ]] ; then
+	if [[ -v AXONCAMS_OUI["$target_oui"] || "$name" == *"TASER International, Inc"* ]] ; then
 		# check if key exists, even if empty
 		if [[ -v BT_AXONCAMS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_AXONCAMS[$mac]="$name"
 			fi
 		else
 			BT_AXONCAMS[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "AXON exists!"
 	fi
@@ -2127,19 +2145,21 @@ check_bt_ccskimmr() {
 		# check if key exists, even if empty
 		if [[ -v BT_CCSKIMMR[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_CCSKIMMR[$mac]="$name"
 			fi
 		else
 			BT_CCSKIMMR[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "CCSKIMMR exists!"
 	fi
@@ -2155,6 +2175,8 @@ check_bt_flockcam() {
 	# Flock OUIs
 	declare -A FLOCKCAM_OUIS
 	# Flock Safety — high-confidence OUIs (direct registration or exclusive use)
+	# Flock Safety (direct IEEE registration)
+	FLOCKCAM_OUIS["b4:1e:52"]="y"
 	# FS Ext Battery devices
 	FLOCKCAM_OUIS["58:8e:81"]="y"
 	FLOCKCAM_OUIS["cc:cc:cc"]="y"
@@ -2166,33 +2188,17 @@ check_bt_flockcam() {
 	FLOCKCAM_OUIS["38:5b:44"]="y"
 	FLOCKCAM_OUIS["94:34:69"]="y"
 	FLOCKCAM_OUIS["b4:e3:f9"]="y"
-	# Flock WiFi devices
-	FLOCKCAM_OUIS["70:c9:4e"]="y"
-	FLOCKCAM_OUIS["3c:91:80"]="y"
-	FLOCKCAM_OUIS["d8:f3:bc"]="y"
-	FLOCKCAM_OUIS["80:30:49"]="y"
-	FLOCKCAM_OUIS["14:5a:fc"]="y"
-	FLOCKCAM_OUIS["74:4c:a1"]="y"
-	FLOCKCAM_OUIS["08:3a:88"]="y"
-	FLOCKCAM_OUIS["9c:2f:9d"]="y"
-	FLOCKCAM_OUIS["94:08:53"]="y"
-	FLOCKCAM_OUIS["e4:aa:ea"]="y"
-	# Flock Safety (direct IEEE registration)
-	FLOCKCAM_OUIS["b4:1e:52"]="y"
-	# Flock Safety contract manufacturers - lower confidence alone.
-	# These OUIs belong to Liteon Technology and USI (Universal Scientific Industrial), which produce Flock hardware but also ship unrelated consumer/enterprise devices. MAC match alone may be a false positive.
-	FLOCKCAM_OUIS["f4:6a:dd"]="y"
-	FLOCKCAM_OUIS["f8:a2:d6"]="y"
-	FLOCKCAM_OUIS["e0:0a:f6"]="y"
-	FLOCKCAM_OUIS["00:f4:8d"]="y"
-	FLOCKCAM_OUIS["d0:39:57"]="y"
-	FLOCKCAM_OUIS["e8:d0:fc"]="y"
 	# SoundThinking (formerly ShotSpotter) — acoustic gunshot detection sensors
 	# d4:11:d6 is registered to SoundThinking in the IEEE OUI database.
 	FLOCKCAM_OUIS["d4:11:d6"]="y"
+	# Flock WiFi devices
+	# FLOCKCAM_OUIS["70:c9:4e"]="y"; FLOCKCAM_OUIS["3c:91:80"]="y"; FLOCKCAM_OUIS["d8:f3:bc"]="y"; FLOCKCAM_OUIS["80:30:49"]="y"; FLOCKCAM_OUIS["14:5a:fc"]="y"; FLOCKCAM_OUIS["74:4c:a1"]="y"; FLOCKCAM_OUIS["08:3a:88"]="y"; FLOCKCAM_OUIS["9c:2f:9d"]="y"; FLOCKCAM_OUIS["94:08:53"]="y"; FLOCKCAM_OUIS["e4:aa:ea"]="y"; FLOCKCAM_OUIS["82:6b:f2"]="y";
+	# Flock Safety contract manufacturers - lower confidence alone.
+	# These OUIs belong to Liteon Technology and USI (Universal Scientific Industrial), which produce Flock hardware but also ship unrelated consumer/enterprise devices. MAC match alone may be a false positive.
+	# FLOCKCAM_OUIS["f4:6a:dd"]="y"; FLOCKCAM_OUIS["f8:a2:d6"]="y"; FLOCKCAM_OUIS["e0:0a:f6"]="y"; FLOCKCAM_OUIS["00:f4:8d"]="y"; FLOCKCAM_OUIS["d0:39:57"]="y"; FLOCKCAM_OUIS["e8:d0:fc"]="y"
 
 	# CHECK Flock NAMES
-	if [[ "$name" == *"FS Ext Battery"* || "$name" == *"Penguin"* || "$name" == *"Flock"* || "$name" == *"Pigvision"* ]] ; then
+	if [[ "$name" == *"FS Ext Battery"* || "$name" == *"Penguin"* || "$name" == *"Flock"* || "$name" == *"Pigvision"*  || "$name" == *"XUNTONG"* ]] ; then
 		namefound=1
 	fi
 	
@@ -2211,19 +2217,21 @@ check_bt_flockcam() {
 		# check if key exists, even if empty
 		if [[ -v BT_FLOCKCAM[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_FLOCKCAM[$mac]="$name"
 			fi
 		else
 			BT_FLOCKCAM[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "FLOCK exists!"
 	fi
@@ -2246,19 +2254,21 @@ check_bt_flippers() {
 		# check if key exists, even if empty
 		if [[ -v BT_FLIPPERS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_FLIPPERS[$mac]="$name"
 			fi
 		else
 			BT_FLIPPERS[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "FLIPPER found!"
 	fi
@@ -2288,24 +2298,53 @@ check_bt_meshtast() {
 		# check if key exists, even if empty
 		if [[ -v BT_MESHTAST[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_MESHTAST[$mac]="$name"
 			fi
 		else
 			BT_MESHTAST[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "MESHTAST exists!"
 	fi
 }
 
+# nestcam check
+check_bt_nestcams() {
+	local mac="$1"
+	local name="$2"
+	if [[ "$name" == *"Nest Labs Inc"* ]] ; then
+		# check if key exists, even if empty
+		if [[ -v BT_NESTCAMS[$mac] ]]; then
+			# only update if name not empty
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+				BT_NESTCAMS[$mac]="$name"
+			fi
+		else
+			BT_NESTCAMS[$mac]="$name"
+		fi
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
+			fi
+		fi
+		# LOG "NEST exists!"
+	fi
+}
 
 # smart glasses check
 check_bt_smrtglas() {
@@ -2347,7 +2386,7 @@ check_bt_smrtglas() {
 	SMRTGLAS_OUIS["78:21:84"]="y"
 
 	# CHECK Smart Glasses NAMES
-	if [[ "$name" == *"Ray-Ban"* || "$name" == *"RayBan"* || "$name" == *"Meta"* || "$name" == *"Spectacles"* || "$name" == *"Bose Frame"* || "$name" == *"Google Glass"* || "$name" == *"Vuzix"* || "$name" == *"XREAL"* || "$name" == *"Nreal"* || "$name" == *"Oakley"* || "$name" == *"Luxottica"* || "$name" == *"Snap Inc"* || "$name" == *"Snapchat"* ]] ; then
+	if [[ "$name" == *"Ray-Ban"* || "$name" == *"RayBan"* || "$name" == *"Meta"* || "$name" == *"Spectacles"* || "$name" == *"Bose Frame"* || "$name" == *"Bose Corp"* || "$name" == *"Google Glass"* || "$name" == *"Vuzix"* || "$name" == *"XREAL"* || "$name" == *"Nreal"* || "$name" == *"Oakley"* || "$name" == *"Luxottica"* || "$name" == *"Snap Inc"* || "$name" == *"Snapchat"* ]] ; then
 		namefound=1
 	fi
 	
@@ -2355,21 +2394,51 @@ check_bt_smrtglas() {
 		# check if key exists, even if empty
 		if [[ -v BT_SMRTGLAS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_SMRTGLAS[$mac]="$name"
 			fi
 		else
 			BT_SMRTGLAS[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
 		fi
 		# LOG "SMRTGLAS exists!"
+	fi
+}
+
+# tiletag check
+check_bt_tiletags() {
+	local mac="$1"
+	local name="$2"
+	if [[ "$name" == *"Tile, Inc."* ]] ; then
+		# check if key exists, even if empty
+		if [[ -v BT_TILETAGS[$mac] ]]; then
+			# only update if name not empty
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+				BT_TILETAGS[$mac]="$name"
+			fi
+		else
+			BT_TILETAGS[$mac]="$name"
+		fi
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
+			fi
+		fi
+		# LOG "TILE exists!"
 	fi
 }
 
@@ -2387,25 +2456,23 @@ check_bt_usbkills() {
 		# check if key exists, even if empty
 		if [[ -v BT_USBKILLS[$mac] ]]; then
 			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 				BT_USBKILLS[$mac]="$name"
 			fi
 		else
 			BT_USBKILLS[$mac]="$name"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="$name"
-				# LOG "ADDING INSIDE! $mac Name: $name"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="$name"
-			# LOG "ADDING ELSE! $mac Name: $name"
 		fi
-		# LOG "USBKILL found! $mac Name: $name"
-		# LOG "TARGET! $mac Name: ${BT_TARGETS[$mac]}"
-		# LOG "BT_USBKILLS! $mac Name: ${BT_USBKILLS[$mac]}"
+		# LOG "USBKILL found!"
 	fi
 }
 
@@ -2413,7 +2480,6 @@ check_bt_usbkills() {
 check_bt_pineapps() {
 	local mac="$1"
 	local name="$2"
-	local comp=""
 	local target_oui="${mac:0:8}"
 	
 	local PINEAPP_OUI="00:13:37"
@@ -2427,21 +2493,22 @@ check_bt_pineapps() {
 		if [[ -v BT_PINEAPPS[$mac] ]]; then
 			# only update if name not empty
 			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
-				BT_PINEAPPS[$mac]="${name}${comp}"
+				BT_PINEAPPS[$mac]="${name}"
 			fi
 		else
-			BT_PINEAPPS[$mac]="${name}${comp}"
+			BT_PINEAPPS[$mac]="${name}"
 		fi
-		if [[ -v BT_TARGETS[$mac] ]]; then
-			# only update if name not empty
-			if [[ -n "$name" && "$name" != "Unknown" ]] ; then
-				BT_TARGETS[$mac]="${name}${comp}"
+		if [[ "$scan_detect_scanned" -eq 0 && "$scan_custom" -eq 0 ]] ; then
+			if [[ -v BT_TARGETS[$mac] ]]; then
+				# only update if name not empty
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
+					BT_TARGETS[$mac]="${name}"
+				fi
+			else
+				BT_TARGETS[$mac]="${name}"
 			fi
-		else
-			BT_TARGETS[$mac]="${name}${comp}"
 		fi
 		# LOG "WiFi Pineapple found!"
-		# LOG "${mac} - ${name}${comp}"
 	fi
 }
 
@@ -2458,21 +2525,11 @@ check_bt_customou() {
 			# check if key exists, even if empty
 			if [[ -v BT_CUSTOMOU[$mac] ]]; then
 				# only update if name not empty
-				if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+				if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 					BT_CUSTOMOU[$mac]="$name"
 				fi
 			else
 				BT_CUSTOMOU[$mac]="$name"
-			fi
-			if [[ -v BT_TARGETS[$mac] ]]; then
-				# only update if name not empty
-				if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-					BT_TARGETS[$mac]="$name"
-					# LOG "ADDING INSIDE! $mac Name: $name"
-				fi
-			else
-				BT_TARGETS[$mac]="$name"
-				# LOG "ADDING ELSE! $mac Name: $name"
 			fi
 			# LOG "custom found! $mac Name: $name"
 		fi
@@ -2484,21 +2541,11 @@ check_bt_customou() {
 				# check if key exists, even if empty
 				if [[ -v BT_CUSTOMOU[$mac] ]]; then
 					# only update if name not empty
-					if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+					if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 						BT_CUSTOMOU[$mac]="$name"
 					fi
 				else
 					BT_CUSTOMOU[$mac]="$name"
-				fi
-				if [[ -v BT_TARGETS[$mac] ]]; then
-					# only update if name not empty
-					if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-						BT_TARGETS[$mac]="$name"
-						# LOG "ADDING INSIDE! $mac Name: $name"
-					fi
-				else
-					BT_TARGETS[$mac]="$name"
-					# LOG "ADDING ELSE! $mac Name: $name"
 				fi
 				# LOG "custom found! $mac Name: $name"
 			fi
@@ -2510,21 +2557,11 @@ check_bt_customou() {
 				# check if key exists, even if empty
 				if [[ -v BT_CUSTOMOU[$mac] ]]; then
 					# only update if name not empty
-					if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
+					if [[ -n "$name" && "$name" != "Unknown" ]] ; then
 						BT_CUSTOMOU[$mac]="$name"
 					fi
 				else
 					BT_CUSTOMOU[$mac]="$name"
-				fi
-				if [[ -v BT_TARGETS[$mac] ]]; then
-					# only update if name not empty
-					if [[ -n "$name" && "$name" != "(unknown)" && "$name" != "Unknown" ]] ; then
-						BT_TARGETS[$mac]="$name"
-						# LOG "ADDING INSIDE! $mac Name: $name"
-					fi
-				else
-					BT_TARGETS[$mac]="$name"
-					# LOG "ADDING ELSE! $mac Name: $name"
 				fi
 				# LOG "custom found! $mac Name: $name"
 			fi
@@ -2712,6 +2749,36 @@ warn_bt_meshtast() {
 	fi
 }
 
+# nestcams warn
+warn_bt_nestcams() {
+	if [[ ${#BT_NESTCAMS[@]} -gt 0 ]]; then
+		curcount=1; totcount="${#BT_NESTCAMS[@]}"
+		LOG red "-------------------------------------------------"
+		LOG red "WARNING: Found ${totcount} potential Nest BT Device(s)"
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "WARNING: Found %s potential Nest BT Device(s).\n" "${totcount}" >> "$REPORT_DETECT_FILE"
+		LOG " "
+		# Record each BT Nest device found
+		for mac in "${!BT_NESTCAMS[@]}"; do
+			name="${BT_NESTCAMS[$mac]}"
+			printf "Potential Nest Device:\nBT Name: %s\nBT MAC: %s\n" "${name}" "${mac}" >> "$REPORT_DETECT_FILE"
+			if [[ "$scan_privacy" -eq 1 ]] ; then mac="${mac:0:2}:░░:░░:░░:░░:░░"; name="$priv_name_txt"; fi
+			LOG red "Potential Nest Device:\nBT Name: $name\nBT MAC: $mac"
+			detections=$((detections + 1))
+			total_detected=$((total_detected + 1))
+			if [[ "$curcount" -lt "$totcount" ]] ; then
+				LOG " "
+			fi
+			curcount=$((curcount + 1))
+		done
+		LOG red "-------------------------------------------------"
+	else 
+		LOG green "No obvious Nest BT Devices detected."
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "No obvious Nest BT Devices detected.\n" >> "$REPORT_DETECT_FILE"
+	fi
+}
+
 # smart glasses warn
 warn_bt_smrtglas() {
 	if [[ ${#BT_SMRTGLAS[@]} -gt 0 ]]; then
@@ -2739,6 +2806,36 @@ warn_bt_smrtglas() {
 		LOG green "No obvious Smart Glass BT Devices detected."
 		printf "\n" >> "$REPORT_DETECT_FILE"
 		printf "No obvious Smart Glass BT Devices detected.\n" >> "$REPORT_DETECT_FILE"
+	fi
+}
+
+# tiletags warn
+warn_bt_tiletags() {
+	if [[ ${#BT_TILETAGS[@]} -gt 0 ]]; then
+		curcount=1; totcount="${#BT_TILETAGS[@]}"
+		LOG red "-------------------------------------------------"
+		LOG red "WARNING: Found ${totcount} potential Tile BT Device(s)"
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "WARNING: Found %s potential Tile BT Device(s).\n" "${totcount}" >> "$REPORT_DETECT_FILE"
+		LOG " "
+		# Record each BT Tile device found
+		for mac in "${!BT_TILETAGS[@]}"; do
+			name="${BT_TILETAGS[$mac]}"
+			printf "Potential Tile Device:\nBT Name: %s\nBT MAC: %s\n" "${name}" "${mac}" >> "$REPORT_DETECT_FILE"
+			if [[ "$scan_privacy" -eq 1 ]] ; then mac="${mac:0:2}:░░:░░:░░:░░:░░"; name="$priv_name_txt"; fi
+			LOG red "Potential Tile Device:\nBT Name: $name\nBT MAC: $mac"
+			detections=$((detections + 1))
+			total_detected=$((total_detected + 1))
+			if [[ "$curcount" -lt "$totcount" ]] ; then
+				LOG " "
+			fi
+			curcount=$((curcount + 1))
+		done
+		LOG red "-------------------------------------------------"
+	else 
+		LOG green "No obvious Tile BT Devices detected."
+		printf "\n" >> "$REPORT_DETECT_FILE"
+		printf "No obvious Tile BT Devices detected.\n" >> "$REPORT_DETECT_FILE"
 	fi
 }
 
@@ -2808,7 +2905,9 @@ scan_detect_from_scanned() {
 	local total_BT_FLIPPERS=0
 	local total_BT_FLOCKCAM=0
 	local total_BT_MESHTAST=0
+	local total_BT_NESTCAMS=0
 	local total_BT_SMRTGLAS=0
+	local total_BT_TILETAGS=0
 	local total_BT_USBKILLS=0
 	local total_BT_PINEAPPS=0
 	local total_BT_CUSTOMOU=0
@@ -2853,7 +2952,9 @@ scan_detect_from_scanned() {
 		BT_FLIPPERS=()
 		BT_FLOCKCAM=()
 		BT_MESHTAST=()
+		BT_NESTCAMS=()
 		BT_SMRTGLAS=()
+		BT_TILETAGS=()
 		BT_USBKILLS=()
 		BT_PINEAPPS=()
 		BT_CUSTOMOU=()
@@ -2891,23 +2992,33 @@ scan_detect_from_scanned() {
 		# if [[ "$scan_stealth" -eq 0 ]] ; then LED BLUE SLOW; fi
 		if [[ "${#BT_TARGETS[@]}" -gt 0 ]] ; then
 			startScan=$SECONDS
-			LOG "Scanning ${#BT_TARGETS[@]} scanned ${text_target_UC}s, please wait..."
+			LOG "Scanning ${#BT_TARGETS[@]} scanned ${text_target_UC}(s), please wait..."
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
 			printf "%s - EVENT: Start Scanning scanned Targets\n" "$(date +"%Y-%m-%d_%H%M%S")" >> "$REPORT_DETECT_FILE"
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
-			printf "Scanning %s scanned Targets, please wait...\n" "${#BT_TARGETS[@]}" >> "$REPORT_DETECT_FILE"
+			printf "Scanning %s scanned Target(s), please wait...\n" "${#BT_TARGETS[@]}" >> "$REPORT_DETECT_FILE"
 			if [[ "$archCur" == "pager" ]] ; then
 				if [[ "${#BT_TARGETS[@]}" -gt "$savedTargWarn" ]] ; then
-					LOG magenta "====================================== WARNING =="
-					LOG red     "Scanned ${text_target_UC}s count is greater than ${savedTargWarn}!"
+					if [[ "${#BT_TARGETS[@]}" -gt "$savedTargCrit" ]] ; then
+						LOG magenta "===================================== CRITICAL =="
+						LOG red     "Saved ${text_target_UC}s count is greater than ${savedTargCrit}!"
+					else
+						LOG magenta "====================================== WARNING =="
+						LOG red     "Saved ${text_target_UC}s count is greater than ${savedTargWarn}!"
+					fi
 					LOG red     "Extra time needed to scan for ALL Detections!"
 					if [[ "$scan_custom" -eq 1 ]] ; then
 						LOG red     "Approx. 90s for 1500 ${text_target_LC}s"
 					else
 						LOG red     "Approx. 3 min for 1500 ${text_target_LC}s"
 					fi
-					LOG magenta "====================================== WARNING =="
-					printf "WARNING: Scanned Targets count is greater than %s!\n" "${savedTargWarn}" >> "$REPORT_DETECT_FILE"
+					if [[ "${#BT_TARGETS[@]}" -gt "$savedTargCrit" ]] ; then
+						LOG magenta "===================================== CRITICAL =="
+						printf "CRITICAL: Saved Targets count is greater than %s!\n" "${savedTargCrit}" >> "$REPORT_DETECT_FILE"
+					else
+						LOG magenta "====================================== WARNING =="
+						printf "WARNING: Saved Targets count is greater than %s!\n" "${savedTargWarn}" >> "$REPORT_DETECT_FILE"
+					fi
 					printf "Extra time needed to scan for ALL Detections!\n" >> "$REPORT_DETECT_FILE"
 				fi
 			fi
@@ -2943,7 +3054,9 @@ scan_detect_from_scanned() {
 					check_bt_flippers "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_flockcam "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_meshtast "$mac" "$NEW_TARGET_MAC_NAME"
+					check_bt_nestcams "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_smrtglas "$mac" "$NEW_TARGET_MAC_NAME"
+					check_bt_tiletags "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_usbkills "$mac" "$NEW_TARGET_MAC_NAME"
 					check_bt_pineapps "$mac" "$NEW_TARGET_MAC_NAME"
 				fi
@@ -2951,12 +3064,12 @@ scan_detect_from_scanned() {
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
 			printf "%s - EVENT: Complete Scanning scanned Targets\n" "$(date +"%Y-%m-%d_%H%M%S")" >> "$REPORT_DETECT_FILE"
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
-			LOG green "Completed scanning scanned ${text_target_UC}s."
-			printf "Completed scanning scanned Targets.\n" >> "$REPORT_DETECT_FILE"
+			LOG green "Completed scanning scanned ${text_target_UC}(s)."
+			printf "Completed scanning scanned Target(s).\n" >> "$REPORT_DETECT_FILE"
 			runtime=$((SECONDS-startScan))
 			if [[ "$runtime" -gt 60 ]] ; then
 				minutes=$((runtime/60)); secs=$((runtime%60))
-				LOG "Time to scan ${#BT_TARGETS[@]} scanned ${text_target_UC}(s): ${minutes}min ${secs}s"
+				LOG "Time to scan ${#BT_TARGETS[@]} scanned ${text_target_UC}s: ${minutes}min ${secs}s"
 			else
 				LOG "Time to scan ${#BT_TARGETS[@]} scanned ${text_target_UC}(s): ${runtime}s"
 			fi
@@ -2965,12 +3078,14 @@ scan_detect_from_scanned() {
 			total_BT_FLIPPERS=${#BT_FLIPPERS[@]}
 			total_BT_FLOCKCAM=${#BT_FLOCKCAM[@]}
 			total_BT_MESHTAST=${#BT_MESHTAST[@]}
+			total_BT_NESTCAMS=${#BT_NESTCAMS[@]}
 			total_BT_SMRTGLAS=${#BT_SMRTGLAS[@]}
+			total_BT_TILETAGS=${#BT_TILETAGS[@]}
 			total_BT_USBKILLS=${#BT_USBKILLS[@]}
 			total_BT_PINEAPPS=${#BT_PINEAPPS[@]}
 			total_BT_CUSTOMOU=${#BT_CUSTOMOU[@]}
 
-			total_found_scans=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_SMRTGLAS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
+			total_found_scans=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_NESTCAMS + total_BT_SMRTGLAS + total_BT_TILETAGS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
 			if [[ "$total_found_scans" -gt 0 ]] ; then
 				LOG red "Found ${total_found_scans} suspect scanned ${text_target_LC}(s)..."
 				printf "Found %s suspect scanned Target(s)...\n" "${total_found_scans}" >> "$REPORT_DETECT_FILE"
@@ -2994,7 +3109,9 @@ scan_detect_from_scanned() {
 		total_BT_FLIPPERS=0
 		total_BT_FLOCKCAM=0
 		total_BT_MESHTAST=0
+		total_BT_NESTCAMS=0
 		total_BT_SMRTGLAS=0
+		total_BT_TILETAGS=0
 		total_BT_USBKILLS=0
 		total_BT_PINEAPPS=0
 		total_BT_CUSTOMOU=0
@@ -3002,23 +3119,33 @@ scan_detect_from_scanned() {
 		if [[ -s "$SAVEDTARGETS_FILE" ]]; then
 			startScan=$SECONDS
 			linecount=$(grep -c '.' "$SAVEDTARGETS_FILE")
-			LOG "Scanning ${linecount} Saved ${text_target_UC}s, please wait..."
+			LOG "Scanning ${linecount} Saved ${text_target_UC}(s), please wait..."
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
 			printf "%s - EVENT: Start Scanning Saved Targets\n" "$(date +"%Y-%m-%d_%H%M%S")" >> "$REPORT_DETECT_FILE"
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
-			printf "Scanning %s Saved Targets, please wait...\n" "${linecount}" >> "$REPORT_DETECT_FILE"
+			printf "Scanning %s Saved Target(s), please wait...\n" "${linecount}" >> "$REPORT_DETECT_FILE"
 			if [[ "$archCur" == "pager" ]] ; then
 				if [[ "$linecount" -gt "$savedTargWarn" ]] ; then
-					LOG magenta "====================================== WARNING =="
-					LOG red     "Saved ${text_target_UC}s count is greater than ${savedTargWarn}!"
+					if [[ "$linecount" -gt "$savedTargCrit" ]] ; then
+						LOG magenta "===================================== CRITICAL =="
+						LOG red     "Saved ${text_target_UC}s count is greater than ${savedTargCrit}!"
+					else
+						LOG magenta "====================================== WARNING =="
+						LOG red     "Saved ${text_target_UC}s count is greater than ${savedTargWarn}!"
+					fi
 					LOG red     "Extra time needed to scan for ALL Detections!"
 					if [[ "$scan_custom" -eq 1 ]] ; then
 						LOG red     "Approx. 90s for 1500 ${text_target_LC}s"
 					else
 						LOG red     "Approx. 3 min for 1500 ${text_target_LC}s"
 					fi
-					LOG magenta "====================================== WARNING =="
-					printf "WARNING: Saved Targets count is greater than %s!\n" "${savedTargWarn}" >> "$REPORT_DETECT_FILE"
+					if [[ "$linecount" -gt "$savedTargCrit" ]] ; then
+						LOG magenta "===================================== CRITICAL =="
+						printf "CRITICAL: Saved Targets count is greater than %s!\n" "${savedTargCrit}" >> "$REPORT_DETECT_FILE"
+					else
+						LOG magenta "====================================== WARNING =="
+						printf "WARNING: Saved Targets count is greater than %s!\n" "${savedTargWarn}" >> "$REPORT_DETECT_FILE"
+					fi
 					printf "Extra time needed to scan for ALL Detections!\n" >> "$REPORT_DETECT_FILE"
 				fi
 			fi
@@ -3036,7 +3163,9 @@ scan_detect_from_scanned() {
 						check_bt_flippers "$mac" "$name"
 						check_bt_flockcam "$mac" "$name"
 						check_bt_meshtast "$mac" "$name"
+						check_bt_nestcams "$mac" "$name"
 						check_bt_smrtglas "$mac" "$name"
+						check_bt_tiletags "$mac" "$name"
 						check_bt_usbkills "$mac" "$name"
 						check_bt_pineapps "$mac" "$name"
 					fi
@@ -3045,26 +3174,28 @@ scan_detect_from_scanned() {
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
 			printf "%s - EVENT: Complete Scanning Saved Targets\n" "$(date +"%Y-%m-%d_%H%M%S")" >> "$REPORT_DETECT_FILE"
 			printf "═════════════════════════════════════════════════\n" >> "$REPORT_DETECT_FILE"
-			LOG green "Completed scanning Saved ${text_target_UC}s."
-			printf "Completed scanning Saved Targets.\n" >> "$REPORT_DETECT_FILE"
+			LOG green "Completed scanning Saved ${text_target_UC}(s)."
+			printf "Completed scanning Saved Target(s).\n" >> "$REPORT_DETECT_FILE"
 			runtime=$((SECONDS-startScan))
 			if [[ "$runtime" -gt 60 ]] ; then
 				minutes=$((runtime/60)); secs=$((runtime%60))
 				LOG "Time to scan ${linecount} Saved ${text_target_UC}s: ${minutes}min ${secs}s"
 			else
-				LOG "Time to scan ${linecount} Saved ${text_target_UC}s: ${runtime}s"
+				LOG "Time to scan ${linecount} Saved ${text_target_UC}(s): ${runtime}s"
 			fi
 			total_BT_AXONCAMS=${#BT_AXONCAMS[@]}
 			total_BT_CCSKIMMR=${#BT_CCSKIMMR[@]}
 			total_BT_FLIPPERS=${#BT_FLIPPERS[@]}
 			total_BT_FLOCKCAM=${#BT_FLOCKCAM[@]}
 			total_BT_MESHTAST=${#BT_MESHTAST[@]}
+			total_BT_NESTCAMS=${#BT_NESTCAMS[@]}
 			total_BT_SMRTGLAS=${#BT_SMRTGLAS[@]}
+			total_BT_TILETAGS=${#BT_TILETAGS[@]}
 			total_BT_USBKILLS=${#BT_USBKILLS[@]}
 			total_BT_PINEAPPS=${#BT_PINEAPPS[@]}
 			total_BT_CUSTOMOU=${#BT_CUSTOMOU[@]}
 
-			total_found_saved=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_SMRTGLAS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
+			total_found_saved=$((total_BT_AXONCAMS + total_BT_CCSKIMMR + total_BT_FLIPPERS + total_BT_FLOCKCAM + total_BT_MESHTAST + total_BT_NESTCAMS + total_BT_SMRTGLAS + total_BT_TILETAGS + total_BT_USBKILLS + total_BT_PINEAPPS + total_BT_CUSTOMOU))
 			if [[ "$total_found_saved" -gt 0 ]] ; then
 				LOG red "Found ${total_found_saved} suspect Saved ${text_target_LC}(s)..."
 				printf "Found %s suspect Saved Target(s)...\n" "${total_found_saved}" >> "$REPORT_DETECT_FILE"
@@ -3133,7 +3264,13 @@ scan_detect_from_scanned() {
 			warn_bt_meshtast
 			LOG " "
 			sleep 0.25
+			warn_bt_nestcams
+			LOG " "
+			sleep 0.25
 			warn_bt_smrtglas
+			LOG " "
+			sleep 0.25
+			warn_bt_tiletags
 			LOG " "
 			sleep 0.25
 			warn_bt_usbkills
@@ -3671,7 +3808,7 @@ Are you sure you have a USB Bluetooth Adapter plugged in and want to continue ha
 						status_display="JAM! ¨ "
 						LOG red "${status_display}|${jams_display}| $jammerDet_display | $nojamstreak_display | ${totalruntime_display} ${runtime_display}"
 						LOG blue "--------------------------------------------------"
-						if [[ "$nojamstreak_hold" -gt 100 ]] ; then
+						if [[ "$nojamstreak_hold" -gt 55 ]] ; then
 							LOG magenta "--- JAM! ---- Possible Jam DETECTED! ---- JAM! ---"
 							LOG magenta "--- Likely a device hiccup! ex. CPU/Memory Lag ---"
 						else
@@ -3745,7 +3882,7 @@ Are you sure you have a USB Bluetooth Adapter plugged in and want to continue ha
 						status_display="FULLJAM"
 						LOG red "${status_display}|${jams_display}| $jammerDet_display | $nojamstreak_display | ${totalruntime_display} ${runtime_display}"
 						LOG blue "--------------------------------------------------"
-						if [[ "$nojamstreak_hold" -gt 100 ]] ; then
+						if [[ "$nojamstreak_hold" -gt 55 ]] ; then
 							LOG red "- FULLJAM! -- Possible Jam DETECTED! -- FULLJAM! -"
 							LOG magenta "--- Likely a device hiccup! ex. CPU/Memory Lag ---"
 						else
