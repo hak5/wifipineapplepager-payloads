@@ -1,7 +1,7 @@
 #!/bin/bash
 # Main Functions for BluePine
 # Author: cncartist
-# Version: 1.4
+# Version: 1.5
 # 
 # update_bluetooth_status
 # update_bluetooth_name
@@ -839,10 +839,18 @@ saved_targets_clear() {
 		BT_RSSIS=()
 		BT_NAMES=()
 		BT_COMPS=()
+		BT_TARGETS=()
+		BT_AXONCAMS=()
+		BT_CCSKIMMR=()
 		BT_FLIPPERS=()
+		BT_FLOCKCAM=()
+		BT_MESHTAST=()
+		BT_NESTCAMS=()
+		BT_TILETAGS=()
+		BT_SMRTGLAS=()
 		BT_USBKILLS=()
 		BT_PINEAPPS=()
-		BT_TARGETS=()
+		BT_CUSTOMOU=()
 		LOG green "ALL Scan ${text_target_UC}s cleared!"
 		LOG "Press OK to continue..."
 		LOG " "
