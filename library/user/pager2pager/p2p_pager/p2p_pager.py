@@ -14,9 +14,9 @@ UNPACK_Q = struct.Struct('<Q').unpack
 # The full implementation of the p2p pager system
 
 # locations of important files
-CONFIG_DIR = os.path.expanduser("~/.p2p_pager")
+CONFIG_DIR = os.path.expanduser("/root/.p2p_pager")
 NETWORKS_CONFIG_FILE = os.path.join(CONFIG_DIR, "networks.conf")
-CONFIG_FILE = os.path.join(CONFIG_DIR, "p2p_pager.conf")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "pager.conf")
 SEEN_MESSAGES_FILE = os.path.join("/var", "seen_messages.db")
 
 message_queue = asyncio.Queue()
@@ -59,14 +59,17 @@ def load_config():
     if os.path.isfile(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
             for line in f:
+                if line.strip() == '' or line.strip().startswith('#'):
+                    continue
                 key, value = line.strip().split('=')
                 if key in config:
-                    if key in ["beacon_interval", "broadcast_duration", "decay_time"]:
+                    if key in ["beacon_interval", "broadcast_duration", "decay_time", "beacon_uptime"]:
                         config[key] = float(value)
                     elif key == "max_message_length":
                         config[key] = int(value)
                     else:
                         config[key] = value
+                    print(f"Config loaded: {key}={config[key]}")
     return config
 
 # Load networks configuration
@@ -465,7 +468,7 @@ async def handle_queue():
             full_message, ssid, channel = parts[0], parts[1], int(parts[2])
             #seen_messages[f"{full_message}:{ssid}"] = time.time()  # Update seen messages to prevent immediate rebroadcast
             print(f"Queue processing: Broadcasting message '{full_message}' on SSID '{ssid}' and channel {channel}")
-            await broadcast_message(INTERFACE, message_prefix, channel, beacon_interval, beacon_uptime, custom_message=full_message, network=ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid)
+            await broadcast_message(INTERFACE, message_prefix, channel, beacon_interval, uptime=beacon_uptime, custom_message=full_message, network=ssid[len(ssid_prefix):] if ssid.startswith(ssid_prefix) else ssid)
         else:
             print(f"Invalid message format: {message}")
         
@@ -578,8 +581,11 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
 
     # High precision timing loop to maintain interval with low drift
     next_send = time.perf_counter()
+    last_send = next_send
+    
     
     # Calculate end time if uptime is specified
+    counter = 0
     end_time = None
     if uptime > 0:
         end_time = next_send + uptime
@@ -589,9 +595,12 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
             # Check for uptime expiration
             if end_time and time.perf_counter() >= end_time:
                 break
+            #if counter == uptime:  # Check every 100ms
+            #    break
+            
             
             now = time.perf_counter()
-            if now >= next_send:
+            if now >= last_send + interval:
                 try:
                     # send may raise BlockingIOError if kernel buffer is full
                     sock.send(mv)
@@ -599,9 +608,11 @@ async def broadcast_message(interface, message_prefix, channel, interval, uptime
                     pass
                 # schedule next send
                 next_send += interval
+                last_send = now
+                counter += 1
             else:
                 # Sleep a bit to avoid busy waiting
-                await asyncio.sleep(min(interval, next_send - now))
+                await asyncio.sleep(min(interval, interval - (now - last_send)))
     finally:
         sock.close()
         print(f"Stopped sending beacons on {interface} (SSID: {ssid}) at {time.ctime()}")
@@ -616,6 +627,7 @@ async def send_alert(message):
 async def main():
     global seen_messages, networks, ssid_prefix, channel, decay_time, max_message_length, debug_mode, beacon_uptime, message_prefix, decay_prefix, beacon_interval
     # Load configuration
+    print("Loading configuration...")
     config = load_config()
     decay_time = config["decay_time"]
     beacon_interval = config["beacon_interval"] / 1000
@@ -625,6 +637,7 @@ async def main():
     max_message_length = config["max_message_length"]
     message_prefix = config["message_prefix"]
     decay_prefix = config["decay_prefix"]
+    print(f"Configuration loaded: decay_time={decay_time}s, beacon_interval={beacon_interval}s, beacon_uptime={beacon_uptime}s, ssid_prefix='{ssid_prefix}', channel={channel}, max_message_length={max_message_length}, message_prefix='{message_prefix}', decay_prefix='{decay_prefix}'")
     
     debug_mode = False
     parser = argparse.ArgumentParser(description="P2P Pager System")

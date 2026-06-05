@@ -29,7 +29,7 @@ To get started with the P2P Pager, follow these steps:
 
 > [!NOTE]
 > The service will be automatically enabled when installing it you can disable it using the `P2P - Manage Service` payload.
-
+ 
 ## Known Issues
 
 - Messages are not encrypted
