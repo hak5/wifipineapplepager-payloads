@@ -1,0 +1,8 @@
+# Level 5 - Fortress
+# The final challenge
+I I I I I I GL GL I I I I I I
+I S S S S S S S S S S S S I
+I S r r r rL r rL r r r S I
+I S r G G G G G G G r S I
+I S r r r r+ r r+ r r r S I
+I I I I I I I I I I I I I I
