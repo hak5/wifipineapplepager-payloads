@@ -188,8 +188,13 @@ main() {
             ;;
         "About")
             # Example of a nested list
-            LIST_PICKER "About page" "Project by ERR0RW0LF" "Inspired by:" "@Hak5Darren" "Big thanks to you" "Darren for believing in" "this project and" "supporting it." "Where you can find me:" "Youtube: @3RR0RW0LF" "Discord: err0rw0lf" "<- Back" "<- Back"
+            resp=$(LIST_PICKER "About page" "Project by ERR0RW0LF" "Inspired by:" "@Hak5Darren" "Big thanks to you" "Darren for believing in" "this project and" "supporting it." "Where you can find me:" "Youtube: @3RR0RW0LF" "Discord: err0rw0lf" "<- Back" "<- Back")
             # Selection is ignored, so all list items are essentially "<- Back"
+            case "$resp" in
+                "supporting it.")
+                DO_A_BARREL_ROLL
+                ;;
+            esac
             ;;
         "Exit")
             resp=$(CONFIRMATION_DIALOG "Exit Payload?") || exit 1
