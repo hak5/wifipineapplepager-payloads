@@ -8,7 +8,7 @@
 
 <p align="center">
 <img src="https://img.shields.io/badge/Platform-WiFi%20Pineapple%20Pager-00d4aa?style=flat-square" />
-<img src="https://img.shields.io/badge/Version-1.8.1-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Version-1.8.6-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Author-JustSomeTrout-purple?style=flat-square" />
 </p>
 <p align="center">
