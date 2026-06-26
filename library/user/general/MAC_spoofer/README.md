@@ -15,7 +15,7 @@
 
 ![Startup](screens/Capture01.png)
 
-**2. Select Interface** The tool scans for all available network interfaces, prioritizing the most useful ones at the top of the list. Enter the ID of the interface you wish to spoof.
+**2. Select Interface** The tool scans for all available network interfaces, prioritizing the most useful ones at the top of the list. Select the interface you wish to spoof from the list.
 
 ![Interface List](screens/Capture02.png)
 

@@ -38,31 +38,8 @@ done
 
 IFACE_ARRAY=($SORTED_LIST)
 
-LIST_STR=""
-count=1
-for i in "${IFACE_ARRAY[@]}"; do
-    LIST_STR="${LIST_STR}${count}: ${i}
-"
-    count=$((count + 1))
-done
-
-PROMPT "SELECT INTERFACE
-(Sorted by Utility)
-
-$LIST_STR
-
-Press OK."
-
-IF_ID=$(NUMBER_PICKER "Enter Interface ID:" 1)
-if [ -z "$IF_ID" ]; then exit 0; fi
-
-IDX=$((IF_ID - 1))
-INTERFACE="${IFACE_ARRAY[$IDX]}"
-
-if [ -z "$INTERFACE" ]; then
-    PROMPT "Invalid Selection."
-    exit 1
-fi
+INTERFACE=$(LIST_PICKER "Select Interface" "${IFACE_ARRAY[@]}" "${IFACE_ARRAY[0]}")
+if [ -z "$INTERFACE" ]; then exit 0; fi
 
 # --- 3. TRUE HARDWARE BACKUP ---
 BACKUP_MAC="/tmp/original_mac_${INTERFACE}"
@@ -109,167 +86,114 @@ gen_suffix() {
 }
 
 # --- 4. CATEGORY SELECTION ---
-PROMPT "SELECT ENV ($INTERFACE)
-
-0. Restore Original
-1. Home (Wireless)
-2. Corporate (Wireless)
-3. Commercial (Wireless)
-4. Industrial (Wireless)
-5. Ethernet (Wired Mix)
-
-Press OK."
-
-CAT_ID=$(NUMBER_PICKER "Select Category" 1)
-if [ -z "$CAT_ID" ]; then exit 0; fi
+CAT_NAME=$(LIST_PICKER "Select Env ($INTERFACE)" \
+    "Restore Original" \
+    "Home (Wireless)" \
+    "Corporate (Wireless)" \
+    "Commercial (Wireless)" \
+    "Industrial (Wireless)" \
+    "Ethernet (Wired)" \
+    "Home (Wireless)")
+if [ -z "$CAT_NAME" ]; then exit 0; fi
 
 # --- 5. PROFILE SELECTION ---
+NEW_OUI=""
 
-if [ "$CAT_ID" -eq 0 ]; then
-    NEW_MAC="$ORIG_MAC"
-    NEW_NAME="$ORIG_HOST"
-    CAT_NAME="Factory"
-    NEW_OUI="" 
-    
-else
-    case "$CAT_ID" in
-        1) CAT_NAME="Home" ;;
-        2) CAT_NAME="Corporate" ;;
-        3) CAT_NAME="Commercial" ;;
-        4) CAT_NAME="Industrial" ;;
-        5) CAT_NAME="Ethernet" ;;
-    esac
+case "$CAT_NAME" in
+    "Restore Original")
+        NEW_MAC="$ORIG_MAC"
+        NEW_NAME="$ORIG_HOST"
+        CAT_NAME="Factory"
+        ;;
 
-    case "$CAT_ID" in
-        1)
-            # === HOME ===
-            PROMPT "HOME PROFILES
-            
-1. Apple iPhone 15
-2. Samsung Smart TV
-3. Amazon Echo Dot
-4. Sony PlayStation 5
+    "Home (Wireless)")
+        PROF=$(LIST_PICKER "Home Profiles" \
+            "Apple iPhone 15" \
+            "Samsung Smart TV" \
+            "Amazon Echo Dot" \
+            "Sony PlayStation 5" \
+            "Apple iPhone 15")
+        case "$PROF" in
+            "Apple iPhone 15")    NEW_OUI="F0:99:B6"; NEW_NAME="iPhone-15"; TYPE="Mobile" ;;
+            "Samsung Smart TV")   NEW_OUI="84:C0:EF"; NEW_NAME="Samsung-TV-QLED"; TYPE="SmartTV" ;;
+            "Amazon Echo Dot")    NEW_OUI="FC:D7:49"; NEW_NAME="Echo-Dot-LivingRoom"; TYPE="IoT" ;;
+            "Sony PlayStation 5") NEW_OUI="00:D9:D1"; NEW_NAME="PS5-Console"; TYPE="Console" ;;
+            *) exit 0 ;;
+        esac
+        ;;
 
-Press OK."
-            PROF_ID=$(NUMBER_PICKER "Select Device" 1)
-            
-            if [ "$PROF_ID" -eq 1 ]; then
-                NEW_OUI="F0:99:B6"; NEW_NAME="iPhone-15"; TYPE="Mobile"
-            elif [ "$PROF_ID" -eq 2 ]; then
-                NEW_OUI="84:C0:EF"; NEW_NAME="Samsung-TV-QLED"; TYPE="SmartTV"
-            elif [ "$PROF_ID" -eq 3 ]; then
-                # UPDATED: Amazon Technologies Inc.
-                NEW_OUI="FC:D7:49"; NEW_NAME="Echo-Dot-LivingRoom"; TYPE="IoT"
-            elif [ "$PROF_ID" -eq 4 ]; then
-                NEW_OUI="00:D9:D1"; NEW_NAME="PS5-Console"; TYPE="Console"
-            else exit 0; fi
-            ;;
+    "Corporate (Wireless)")
+        PROF=$(LIST_PICKER "Corporate Profiles" \
+            "HP LaserJet Pro" \
+            "Cisco IP Phone" \
+            "Polycom Conf Phone" \
+            "Dell Latitude Laptop" \
+            "HP LaserJet Pro")
+        case "$PROF" in
+            "HP LaserJet Pro")      NEW_OUI="00:21:5A"; NEW_NAME="HP-LaserJet-M404"; TYPE="Printer" ;;
+            "Cisco IP Phone")       NEW_OUI="00:08:2F"; NEW_NAME="SEP-Cisco-8845"; TYPE="VoIP" ;;
+            "Polycom Conf Phone")   NEW_OUI="00:04:F2"; NEW_NAME="Polycom-Trio-8800"; TYPE="VoIP" ;;
+            "Dell Latitude Laptop") NEW_OUI="F8:BC:12"; NEW_NAME="DESKTOP-DELL-5420"; TYPE="Laptop" ;;
+            *) exit 0 ;;
+        esac
+        ;;
 
-        2)
-            # === CORPORATE ===
-            PROMPT "CORPORATE PROFILES
-            
-1. HP LaserJet Pro
-2. Cisco IP Phone
-3. Polycom Conf Phone
-4. Dell Latitude Laptop
+    "Commercial (Wireless)")
+        PROF=$(LIST_PICKER "Commercial Profiles" \
+            "Zebra Barcode Scanner" \
+            "Verifone POS Terminal" \
+            "Ingenico Card Reader" \
+            "Axis Security Camera" \
+            "Zebra Barcode Scanner")
+        case "$PROF" in
+            "Zebra Barcode Scanner") NEW_OUI="00:A0:F8"; NEW_NAME="Zebra-TC52-Scanner"; TYPE="Scanner" ;;
+            "Verifone POS Terminal") NEW_OUI="00:0B:4F"; NEW_NAME="Verifone-VX520"; TYPE="POS" ;;
+            "Ingenico Card Reader")  NEW_OUI="00:03:81"; NEW_NAME="Ingenico-iSC250"; TYPE="POS" ;;
+            "Axis Security Camera")  NEW_OUI="AC:CC:8E"; NEW_NAME="Axis-M30-Cam"; TYPE="Camera" ;;
+            *) exit 0 ;;
+        esac
+        ;;
 
-Press OK."
-            PROF_ID=$(NUMBER_PICKER "Select Device" 1)
-            
-            if [ "$PROF_ID" -eq 1 ]; then
-                NEW_OUI="00:21:5A"; NEW_NAME="HP-LaserJet-M404"; TYPE="Printer"
-            elif [ "$PROF_ID" -eq 2 ]; then
-                NEW_OUI="00:08:2F"; NEW_NAME="SEP-Cisco-8845"; TYPE="VoIP"
-            elif [ "$PROF_ID" -eq 3 ]; then
-                NEW_OUI="00:04:F2"; NEW_NAME="Polycom-Trio-8800"; TYPE="VoIP"
-            elif [ "$PROF_ID" -eq 4 ]; then
-                NEW_OUI="F8:BC:12"; NEW_NAME="DESKTOP-DELL-5420"; TYPE="Laptop"
-            else exit 0; fi
-            ;;
+    "Industrial (Wireless)")
+        PROF=$(LIST_PICKER "Industrial Profiles" \
+            "Siemens Simatic PLC" \
+            "Rockwell Automation" \
+            "Honeywell Controller" \
+            "Schneider Electric" \
+            "Siemens Simatic PLC")
+        case "$PROF" in
+            "Siemens Simatic PLC")  NEW_OUI="00:1C:06"; NEW_NAME="Siemens-S7-1200"; TYPE="PLC" ;;
+            "Rockwell Automation")  NEW_OUI="00:00:BC"; NEW_NAME="Allen-Bradley-PLC"; TYPE="PLC" ;;
+            "Honeywell Controller") NEW_OUI="00:30:AF"; NEW_NAME="Honeywell-HVAC-Ctl"; TYPE="HVAC" ;;
+            "Schneider Electric")   NEW_OUI="00:00:54"; NEW_NAME="Schneider-Modicon"; TYPE="PLC" ;;
+            *) exit 0 ;;
+        esac
+        ;;
 
-        3)
-            # === COMMERCIAL ===
-            PROMPT "COMMERCIAL PROFILES
-            
-1. Zebra Barcode Scanner
-2. Verifone POS Terminal
-3. Ingenico Card Reader
-4. Axis Security Camera
+    "Ethernet (Wired)")
+        PROF=$(LIST_PICKER "Wired Profiles" \
+            "MSI Gaming Desktop" \
+            "Cisco Desk Phone" \
+            "Verifone POS" \
+            "Moxa NPort Gateway" \
+            "MSI Gaming Desktop")
+        case "$PROF" in
+            "MSI Gaming Desktop") NEW_OUI="D8:CB:8A"; NEW_NAME="MSI-Gaming-Desktop"; TYPE="PC" ;;
+            "Cisco Desk Phone")   NEW_OUI="00:08:2F"; NEW_NAME="Cisco-IP-Phone"; TYPE="VoIP" ;;
+            "Verifone POS")       NEW_OUI="00:0B:4F"; NEW_NAME="Verifone-VX520-Eth"; TYPE="POS" ;;
+            "Moxa NPort Gateway") NEW_OUI="00:90:E8"; NEW_NAME="Moxa-NPort-5110"; TYPE="Gateway" ;;
+            *) exit 0 ;;
+        esac
+        ;;
 
-Press OK."
-            PROF_ID=$(NUMBER_PICKER "Select Device" 1)
-            
-            if [ "$PROF_ID" -eq 1 ]; then
-                NEW_OUI="00:A0:F8"; NEW_NAME="Zebra-TC52-Scanner"; TYPE="Scanner"
-            elif [ "$PROF_ID" -eq 2 ]; then
-                # UPDATED: Verifone, Inc.
-                NEW_OUI="00:0B:4F"; NEW_NAME="Verifone-VX520"; TYPE="POS"
-            elif [ "$PROF_ID" -eq 3 ]; then
-                # UPDATED: Ingenico International
-                NEW_OUI="00:03:81"; NEW_NAME="Ingenico-iSC250"; TYPE="POS"
-            elif [ "$PROF_ID" -eq 4 ]; then
-                NEW_OUI="AC:CC:8E"; NEW_NAME="Axis-M30-Cam"; TYPE="Camera"
-            else exit 0; fi
-            ;;
+    *)
+        exit 0
+        ;;
+esac
 
-        4)
-            # === INDUSTRIAL ===
-            PROMPT "INDUSTRIAL PROFILES
-            
-1. Siemens Simatic PLC
-2. Rockwell Automation
-3. Honeywell Controller
-4. Schneider Electric
-
-Press OK."
-            PROF_ID=$(NUMBER_PICKER "Select Device" 1)
-            
-            if [ "$PROF_ID" -eq 1 ]; then
-                NEW_OUI="00:1C:06"; NEW_NAME="Siemens-S7-1200"; TYPE="PLC"
-            elif [ "$PROF_ID" -eq 2 ]; then
-                NEW_OUI="00:00:BC"; NEW_NAME="Allen-Bradley-PLC"; TYPE="PLC"
-            elif [ "$PROF_ID" -eq 3 ]; then
-                # UPDATED: Honeywell GmbH
-                NEW_OUI="00:30:AF"; NEW_NAME="Honeywell-HVAC-Ctl"; TYPE="HVAC"
-            elif [ "$PROF_ID" -eq 4 ]; then
-                NEW_OUI="00:00:54"; NEW_NAME="Schneider-Modicon"; TYPE="PLC"
-            else exit 0; fi
-            ;;
-
-        5)
-            # === ETHERNET (NEW) ===
-            PROMPT "WIRED PROFILES
-            
-1. MSI Gaming Desktop (Home)
-2. Cisco Desk Phone (Corp)
-3. Verifone POS (Retail)
-4. Moxa NPort Gateway (Ind)
-
-Press OK."
-            PROF_ID=$(NUMBER_PICKER "Select Device" 1)
-            
-            if [ "$PROF_ID" -eq 1 ]; then
-                NEW_OUI="D8:CB:8A"; NEW_NAME="MSI-Gaming-Desktop"; TYPE="PC"
-            elif [ "$PROF_ID" -eq 2 ]; then
-                NEW_OUI="00:08:2F"; NEW_NAME="Cisco-IP-Phone"; TYPE="VoIP"
-            elif [ "$PROF_ID" -eq 3 ]; then
-                # UPDATED: Verifone, Inc.
-                NEW_OUI="00:0B:4F"; NEW_NAME="Verifone-VX520-Eth"; TYPE="POS"
-            elif [ "$PROF_ID" -eq 4 ]; then
-                NEW_OUI="00:90:E8"; NEW_NAME="Moxa-NPort-5110"; TYPE="Gateway"
-            else exit 0; fi
-            ;;
-            
-        *)
-            exit 0
-            ;;
-    esac
-
-    if [ -n "$NEW_OUI" ]; then
-        SUFFIX=$(gen_suffix)
-        NEW_MAC="${NEW_OUI}${SUFFIX}"
-    fi
+if [ -n "$NEW_OUI" ]; then
+    SUFFIX=$(gen_suffix)
+    NEW_MAC="${NEW_OUI}${SUFFIX}"
 fi
 
 # --- 6. CONFIRMATION ---
