@@ -1,0 +1,8 @@
+# Level 1 - Rainbow Intro
+# Easy first level with a few power-ups
+r r r r r r r r r r r r r r
+o o o oLo o o o o o oLo o o
+y y y y y y y y y y y y y y
+g g g g g g gR g g g g g g g
+t t t t t t t t t t t t t t
+b b b b b b b b b b b b b b
