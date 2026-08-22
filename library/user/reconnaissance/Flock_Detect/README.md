@@ -4,9 +4,25 @@ A WiFi Pineapple Pager payload for passively detecting Flock Safety surveillance
 
 ## What It Does
 
-Flock You continuously scans for BLE advertisements from Flock Safety infrastructure — ALPR cameras, Penguin backup batteries, and Pigvision devices. When a device is detected, it logs the MAC address and device name, vibrates the Pager, flashes an LED, and displays a color-coded entry on screen.
+Flock You continuously scans for BLE advertisements from Flock Safety infrastructure — ALPR cameras, Penguin backup batteries, and Pigvision devices. When a device is detected, it logs the MAC address, device name, and **GPS coordinates**, vibrates the Pager, flashes an LED, and displays a color-coded entry on screen.
 
 The scanner runs continuously until you press the Pager's cancel button. All detections are saved to a timestamped log file in `/root/loot/flock_you/`.
+
+### GPS Tagging (v9.16+)
+
+Each detection is tagged with a live GPS fix pulled from `gpsd` (via `gpspipe -w` + `jq`, the same method used by `gps-checker`). One fix is read per scan cycle and applied to every detection in that cycle — position doesn't change meaningfully within a ~12 second scan window.
+
+- With a 2D/3D fix, the detection line ends with `lat,lon` and the CSV row is populated.
+- With no fix (no receiver, or no satellite lock yet), the detection is tagged `NO_GPS` and the CSV lat/lon columns are left empty — the scanner keeps running normally.
+
+Two files are written per run in `/root/loot/flock_you/`:
+
+| File | Format |
+|------|--------|
+| `flock_hcitool_<timestamp>.txt` | Human-readable log: `DECT: HH:MM:SS \| MAC \| NAME \| lat,lon` |
+| `flock_gps_<timestamp>.csv` | `time,mac,name,lat,lon` — ready for mapping / import |
+
+For a GPS-tagged drive, start `wardrive_activate` (or `gps-checker`) first so `gpsd` is configured and has a fix before you run Flock You.
 
 ### Detection Targets
 
@@ -35,6 +51,13 @@ flock_you/
 
 No additional packages are required. The Pager's built-in `hcitool` handles BLE scanning.
 
+> **Keep this a flat folder.** The Pager's payload scanner treats any directory
+> containing a subdirectory as a *category* rather than a payload, which hides it
+> from the on-device list. Do not nest folders inside `Flock_Detect/`. The
+> companion ESP32 lab simulator (which runs on separate Arduino hardware, not the
+> Pager) lives at `docs/flock-lab-sim/` — outside the deployable `library/` tree —
+> for this reason.
+
 ## Usage
 
 1. Navigate to **Payloads** on the Pager dashboard
@@ -50,8 +73,9 @@ Each scan cycle:
 1. Resets the BLE adapter (`hci0`) to ensure a clean state
 2. Runs `hcitool lescan --duplicates` for ~12 seconds
 3. Greps the results for known Flock device name patterns
-4. Deduplicates against an in-memory list of previously seen MAC+Name pairs
-5. Logs new detections to screen (with color) and to a loot file
+4. Reads one GPS fix from `gpsd` for the cycle (or `NO_GPS` if unavailable)
+5. Deduplicates against an in-memory list of previously seen MAC+Name pairs
+6. Logs new detections to screen (with color), to the `.txt` loot file, and to the `.csv`
 6. Fires haptic vibration and LED flash on detection
 7. Waits 3 seconds, then repeats
 
