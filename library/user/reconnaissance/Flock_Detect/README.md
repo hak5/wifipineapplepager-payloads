@@ -17,13 +17,15 @@ BLE range is short (~10–30 m). Driving past a pole camera you're in range for 
 
 > **BLE vs WiFi for cameras.** A Falcon *camera* uploads over a cellular (Sierra Wireless LTE) modem, not WiFi; the confirmed *BLE* emitters are the Penguin battery and Pigvision. When mapping while driving the WiFi path (`wardrive_activate` → WiGLE, then `loot/flock_hits.sh` OUI matching) is the better bet of the two — but see Field results below: a deployed camera may emit neither WiFi nor BLE, so run both and don't assume a silent result means "no camera."
 
+> **Confirming a camera's real signature.** To capture what a *known* Flock camera actually broadcasts (SSID/OUI/BLE) and add it to `oui_list.txt`, follow the stationary baseline-subtraction procedure in [`GROUND_TRUTH_CAPTURE.md`](GROUND_TRUTH_CAPTURE.md). A drive-by is the worst case for this — park in range instead.
+
 ### Field results and v9.19 fixes
 
 **Detection is not yet reproduced.** An earlier note here claimed a Falcon was caught by its **OUI** (with **zero XUNTONG `0x09C8` across 1,477 devices**). Repeated attempts since have failed to reproduce it: two drive-bys and one stationary ~6-minute capture parked within ~30 m of a *confirmed* Flock camera on a solid GPS fix, plus several weeks of routine driving — **no Flock advertising observed on any channel** in that time (zero OUI matches, zero `0x09C8`, no `Flock-`/`Falcon`/`Solar`/`Cam` SSID, zero BLE detections). The scanner was demonstrably working (it logged consumer APs down to −79 dBm and 800+ BLE devices at the camera site), so the likeliest reading is that the cameras emitted nothing to catch.
 
 **Working hypothesis: operating Falcons are cellular-only.** The Falcon V2 carries a Sierra Wireless LTE modem and phones home over cellular; its Lite-On WiFi and BLE appear to be used only during on-site install/maintenance, not steady-state. If so, the 5 `FLOCK_VERIFIED` OUIs below — sourced from WiGLE crowd data — likely captured cameras *mid-install*, and passive on-device detection has a hard ceiling for deployed units.
 
-Another possibility, not exclusive of the first: with recent public scrutiny over privacy and unauthorized use, deployed units may have had WiFi/BLE **deliberately disabled** to reduce their RF detectability. Either way the practical result is the same — a deployed Falcon may broadcast nothing to catch. Crowd-sourced mapping ([deflock.me](https://deflock.me)) is the more reliable locator until a camera is caught actually beaconing. The `0x09C8`-vs-OUI point still stands: if anything catches a Falcon it's the OUI, not the manufacturer ID.
+Another possibility, not exclusive of the first: with recent public scrutiny over privacy and unauthorized use, deployed units may have had WiFi/BLE **deliberately disabled** to reduce their RF detectability. Either way the practical result is the same — a deployed Falcon may broadcast nothing to catch. Crowd-sourced mapping ([deflock.me](https://deflock.me)) is the more reliable locator until a camera is caught actually beaconing. The `0x09C8`-vs-OUI point still stands: if anything catches a Falcon it's the OUI, not the manufacturer ID. To try to reproduce a real detection, see [`GROUND_TRUTH_CAPTURE.md`](GROUND_TRUTH_CAPTURE.md).
 
 The 1,477-device drive also exposed three defects, fixed in v9.19:
 
@@ -83,6 +85,7 @@ flock_you/
   README.md           # This file
   flock_lab_sim.py    # ESP32 lab simulator — NOT run on the Pager (see below)
   LAB_SIMULATOR.md    # Setup guide for the lab simulator
+  GROUND_TRUTH_CAPTURE.md  # Procedure to capture a known camera's real signature
 ```
 
 No additional packages are required. The Pager's built-in `hcitool` and `hcidump` handle BLE scanning. `flock_lab_sim.py` and `LAB_SIMULATOR.md` are inert on the Pager — copying them along does no harm, but only `payload.sh` runs.
