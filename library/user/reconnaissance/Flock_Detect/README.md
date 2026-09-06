@@ -74,19 +74,23 @@ scp -r flock_you root@172.16.52.1:/root/payloads/user/reconnaissance/
 The directory should contain:
 ```
 flock_you/
-  payload.sh        # The scanner payload
-  oui_list.txt      # OUI fingerprint database (used for OUI-signal matching)
-  README.md         # This file
+  payload.sh          # The scanner payload
+  oui_list.txt        # OUI fingerprint database (used for OUI-signal matching)
+  README.md           # This file
+  flock_lab_sim.py    # ESP32 lab simulator — NOT run on the Pager (see below)
+  LAB_SIMULATOR.md    # Setup guide for the lab simulator
 ```
 
-No additional packages are required. The Pager's built-in `hcitool` and `hcidump` handle BLE scanning.
+No additional packages are required. The Pager's built-in `hcitool` and `hcidump` handle BLE scanning. `flock_lab_sim.py` and `LAB_SIMULATOR.md` are inert on the Pager — copying them along does no harm, but only `payload.sh` runs.
 
 > **Keep this a flat folder.** The Pager's payload scanner treats any directory
-> containing a subdirectory as a *category* rather than a payload, which hides it
-> from the on-device list. Do not nest folders inside `Flock_Detect/`. The
-> companion ESP32 lab simulator (which runs on separate Arduino hardware, not the
-> Pager) lives at `docs/flock-lab-sim/` — outside the deployable `library/` tree —
-> for this reason.
+> *containing a subdirectory* as a *category* rather than a payload, which hides it
+> from the on-device list. Do **not** create subfolders inside `Flock_Detect/` —
+> keep everything as flat files. The companion ESP32 lab simulator
+> (`flock_lab_sim.py` + `LAB_SIMULATOR.md`) runs on separate Arduino hardware, not
+> the Pager; it lives here as flat files, alongside the payload, for exactly this
+> reason (a nested `flock-lab-sim/` folder would hide the payload). See
+> `LAB_SIMULATOR.md` to flash and run it.
 
 ## Usage
 
