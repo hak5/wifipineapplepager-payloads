@@ -15,13 +15,17 @@ BLE range is short (~10–30 m). Driving past a pole camera you're in range for 
 - **Near-continuous scanning.** The adapter is brought up **once** at startup (not reset every cycle) and there is **no inter-cycle sleep**, raising the scan duty cycle from ~67% to ~90%. Scan windows are a short 8 s so a brief fly-by is more likely to land inside an active scan. If the adapter captures nothing for two cycles it self-resets.
 - **All-advert diagnostic log.** Every advert seen — not just Flock matches — is recorded to `flock_alladv_<ts>.csv` as `time,mac,manuf_id,rssi,name`. Drive past a *known* camera and this log shows exactly what it broadcasts (manufacturer ID + signal strength). It's the definitive way to tell a detection gap from a camera that simply emits no usable BLE. Detections also now carry `RSSI` (signal strength → proximity).
 
-> **BLE vs WiFi for cameras.** A Falcon *camera* is primarily a WiFi device; the confirmed BLE emitters are the Penguin battery and Pigvision. For mapping cameras while driving, the WiFi path (`wardrive_activate` → WiGLE, then `loot/flock_hits.sh` OUI matching) is more reliable. Run both.
+> **BLE vs WiFi for cameras.** A Falcon *camera* uploads over a cellular (Sierra Wireless LTE) modem, not WiFi; the confirmed *BLE* emitters are the Penguin battery and Pigvision. When mapping while driving the WiFi path (`wardrive_activate` → WiGLE, then `loot/flock_hits.sh` OUI matching) is the better bet of the two — but see Field results below: a deployed camera may emit neither WiFi nor BLE, so run both and don't assume a silent result means "no camera."
 
 ### Field results and v9.19 fixes
 
-A real drive-by confirmed detection works — a Falcon was caught by its **OUI**, with **zero XUNTONG `0x09C8` seen across 1,477 devices**. On this hardware the OUI list, not the manufacturer ID, is what finds Falcons.
+**Detection is not yet reproduced.** An earlier note here claimed a Falcon was caught by its **OUI** (with **zero XUNTONG `0x09C8` across 1,477 devices**). Repeated attempts since have failed to reproduce it: two drive-bys and one stationary ~6-minute capture parked within ~30 m of a *confirmed* Flock camera on a solid GPS fix, plus several weeks of routine driving — **no Flock advertising observed on any channel** in that time (zero OUI matches, zero `0x09C8`, no `Flock-`/`Falcon`/`Solar`/`Cam` SSID, zero BLE detections). The scanner was demonstrably working (it logged consumer APs down to −79 dBm and 800+ BLE devices at the camera site), so the likeliest reading is that the cameras emitted nothing to catch.
 
-That drive also exposed three defects, fixed in v9.19:
+**Working hypothesis: operating Falcons are cellular-only.** The Falcon V2 carries a Sierra Wireless LTE modem and phones home over cellular; its Lite-On WiFi and BLE appear to be used only during on-site install/maintenance, not steady-state. If so, the 5 `FLOCK_VERIFIED` OUIs below — sourced from WiGLE crowd data — likely captured cameras *mid-install*, and passive on-device detection has a hard ceiling for deployed units.
+
+Another possibility, not exclusive of the first: with recent public scrutiny over privacy and unauthorized use, deployed units may have had WiFi/BLE **deliberately disabled** to reduce their RF detectability. Either way the practical result is the same — a deployed Falcon may broadcast nothing to catch. Crowd-sourced mapping ([deflock.me](https://deflock.me)) is the more reliable locator until a camera is caught actually beaconing. The `0x09C8`-vs-OUI point still stands: if anything catches a Falcon it's the OUI, not the manufacturer ID.
+
+The 1,477-device drive also exposed three defects, fixed in v9.19:
 
 | Symptom | Cause | Fix |
 |---|---|---|
