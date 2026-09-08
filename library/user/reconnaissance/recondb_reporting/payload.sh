@@ -1,5 +1,5 @@
 #!/bin/bash
-# Title: Engagement Report Generator
+# Title: Engagement Report Generator 
 # Description: Queries native recon database and produces a plain-text
 #              engagement report. Writes the report via a grouped stdout
 #              redirect (no process-wide fd hijack) for reliable exit.
