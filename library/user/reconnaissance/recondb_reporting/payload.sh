@@ -1,10 +1,10 @@
 #!/bin/bash
 # Title: Engagement Report Generator
 # Description: Queries native recon database and produces a plain-text
-#              engagement report. Uses exec stdout redirect for reliable
-#              file writing on BusyBox.
+#              engagement report. Writes the report via a grouped stdout
+#              redirect (no process-wide fd hijack) for reliable exit.
 # Author: Digs
-# Version: 3.5
+# Version: 3.7
 # Type: User payload
 # Requires: sqlite3 (opkg install sqlite3-cli if missing)
 
@@ -38,7 +38,17 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RF=$REPORT_DIR/report_$TIMESTAMP.txt
 GENERATED_AT=$(date +%Y-%m-%d_%H:%M:%S)
 
-START_SPINNER "Gathering data..."
+# SAFETY: guarantee the active spinner child is killed on ANY exit path.
+# START_SPINNER forks a background child that inherits our stdout (the
+# framework's pipe). STOP_SPINNER needs the handle START_SPINNER returned
+# to kill that specific child; without it the child lives on, holds the
+# pipe open, and the framework never sees EOF -- so the payload hangs
+# after the report is written. We track the current handle in SPINNER_ID
+# so the trap can always stop whatever is running.
+SPINNER_ID=""
+trap 'STOP_SPINNER "$SPINNER_ID" 2>/dev/null' EXIT INT TERM
+
+SPINNER_ID=$(START_SPINNER "Gathering data...")
 
 cp $RECON_DB $RECON_DB_COPY
 DB=$RECON_DB_COPY
@@ -80,19 +90,30 @@ band_6=$(sqlite3 $DB "SELECT count(*) FROM ssid WHERE type=8 AND freq >= 5925;")
 hs_pcap=$(find $HANDSHAKE_DIR -name "*.pcap" 2>/dev/null | wc -l | tr -d ' ')
 hs_crack=$(find $HANDSHAKE_DIR -name "*.22000" 2>/dev/null | wc -l | tr -d ' ')
 rogue_count=0
-[ -f $ROGUE_LOG ] && rogue_count=$(grep -c ROGUE $ROGUE_LOG 2>/dev/null || echo 0)
-cred_count=$(sqlite3 $DB "SELECT count(*) FROM hostap_basic;")
+# grep -c prints "0" AND exits 1 when there are no matches; a `|| echo 0`
+# would then append a second "0". Capture the count on its own, then
+# default it to 0 only if grep produced nothing at all.
+if [ -f $ROGUE_LOG ]; then
+    rogue_count=$(grep -c ROGUE $ROGUE_LOG 2>/dev/null)
+    rogue_count=${rogue_count:-0}
+fi
+cred_count=$(sqlite3 $DB "SELECT count(*) FROM hostap_basic;" 2>/dev/null)
 
-STOP_SPINNER
-START_SPINNER "Writing report..."
+# Any count that later feeds an integer test ([ -eq ] / [ -gt ]) must be a
+# number: a query against a table missing on some firmware builds returns
+# empty, which would crash the test with "integer expression expected".
+: "${session_count:=0}" "${ap_total:=0}" "${ap_hidden:=0}" "${ap_open:=0}"
+: "${client_total:=0}" "${enc_wpa2:=0}" "${enc_wpa3:=0}" "${enc_mixed:=0}"
+: "${enc_wep:=0}" "${band_24:=0}" "${band_5:=0}" "${band_6:=0}"
+: "${cred_count:=0}" "${wigle_ap_count:=0}"
 
-# REDIRECT STDOUT TO REPORT FILE
-# Save original stdout to fd 3, redirect stdout to report file.
-# All echo and sqlite3 output below goes directly to the file.
-# Restore stdout before ALERT/VIBRATE/LOG at the end.
-exec 3>&1
-exec 1>$RF
+STOP_SPINNER "$SPINNER_ID"
+SPINNER_ID=$(START_SPINNER "Writing report...")
 
+# Write the entire report inside a command group redirected to the file.
+# fd 1 (the framework's stdout channel) is never reassigned, so nothing
+# can hold it open past exit. Replaces the old `exec 1>$RF` hijack.
+{
 echo "================================================================================"
 echo "  WIRELESS RECONNAISSANCE ENGAGEMENT REPORT"
 echo "  WiFi Pineapple Pager -- Hak5 (8th gen PineAP)"
@@ -261,12 +282,9 @@ echo ""
 echo "================================================================================"
 echo "  END OF REPORT -- $GENERATED_AT"
 echo "================================================================================"
+} > "$RF"
 
 # CSV OUTPUT
-# Restore stdout before writing CSV to its own file
-exec 1>&3
-exec 3>&-
-
 CF=$REPORT_DIR/report_$TIMESTAMP.csv
 
 # Write SQL to a temp file - avoids all shell quoting issues entirely
@@ -300,7 +318,8 @@ rm -f /tmp/pager_csv.sql
 LOG "CSV: $CF"
 
 # CLEANUP AND NOTIFY
-STOP_SPINNER
+STOP_SPINNER "$SPINNER_ID"
+SPINNER_ID=""
 rm -f $RECON_DB_COPY
 
 LOG "Report: $RF"
