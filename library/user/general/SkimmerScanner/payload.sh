@@ -8,10 +8,23 @@
 #
 
 # --- 1. SETUP ---
-WORK_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-LOG_FILE="$WORK_DIR/skimmer_detections.log"
-BT_CACHE="$WORK_DIR/bt_scan.tmp"
-SIGNATURES_FILE="$WORK_DIR/skimmer_signatures.txt"
+# The Pager UI launches payloads from a COPY at /tmp/payload-<id>.sh, so the
+# script's own directory is NOT where its data files live. Resolve the real
+# install directory by finding the one that actually contains our signature
+# file, falling back to the script dir if run in place.
+_SELF_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+INSTALL_DIR=""
+for _d in "$_SELF_DIR" \
+          "/root/payloads/user/general/SkimmerScanner" \
+          "/sd/payloads/user/general/SkimmerScanner"; do
+    if [ -f "$_d/skimmer_signatures.txt" ]; then INSTALL_DIR="$_d"; break; fi
+done
+[ -n "$INSTALL_DIR" ] || INSTALL_DIR="$_SELF_DIR"
+
+WORK_DIR="$INSTALL_DIR"
+LOG_FILE="$INSTALL_DIR/skimmer_detections.log"
+BT_CACHE="/tmp/skimmer_bt_scan.$$.tmp"
+SIGNATURES_FILE="$INSTALL_DIR/skimmer_signatures.txt"
 
 # OUI Library for vendor lookup
 OUI_FILE="/lib/hak5/oui.txt"
