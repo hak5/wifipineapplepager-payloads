@@ -1,0 +1,1 @@
+tr -d '\r' < payload.sh > /tmp/payload.lf && mv /tmp/payload.lf payload.sh; chmod +x payload.sh
