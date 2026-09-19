@@ -1,0 +1,10 @@
+# Level 1 - Hak5 Text
+# 
+w w w w w w w w w w w w w w
+w S w S w G w S w S G G G w
+w S w S G w G S w S G w w w
+w S S S G G G S S w G G w w 
+w S w S G w G S w SEw w G w
+w S w S G w G S w S G G w w
+w w wCw w w w wLw w w w wCw
+0 0 0 0 0 0 0 0 0 0 0 0 0 0

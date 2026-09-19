@@ -1,0 +1,10 @@
+# Level 2 - Checkerboard
+# Power-ups in the corners
+rL 0 r 0 r 0 r 0 r 0 r 0 r rL
+0 o 0 o 0 o 0 o 0 o 0 o 0 o
+t 0 t 0 tE 0 t 0 t 0 tE 0 t 0
+0 b 0 b 0 b 0 b 0 b 0 b 0 b
+p 0 p 0 p 0 pC 0 p 0 p 0 p 0
+0 m 0 m 0 m 0 m 0 m 0 m 0 m
+y 0 y 0 y 0 yR 0 y 0 y 0 y 0
+0 g 0 g 0 g 0 g 0 g 0 g 0 g
