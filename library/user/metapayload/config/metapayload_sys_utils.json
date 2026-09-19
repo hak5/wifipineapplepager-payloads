@@ -1,0 +1,116 @@
+{
+  "payloads": [
+    {
+      "name": "System Information",
+      "path": "user/metapayload_sys_utils/System_Info",
+      "command": "echo '=== System Info ===' && uname -a && echo '\n=== Uptime ===' && uptime && echo '\n=== Memory ===' && free -h && echo '\n=== CPU Info ===' && cat /proc/cpuinfo | grep -E '(model name|processor)' | head -n 4",
+      "required_vars": [],
+      "optional_vars": {},
+      "required_packages": [],
+      "description": "Comprehensive system information summary (kernel, uptime, memory, CPU)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Disk Usage (df)",
+      "path": "user/metapayload_sys_utils/Disk_Usage_Analysis",
+      "command": "df -h && echo && echo '--- Largest Directories ---' && du $TARGET_PATH | sort -nr | head -n 15",
+      "required_vars": [],
+      "optional_vars": {
+        "TARGET_PATH": "/mmc/root"
+      },
+      "required_packages": [],
+      "description": "Display filesystem usage and identify largest directories",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Process List (ps)",
+      "path": "user/metapayload_sys_utils/Process_List_ps",
+      "command": "ps -w | head -n $NUM_LINES",
+      "required_vars": [],
+      "optional_vars": {
+        "NUM_LINES": "25"
+      },
+      "required_packages": [],
+      "description": "Display running processes list with specified number of lines",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Top Processes (top)",
+      "path": "user/metapayload_sys_utils/Top_Processes",
+      "command": "top -b -n 1 | head -n $NUM_LINES",
+      "required_vars": [],
+      "optional_vars": {
+        "NUM_LINES": "20"
+      },
+      "required_packages": [],
+      "description": "Display top processes snapshot with CPU and memory usage",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Process Grep (pgrep)",
+      "path": "user/metapayload_sys_utils/Process_Grep_pgrep",
+      "command": "pgrep -fl $FILTER_STRING",
+      "required_vars": [],
+      "optional_vars": {
+        "FILTER_STRING": "."
+      },
+      "required_packages": [],
+      "description": "Search for processes by name pattern (FILTER_STRING: use regex pattern, '.' for all)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Network Connections (netstat)",
+      "path": "user/metapayload_sys_utils/Network_Connections",
+      "command": "netstat -tunap | grep -E '$FILTER_PATTERN'",
+      "required_vars": [],
+      "optional_vars": {
+        "FILTER_PATTERN": "LISTEN|ESTABLISHED"
+      },
+      "required_packages": [],
+      "description": "Display active network connections and listening ports (netstat)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Install Package (opkg)",
+      "path": "user/metapayload_sys_utils/Install_Package",
+      "command": "opkg update ; opkg install $PACKAGE_NAME",
+      "required_vars": [
+        "PACKAGE_NAME"
+      ],
+      "optional_vars": {},
+      "required_packages": [],
+      "description": "Update package lists and install a specific package via opkg",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Find Files by Name (find)",
+      "path": "user/metapayload_sys_utils/Find_Files_Name",
+      "command": "find $SEARCH_PATH -type f -name \"$FILE_PATTERN\"",
+      "required_vars": [
+        "FILE_PATTERN"
+      ],
+      "optional_vars": {
+        "SEARCH_PATH": "/"
+      },
+      "required_packages": [],
+      "description": "Recursively search for files by name pattern",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Find File Content (grep -r)",
+      "path": "user/metapayload_sys_utils/Find_File_Content",
+      "command": "grep -r $GREP_OPTIONS \"$SEARCH_PATTERN\" $SEARCH_PATH 2>/dev/null | head -n $MAX_RESULTS",
+      "required_vars": [
+        "SEARCH_PATTERN"
+      ],
+      "optional_vars": {
+        "SEARCH_PATH": "/etc /root",
+        "GREP_OPTIONS": "-i",
+        "MAX_RESULTS": "50"
+      },
+      "required_packages": [],
+      "description": "Recursively search file contents for pattern (GREP_OPTIONS: -i=case-insensitive)",
+      "author": "MetaPayload"
+    }
+  ]
+}
