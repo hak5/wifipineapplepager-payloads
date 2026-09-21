@@ -27,7 +27,8 @@ SSID_LIST = [
     "buy_you_own_rounter_you_thief",
     "gameover_zeus_network",
     "anakin_skyLANker",
-    "ankara_LANSSI"
+    "ankara_LANSSI",
+    "it_hurts_when_IPee"
 ]
 
 DEFAULT_IFACE = os.getenv("WIFI_BOMB_IFACE", "wlan0mon")
