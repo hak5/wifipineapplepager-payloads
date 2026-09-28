@@ -1,0 +1,40 @@
+#!/bin/bash
+# Title: LEDs OFF
+# Description: Turn off LEDs. 
+# Author: FadeddCompass
+# Version: 1.0
+# "The compass has faded, have i lost my way? or is the way no longer here..."
+
+#REM
+# writes to log.
+LOG green "LED Power Off Sequence Initiated..."
+
+LOG green "Turning off B+A button LED's."
+
+#REM
+# The lines below will turn off A+B button LEDs.
+
+echo 0 > /sys/devices/platform/leds/leds/b-button-led/brightness
+
+echo 0 > /sys/devices/platform/leds/leds/a-button-led/brightness
+
+#REM
+# writes to log.
+LOG green "Turning off D-pad LED's."
+
+#REM
+# The lines below will turn off d-pad LEDs only for a moment...seems your best bet is to set the d-pads LEDs in your pagers general settings.
+
+ echo 0 > /sys/devices/platform/leds/leds/down-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/down-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/down-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/left-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/right-led-red/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-blue/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-green/brightness
+ echo 0 > /sys/devices/platform/leds/leds/up-led-red/brightness
+
