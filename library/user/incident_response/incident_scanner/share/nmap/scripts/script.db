@@ -1,0 +1,117 @@
+Entry { filename = "afp-path-vuln.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "banner.nse", categories = { "discovery", "safe", } }
+Entry { filename = "broadcast-avahi-dos.nse", categories = { "broadcast", "dos", "intrusive", "vuln", } }
+Entry { filename = "broadcast-dhcp-discover.nse", categories = { "broadcast", "safe", } }
+Entry { filename = "clamav-exec.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "distcc-cve2004-2687.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "dns-service-discovery.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "dns-update.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "firewall-bypass.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "ftp-libopie.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "ftp-proftpd-backdoor.nse", categories = { "exploit", "intrusive", "malware", "vuln", } }
+Entry { filename = "ftp-vsftpd-backdoor.nse", categories = { "exploit", "intrusive", "malware", "vuln", } }
+Entry { filename = "ftp-vuln-cve2010-4221.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-adobe-coldfusion-apsa1301.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-aspnet-debug.nse", categories = { "discovery", "vuln", } }
+Entry { filename = "http-avaya-ipoffice-users.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-awstatstotals-exec.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-axis2-dir-traversal.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-cookie-flags.nse", categories = { "default", "safe", "vuln", } }
+Entry { filename = "http-cross-domain-policy.nse", categories = { "external", "safe", "vuln", } }
+Entry { filename = "http-csrf.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-dlink-backdoor.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-dombased-xss.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-enum.nse", categories = { "discovery", "intrusive", "vuln", } }
+Entry { filename = "http-fileupload-exploiter.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-frontpage-login.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-git.nse", categories = { "default", "safe", "vuln", } }
+Entry { filename = "http-huawei-hg5xx-vuln.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-iis-webdav-vuln.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-internal-ip-disclosure.nse", categories = { "discovery", "safe", "vuln", } }
+Entry { filename = "http-jsonp-detection.nse", categories = { "discovery", "safe", "vuln", } }
+Entry { filename = "http-litespeed-sourcecode-download.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-majordomo2-dir-traversal.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-method-tamper.nse", categories = { "auth", "vuln", } }
+Entry { filename = "http-passwd.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-phpmyadmin-dir-traversal.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-phpself-xss.nse", categories = { "fuzzer", "intrusive", "vuln", } }
+Entry { filename = "http-server-header.nse", categories = { "version", } }
+Entry { filename = "http-shellshock.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-slowloris-check.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-sql-injection.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-stored-xss.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-title.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "http-tplink-dir-traversal.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-trace.nse", categories = { "discovery", "safe", "vuln", } }
+Entry { filename = "http-vmware-path-vuln.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2006-3392.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2009-3960.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2010-0738.nse", categories = { "auth", "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2010-2861.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2011-3192.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2011-3368.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2012-1823.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2013-0156.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-vuln-cve2013-6786.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "http-vuln-cve2013-7091.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2014-2126.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2014-2127.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2014-2128.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2014-2129.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2014-3704.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2014-8877.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2015-1427.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-vuln-cve2015-1635.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2017-1001000.nse", categories = { "safe", "vuln", } }
+Entry { filename = "http-vuln-cve2017-5638.nse", categories = { "vuln", } }
+Entry { filename = "http-vuln-cve2017-5689.nse", categories = { "auth", "exploit", "vuln", } }
+Entry { filename = "http-vuln-cve2017-8917.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-vuln-misfortune-cookie.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "http-vuln-wnr1000-creds.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "http-wordpress-users.nse", categories = { "auth", "intrusive", "vuln", } }
+Entry { filename = "ipmi-cipher-zero.nse", categories = { "safe", "vuln", } }
+Entry { filename = "irc-botnet-channels.nse", categories = { "discovery", "safe", "vuln", } }
+Entry { filename = "irc-unrealircd-backdoor.nse", categories = { "exploit", "intrusive", "malware", "vuln", } }
+Entry { filename = "mysql-vuln-cve2012-2122.nse", categories = { "discovery", "intrusive", "vuln", } }
+Entry { filename = "nbstat.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "netbus-auth-bypass.nse", categories = { "auth", "safe", "vuln", } }
+Entry { filename = "puppet-naivesigning.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "qconn-exec.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "rdp-vuln-ms12-020.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "realvnc-auth-bypass.nse", categories = { "auth", "safe", "vuln", } }
+Entry { filename = "rmi-vuln-classloader.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "rsa-vuln-roca.nse", categories = { "safe", "vuln", } }
+Entry { filename = "samba-vuln-cve-2012-1182.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "smb-double-pulsar-backdoor.nse", categories = { "malware", "safe", "vuln", } }
+Entry { filename = "smb-os-discovery.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "smb-security-mode.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "smb-vuln-conficker.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-cve-2017-7494.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-cve2009-3103.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms06-025.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms07-029.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms08-067.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms10-054.nse", categories = { "dos", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms10-061.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-ms17-010.nse", categories = { "safe", "vuln", } }
+Entry { filename = "smb-vuln-regsvc-dos.nse", categories = { "dos", "exploit", "intrusive", "vuln", } }
+Entry { filename = "smb-vuln-webexec.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "smb2-vuln-uptime.nse", categories = { "safe", "vuln", } }
+Entry { filename = "smtp-vuln-cve2010-4344.nse", categories = { "exploit", "intrusive", "vuln", } }
+Entry { filename = "smtp-vuln-cve2011-1720.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "smtp-vuln-cve2011-1764.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "snmp-info.nse", categories = { "default", "safe", "version", } }
+Entry { filename = "snmp-sysdescr.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "ssl-ccs-injection.nse", categories = { "safe", "vuln", } }
+Entry { filename = "ssl-cert-intaddr.nse", categories = { "discovery", "safe", "vuln", } }
+Entry { filename = "ssl-cert.nse", categories = { "default", "discovery", "safe", } }
+Entry { filename = "ssl-dh-params.nse", categories = { "safe", "vuln", } }
+Entry { filename = "ssl-enum-ciphers.nse", categories = { "discovery", "intrusive", } }
+Entry { filename = "ssl-heartbleed.nse", categories = { "safe", "vuln", } }
+Entry { filename = "ssl-known-key.nse", categories = { "default", "discovery", "safe", "vuln", } }
+Entry { filename = "ssl-poodle.nse", categories = { "safe", "vuln", } }
+Entry { filename = "sslv2-drown.nse", categories = { "intrusive", "vuln", } }
+Entry { filename = "supermicro-ipmi-conf.nse", categories = { "exploit", "vuln", } }
+Entry { filename = "tls-ticketbleed.nse", categories = { "safe", "vuln", } }
+Entry { filename = "vulners.nse", categories = { "external", "safe", "vuln", } }
+Entry { filename = "wdb-version.nse", categories = { "default", "discovery", "safe", "version", "vuln", } }
