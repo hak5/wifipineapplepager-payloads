@@ -1,0 +1,72 @@
+{
+  "_comment": "Chasing Your Tail NG - Pineapple Pager Konfiguration",
+  "_comment2": "WiGLE API-Key: https://wigle.net → Account → API Token",
+
+  "paths": {
+    "base_dir": "/root/loot/chasing_your_tail",
+    "log_dir": "/root/loot/chasing_your_tail/logs",
+    "kismet_logs": "/root/loot/chasing_your_tail/kismet_data/*.kismet",
+    "ignore_lists": {
+      "mac": "/root/loot/chasing_your_tail/ignore_lists/mac_list.json",
+      "ssid": "/root/loot/chasing_your_tail/ignore_lists/ssid_list.json"
+    }
+  },
+
+  "timing": {
+    "check_interval": 60,
+    "list_update_interval": 5,
+    "time_windows": {
+      "recent": 5,
+      "medium": 10,
+      "old": 15,
+      "oldest": 20
+    }
+  },
+
+  "search": {
+    "_comment": "GPS-Suchbereich für WiGLE (Standardmäßig global)",
+    "lat_min": -90.0,
+    "lat_max": 90.0,
+    "lon_min": -180.0,
+    "lon_max": 180.0
+  },
+
+  "wigle": {
+    "_comment": "WiGLE API-Zugangsdaten - NICHT in Git einchecken!",
+    "enabled": false,
+    "api_name": "",
+    "api_token": ""
+  },
+
+  "surveillance": {
+    "persistence_threshold": 0.6,
+    "min_appearances": 3,
+    "stalking_min_persistence": 0.8
+  },
+
+  "kismet": {
+    "interface": "wlan1mon",
+    "scan_duration_seconds": 300,
+    "log_prefix": "/root/loot/chasing_your_tail/kismet_data/kismet"
+  },
+
+  "watch_list": {
+    "_comment": "Bekannte Zonen für static Watch-List Einträge.",
+    "_comment2": "WICHTIG: Echte GPS-Koordinaten NUR in config.json auf dem Pager eintragen - NIEMALS ins Git!",
+    "default_zone_radius_m": 100,
+    "known_zones": [
+      {
+        "name": "Zuhause",
+        "lat": 0.000000,
+        "lon": 0.000000,
+        "radius_m": 150
+      },
+      {
+        "name": "Büro",
+        "lat": 0.000000,
+        "lon": 0.000000,
+        "radius_m": 100
+      }
+    ]
+  }
+}
