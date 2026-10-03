@@ -1,0 +1,24 @@
+{
+  "Ocean": {
+    "bg": "#0a1628",
+    "text": "#4fc3f7",
+    "face": "#00e5ff",
+    "label": "#78909c",
+    "line": "#1a3a5c",
+    "status": "#4fc3f7",
+    "menu_title": "#00e5ff",
+    "menu_selected": "#4fc3f7",
+    "menu_unselected": "#78909c",
+    "menu_on": "#00e676",
+    "menu_off": "#ff1744",
+    "menu_dim": "#37474f",
+    "menu_accent": "#ffab40",
+    "menu_warning": "#ff6e40",
+    "menu_submenu": "#40c4ff"
+  },
+  "Fire": {
+    "bg": "#1a0500",
+    "text": "#ff6600",
+    "face": "#ff0000"
+  }
+}
