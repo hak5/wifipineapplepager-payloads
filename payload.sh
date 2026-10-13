@@ -1,3 +1,10 @@
+# Title: Tailscale Auto-Connect
+# Description: Fixes race condition in boot() for Tailscale on Pager
+# Author: D-L3aN
+# Version: 1.0
+# Category: Remote-Access
+# Net Mode: NAT
+
 boot() {
     # Start the tailscaled service via init script
     start
