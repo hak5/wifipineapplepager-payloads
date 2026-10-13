@@ -5,6 +5,8 @@ It reads what the Pager's recon service has already heard and draws the radio en
 access points are stars, their clients orbit them as satellites, and the distance from the centre
 follows the signal strength.
 
+**See it in your browser, no Pager needed:** <https://starchorus.com/pager/>
+
 ## Made for a second screen
 
 The Pager's display is too small for a sky, so the Pager does the listening and a laptop, tablet or
@@ -16,6 +18,8 @@ open:
 The Pager serves the page itself; nothing needs to be installed on the viewing device, and any
 current browser will do. The page refreshes every 5 seconds from the latest capture. It is served
 on the management address only, so it never appears on other networks the Pager may join.
+
+![Foundation: the sky on a laptop, from simulated data](https://raw.githubusercontent.com/starchorus/pager/main/docs/img/starchorus-foundation.jpg)
 
 The Pager's own display carries a compact dashboard instead: seven screens of counts and lists, for
 a glance when no second screen is to hand. To see what the second screen shows without a Pager,
