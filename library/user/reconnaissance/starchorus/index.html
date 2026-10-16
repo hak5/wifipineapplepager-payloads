@@ -3,7 +3,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- favicon: inline, so the page still makes no request beyond starchorus.json -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512' width='512' height='512'%3E%3Crect width='512' height='512' fill='#000'/%3E%3Cg stroke='#0f6b6b' stroke-width='4' opacity='.6'%3E%3Cline x1='48' y1='48' x2='464' y2='464'/%3E%3Cline x1='464' y1='48' x2='48' y2='464'/%3E%3Cline x1='256' y1='32' x2='256' y2='480'/%3E%3Cline x1='32' y1='256' x2='480' y2='256'/%3E%3C/g%3E%3Cg fill='none' stroke='#1fb8b0' stroke-width='6'%3E%3Ccircle cx='256' cy='256' r='82' opacity='.9'/%3E%3Ccircle cx='256' cy='256' r='148' opacity='.7'/%3E%3Ccircle cx='256' cy='256' r='212' opacity='.5'/%3E%3C/g%3E%3Cg fill='none' stroke-width='8' stroke-linejoin='round'%3E%3Ccircle cx='336' cy='206' r='20' stroke='#2ab42a'/%3E%3Cpath d='M324 206h24M336 194v24' stroke='#2ab42a'/%3E%3Cpath d='M156 330 l28 28 -28 28 -28 -28z' stroke='#6ad2f9'/%3E%3Cpath d='M396 84 l17 10 0 20 -17 10 -17 -10 0 -20z' stroke='#a06ad0'/%3E%3C/g%3E%3Cg stroke='#e8e8e8' stroke-width='4' fill='none' opacity='.8'%3E%3Cpath d='M354 224 L378 250'/%3E%3Cpath d='M134 352 L106 326'/%3E%3C/g%3E%3Ccircle cx='380' cy='252' r='8' fill='#e8e8e8'/%3E%3Ccircle cx='104' cy='324' r='8' fill='#e8e8e8'/%3E%3Ccircle cx='256' cy='256' r='26' fill='none' stroke='#ffffff' stroke-width='5' stroke-dasharray='8 6'/%3E%3Ccircle cx='256' cy='256' r='13' fill='#ffffff'/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Starchorus</title>
 <meta name="description" content="A strictly passive Wi-Fi landscape visualiser — access points as stars, clients as satellites. RX only, nothing is transmitted.">
 <style>
@@ -240,20 +242,22 @@ b { font-weight: 600; }
 #legend.raw { max-height: none; }   /* the property, not its variable: a variable would restyle every row of an open drawer */
 
 #masthead { left: 20px; padding: 14px 18px 15px; max-width: 340px; }
-#masthead .brand {
+/* the brand: in #masthead, or in the phone's #bar (§9.8) */
+.brand .ver { font-size: .6em; font-weight: 400; letter-spacing: 0; opacity: .55; margin: 0 .7em 0 .55em; align-self: baseline; }   /* the version, small and dim; set at boot from STARCHORUS.version, the one place the number lives */
+.brand {
   display: flex; align-items: baseline; gap: 8px; white-space: nowrap;
   font-size: var(--size-hero); font-weight: 600; letter-spacing: 0.13em; text-transform: uppercase;
   color: var(--ink-primary);
 }
-#masthead .brand .dot {
+:is(.brand, #panels-pill) .dot {
   width: 7px; height: 7px; border-radius: 50%; align-self: center; flex: none;
   background: var(--ink-secondary); animation: pulse 2.6s ease-in-out infinite;
 }
 @keyframes pulse { 0%,100%{opacity:.35;} 50%{opacity:1;} }
-#masthead .brand .dot[data-live="stale"] { animation: none; opacity: .3; }   /* D3: calm pulse = a live feed, dimmed and still = stale, steady = not a live feed */
-#masthead .brand .dot[data-live="off"] { animation: none; opacity: .7; }
+:is(.brand, #panels-pill) .dot[data-live="stale"] { animation: none; opacity: .3; }   /* D3: calm pulse = a live feed, dimmed and still = stale, steady = not a live feed */
+:is(.brand, #panels-pill) .dot[data-live="off"] { animation: none; opacity: .7; }
 #masthead .badge { position: absolute; top: 5px; right: 12px; font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--chrome-ink); border: 1px solid var(--line-hairline); padding: 0 5px; line-height: 13px; }
-#masthead .badge[data-kind="stale"] { opacity: 0.6; }
+#masthead .badge:is([data-kind="stale"], [data-kind="offline"]) { opacity: 0.6; }
 #masthead .plotclock { position: absolute; top: 8px; right: 12px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line-hairline);
   background: conic-gradient(var(--clock-p1) 0 30deg, var(--clock-p2) 30deg 60deg, var(--clock-p3) 60deg 90deg, var(--clock-p1) 90deg 120deg, var(--clock-p2) 120deg 150deg, var(--clock-p3) 150deg 180deg,
     var(--clock-p1) 180deg 210deg, var(--clock-p2) 210deg 240deg, var(--clock-p3) 240deg 270deg, var(--clock-p1) 270deg 300deg, var(--clock-p2) 300deg 330deg, var(--clock-p3) 330deg 360deg); }
@@ -284,14 +288,14 @@ b { font-weight: 600; }
 #n-alarm { display: flex; align-items: center; justify-content: center; gap: 5px; }
 
 #source { right: 20px; padding: 10px 13px; display: flex; align-items: center; gap: 10px; max-width: 380px; }
-#source .mode { font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 10px; padding: 3px 8px;
+.mode { font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; font-size: 10px; padding: 3px 8px;
   border-radius: calc(var(--panel-radius) * .6); border: 1px solid var(--panel-border); color: var(--ink-primary); }
-#source .mode.demo { border-color: var(--accent-selection); color: var(--accent-selection); background: var(--accent-wash); }
-#source .mode.live { border-color: var(--chrome-ink); background: var(--line-soft); }
-#source .mode.stale { border-style: dashed; border-color: var(--ink-muted); color: var(--ink-secondary); background: none; }
-#source .mode.recorded { border-color: var(--ink-secondary); }
-#source .mode.active { border-color: var(--ink-primary); background: var(--ink-primary); color: var(--ink-on-fill); }
-#source .mode.none { border-style: dashed; color: var(--ink-muted); }
+.mode.demo { border-color: var(--accent-selection); color: var(--accent-selection); background: var(--accent-wash); }
+.mode.live { border-color: var(--chrome-ink); background: var(--line-soft); }
+.mode.stale { border-style: dashed; border-color: var(--ink-muted); color: var(--ink-secondary); background: none; }
+.mode.recorded { border-color: var(--ink-secondary); }
+.mode.active { border-color: var(--ink-primary); background: var(--ink-primary); color: var(--ink-on-fill); }
+.mode.none { border-style: dashed; color: var(--ink-muted); }
 #source .desc { color: var(--ink-secondary); flex: 1; min-width: 0; line-height: 1.4; }
 #source .desc b { color: var(--ink-primary); font-weight: 600; }
 #src-center { display: block; font-size: 10px; color: var(--ink-muted); margin-top: 2px; }
@@ -356,6 +360,7 @@ b { font-weight: 600; }
 .legrow .sw.ring { width: 14px; height: 14px; }
 .legrow .glyph { font-family: var(--font-mono); font-weight: 600; width: 10px; text-align: center; color: var(--status-glyph); }
 .legrow .cnt { margin-left: auto; color: var(--ink-secondary); font-variant-numeric: tabular-nums; padding-left: 10px; }
+.legrow .lsub { color: var(--ink-secondary); }
 .legrow.note { color: var(--ink-muted); font-size: 10px; }
 .idlabel { margin: 12px 0 6px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-muted); }
 .idrow { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -365,6 +370,15 @@ b { font-weight: 600; }
 .idbtn:hover { color: var(--ink-primary); }
 .idbtn.on { border-color: var(--idc); color: var(--idc); box-shadow: inset 0 0 0 1px var(--idc); }
 #leg-rx { margin-top: 8px; font-size: 10px; color: var(--ink-muted); letter-spacing: 0.08em; }
+/* Hide panels (U): boxes keep their size; the detail and the dialogues still open, #panels-pill keeps the status */
+.panel { transition: opacity .18s; }
+:root[data-panels="off"]:not([data-phone="on"]) .panel:not(#detail):not(#paste-box):not(#export-box),
+:root[data-panels="off"][data-phone="on"] #bar,
+:root[data-panels="off"][data-phone="on"]:not([data-card="detail"]) #sheet { visibility: hidden; opacity: 0; transition: opacity .18s ease, visibility 0s linear .18s; }
+:root[data-rm="1"] :is(.panel, #sheet-body) { transition: none !important; }   /* reduced motion: no fade, no sheet movement */
+#panels-pill { position: fixed; right: 20px; bottom: calc(var(--chrome-bot) + 20px); z-index: 16; display: none; align-items: center; gap: 8px; touch-action: none; }
+:root[data-panels="off"] #panels-pill { display: inline-flex; }
+:root[data-panels="off"][data-phone="on"][data-card="detail"] #panels-pill { display: none; }   /* the Detail card has its own close */
 
 /* ==== 04 CONTROLS ==== */
 #controls { right: 20px; padding: 10px 13px; display: flex; flex-direction: column; gap: 5px; align-items: stretch; }   /* gap and padding sized so the docked channel bar still fits at 1000×500 (D15) */
@@ -384,6 +398,8 @@ b { font-weight: 600; }
 .btn.toggle.on { background: var(--toggle-on); border-color: var(--toggle-border); color: var(--toggle-ink); }
 .btn.forced { outline: 1px dashed var(--status-ring-neutral); }
 #cam .cam { min-width: 30px; text-align: center; }
+#t-random[data-state="hide"] { text-decoration: line-through; }
+#t-panels { position: absolute; top: 8px; right: 10px; }   /* the empty corner of the Bands row: takes no part in the layout */
 .btn:focus-visible, .filebtn:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 
 /* ==== 05 TOOLTIP & DETAIL ==== */
@@ -474,17 +490,82 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
   #controls .btn { padding: 4px 6px; } #controls .glabel { width: 38px; } #controls { padding: 8px 10px; }
   #masthead, #source { max-width: 220px; }
 }
-@media (max-width: 720px) {
-  #stats, #legend, #chanbar { display: none !important; }
-  #masthead { max-width: 240px; }
-  #source { max-width: 220px; }
-  #controls .glabel { display: none; }
-  .btn { padding: 6px 8px; }
-  #cam { display: none !important; }
-  #detail.sheet { left: 0; right: 0; bottom: var(--chrome-bot); top: auto; width: auto; max-height: 45vh; border-radius: var(--panel-radius) var(--panel-radius) 0 0; }
-}
 @media (pointer: coarse) { .btn { min-height: 36px; } }
-:root[data-rm="1"] .cursor, :root[data-rm="1"] .dot, :root[data-rm="1"] #masthead .brand .dot { animation: none; }
+/* §9.8 phone mode (D21): applyPhone() moves the panels into #bar and #sheet; a rule inside #sheet needs no mode */
+:root:not([data-phone="on"]) .ph-only { display: none !important; }
+@media (max-width: 720px), (max-height: 460px) and (pointer: coarse) { :root:not([data-phone]) .panel { visibility: hidden; } }   /* PHONE.query: until the script has moved them */
+:root[data-phone="on"] { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; --ph-l: max(8px, env(safe-area-inset-left)); --ph-r: max(8px, env(safe-area-inset-right));
+  --ph-col: clamp(300px, 42vw, 360px); --ph-sheet-b: max(8px, calc(env(safe-area-inset-bottom) - 12px), calc(var(--ph-banner-b, 0px) + 8px)); }
+:root[data-phone="on"][data-banner="on"] { --chrome-top: var(--ph-banner-t, 24px); --chrome-bot: var(--ph-banner-b, 24px); }
+:root[data-phone="on"] :is(#classbar-top, #classbar-bot) { white-space: normal; font-size: 9px; letter-spacing: .1em; line-height: 1.45;
+  padding: calc(3px + env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 3px max(10px, env(safe-area-inset-left)); }
+:root[data-phone="on"] #classbar-bot { padding-top: 3px; padding-bottom: calc(3px + env(safe-area-inset-bottom)); }
+:root[data-phone="on"] #dtg { font-size: 10px; top: calc(var(--chrome-top) + 2px); }
+#bar { left: var(--ph-l); right: var(--ph-r); top: max(calc(env(safe-area-inset-top) + 8px), calc(var(--ph-top, 0px) + 6px)); height: 44px;
+  display: flex; align-items: center; gap: 10px; padding: 0 8px 0 14px; z-index: 16; touch-action: none; }
+:root[data-dock="side"] :is(#bar, #sheet) { right: auto; width: var(--ph-col); }
+#bar .brand { font-size: 15px; gap: 7px; align-items: center; }
+#bar.tight .brand { letter-spacing: .06em; }
+#bar .mode { white-space: nowrap; }
+#bar-counts { flex: 1; min-width: 0; display: flex; justify-content: flex-end; gap: 12px; }
+#bar-counts .bc { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; white-space: nowrap; }
+#bar-counts b { font-size: 15px; font-weight: 600; color: var(--ink-primary); font-variant-numeric: tabular-nums; }
+#bar-counts i { font-style: normal; font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-secondary); }
+#bar.tighter #bar-counts i { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }   /* read aloud, not shown */
+#bar.tightest #bar-counts { display: none; }   /* the Sky section keeps them */
+#sheet { left: var(--ph-l); right: var(--ph-r); bottom: var(--ph-sheet-b); height: var(--ph-sheet-h, 66px); max-height: calc(100dvh - 64px); display: flex; flex-direction: column;
+  overflow: hidden; z-index: 15; backdrop-filter: none; -webkit-backdrop-filter: none; background: linear-gradient(var(--panel-fill), var(--panel-fill)), var(--surface-base);
+  transition: height .28s cubic-bezier(.2,.8,.2,1), opacity .18s; }
+:root[data-sheet-drag="on"] #sheet { transition: none; }   /* it follows the finger */
+#sheet-head { flex: none; padding: 0 8px 8px 12px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: grab; }
+#sheet-grab { height: 14px; display: flex; align-items: center; justify-content: center; }
+#sheet-grab::before { content: ""; width: 36px; height: 5px; border-radius: 3px; background: var(--ink-muted); }
+#sheet-row, #sheet-lead, #sheet-lead .group { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#sheet-row { min-height: 44px; }
+#sheet-lead .glabel { display: none; }
+#sheet-title { flex: 1; min-width: 0; margin: 0; font-size: var(--size-title); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-primary); }
+:root[data-card="detail"] #sheet-title { text-transform: none; }   /* D16: a data string */
+#t-legend { margin-left: auto; }
+#sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; padding: 4px 12px 14px; display: flex; flex-direction: column; gap: 16px; }
+:root[data-sheet="peek"] #sheet-body { overflow: hidden; visibility: hidden; transition: visibility 0s .28s; }
+:root[data-sheet-drag] #sheet-body { visibility: visible; transition: none; }   /* dragged up from collapsed */
+#sheet-body > .panel { position: static; transform: none; width: auto; max-width: none; max-height: none; padding: 0;
+  background: none; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; overflow: visible; }
+#sheet-body > .panel::before, #sheet-body > .panel::after { content: none; }
+#sheet-body > #chanbar { position: relative; inset: auto; height: auto; }   /* #t-chan and #chan-tip are placed in it */
+:root[data-card]:not([data-card="controls"]) #sheet-body > :is(#controls, #chanbar, #stats, #source, #masthead),
+:root:not([data-card="legend"]):not([data-card="drawer"]) #sheet-body > #legend,
+:root:not([data-card="detail"]) #sheet-body > #detail, :root:not([data-card="help"]) #sheet-body > #help { display: none !important; }
+:root[data-phone="on"] :is(.btn, .filebtn, .idbtn, #t-chan, #sheet button.chip, #sheet input, #sheet select, #sheet .legrow[data-member], #sheet th[data-sort]) { min-height: 44px; min-width: 44px; touch-action: manipulation; }   /* tap targets */
+#sheet #inv-body :is(th[data-sort], tr[data-id] td) { height: 44px; }
+:root[data-phone="on"] .btn, #sheet .btn { padding: 6px 12px; font-size: calc(var(--size-hud) + 2px); }   /* #sheet: over the 899 px rule */
+#sheet #cam .btn { padding: 6px 0; }
+#sheet #controls { gap: 16px; } #sheet .group { gap: 8px; }
+#sheet :is(#controls .glabel, .ph-label) { display: block; flex: 0 0 100%; width: auto; margin: 0 0 -2px; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-secondary); }
+#sheet :is(#grp-watch, #grp-analyse) { order: 1; }   /* View, Look, Layers, Camera first */
+#sheet #t-panels { position: static; }
+#sheet #chanbar .ph-label { line-height: 44px; margin: 0; }
+#sheet #t-chan { top: 0; right: 0; width: 44px; height: 44px; font-size: 14px; }   /* in the label row, clear of the bars */
+#sheet #stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 0; }
+#sheet #stats .ph-label { grid-column: 1 / -1; }
+#sheet #stats .cell { min-width: 0; padding: 2px 4px; border-right: 0; text-align: left; }
+#sheet #stats .num { font-size: 17px; }
+#sheet :is(#stats .lbl, #n-alarm) { justify-content: flex-start; letter-spacing: .08em; }
+#sheet #source { flex-wrap: wrap; gap: 8px 12px; }
+#sheet #source .desc { flex: 1 1 200px; font-size: 12px; }
+#sheet #masthead .tag { margin: 0; font-size: 12px; }
+#sheet #masthead .motto { display: block; }
+#sheet #masthead :is(.badge, .lamps, .plotclock) { position: relative; inset: auto; display: inline-flex; margin: 8px 8px 0 0; vertical-align: middle; }   /* relative: the dial needs it */
+#sheet :is(#detail-title, #detail-close, #help > h3, #help-close) { display: none; }   /* the head has them */
+#sheet canvas#detail-spark { width: 100%; }
+#sheet #legend > div { overflow: visible; margin: 0; padding: 0; }   /* the legend and drawer bodies */
+#sheet #legend > #inv-body { overflow-x: auto; }
+:root[data-phone="on"] :is(textarea, input, select) { font-size: 16px !important; }   /* iOS zooms in below 16 px */
+:root[data-phone="on"] :is(#paste-wrap, #export-wrap) { align-items: flex-start !important; padding: calc(env(safe-area-inset-top) + 12px) var(--ph-r) calc(env(safe-area-inset-bottom) + 12px) var(--ph-l); overflow-y: auto; }
+:root[data-phone="on"] #caption { top: calc(var(--ph-bar-b, 60px) + 10px); bottom: auto; left: var(--ph-sky-cx, 50%); }
+:root[data-phone="on"] #panels-pill { right: auto; left: 50%; transform: translateX(-50%); bottom: calc(var(--ph-sheet-b) + 4px); touch-action: none !important; }   /* skyBox() keeps the sky above it */
+:root[data-phone="on"] #intro .skip { right: max(24px, env(safe-area-inset-right)); bottom: max(24px, env(safe-area-inset-bottom)); }
+:root[data-rm="1"] :is(.cursor, .dot, #panels-pill .dot) { animation: none; }   /* :is() lends the pill dot its id rank */
 :root[data-rm="1"] #crt, :root[data-rm="1"] #intro { display: none !important; }
 </style>
 </head>
@@ -501,18 +582,23 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 <div id="classbar-top"></div>
 <div id="classbar-bot"></div>
 <div id="dtg"></div>
+<div id="bar" class="panel ph-only" role="group" aria-label="Status"><span id="bar-counts"><span class="bc"><b id="bar-ap">0</b><i>stars</i></span><span class="bc"><b id="bar-cl">0</b><i>satellites</i></span></span></div>
+<button class="btn" id="panels-pill" aria-label="Show the panels"><span class="dot" id="pill-dot"></span><span id="pill-chip">Sample</span></button>
 
 <!-- ==== 11 MASTHEAD & STATS ==== -->
 <div id="masthead" class="panel">
+  <span class="ph-label ph-only">About</span>
   <span class="badge" id="mast-badge" hidden></span>
   <div class="lamps" id="lamps" role="img" hidden></div>
   <div class="plotclock" id="plotclock" role="img" hidden><i class="hand" id="plotclock-hand"></i></div>
-  <div class="brand"><span class="dot"></span>STARCHORUS<span class="cursor">▮</span></div>
+  <div class="brand" id="mast-brand"><span class="dot"></span>STARCHORUS<span class="ver" id="mast-ver" title="Starchorus version"></span><span class="cursor">▮</span></div>
   <div class="tag">passive observation · rx only — access points are stars, their clients orbit as satellites; distance from the centre tracks signal strength.</div>
   <div class="motto">Observation only — it listens, it never transmits.</div>
+  <button class="btn ph-only" id="t-help">Help</button>
 </div>
 
 <div id="stats" class="panel">
+  <span class="ph-label ph-only">Sky</span>
   <div class="cell ap"><div class="num" id="n-ap" title="0">0</div><div class="lbl">Stars</div></div>
   <div class="cell cl"><div class="num" id="n-cl" title="0 free · 0 associated">0</div><div class="lbl">Satellites</div></div>
   <div class="cell b24"><div class="num" id="n-24" title="0">0</div><div class="lbl"><svg viewBox="0 0 8 8" aria-hidden="true"><circle cx="4" cy="4" r="3.5" fill="var(--band-24)"/></svg>2.4 GHz</div></div>
@@ -527,6 +613,7 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 
 <!-- ==== 12 SOURCE ==== -->
 <div id="source" class="panel">
+  <span class="ph-label ph-only">Source</span>
   <span class="mode demo" id="mode-chip">Sample</span>
   <span class="desc"><span id="source-desc">Simulated sky. Load a <b>starchorus.json</b> to see your own sky.</span><span id="src-center"></span></span>
   <button class="filebtn" id="btn-load" title="Paste or drop a starchorus.json">Load…</button>
@@ -536,21 +623,29 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 <div id="legend" class="panel" aria-label="Legend"><div id="legend-body"></div><div id="obs-body" hidden></div><div id="inv-body" hidden></div><div id="home-body" hidden></div><div id="air-body" hidden></div><div id="time-body" hidden></div><div id="rec-body" hidden></div></div>
 
 <!-- ==== 14 CONTROLS ==== -->
+<div id="sheet" class="panel ph-only" role="region" aria-label="Controls">
+  <div id="sheet-head"><div id="sheet-grab" aria-hidden="true"></div><div id="sheet-row"><div id="sheet-lead"></div>
+  <button class="btn" id="sheet-prev" hidden aria-label="Previous pinned node">‹</button><h2 id="sheet-title" hidden></h2><button class="btn" id="sheet-next" hidden aria-label="Next pinned node">›</button>
+  <button class="btn toggle" id="t-legend" aria-pressed="false">Legend</button><button class="btn" id="sheet-close" hidden aria-label="Close">×</button>
+  <button class="btn" id="sheet-toggle" aria-expanded="false" aria-controls="sheet-body" aria-label="Expand the sheet">⌃</button></div></div>
+  <div id="sheet-body"></div>
+</div>
 <div id="controls" class="panel">
-  <div class="group">
+  <div class="group" id="grp-bands">
     <span class="glabel">Bands</span>
     <button class="btn b24 on" data-band="2.4" aria-pressed="true" title="2.4 GHz [1]">2.4</button>
     <button class="btn b5 on" data-band="5" aria-pressed="true" title="5 GHz [2]">5</button>
     <button class="btn b6 on" data-band="6" aria-pressed="true" title="6 GHz [3]">6</button>
   </div>
-  <div class="group">
+  <div class="group" id="grp-view">
     <span class="glabel">View</span>
     <button class="btn toggle on" id="t-labels" aria-pressed="true">Labels</button>
     <button class="btn toggle on" id="t-orbits" aria-pressed="true">Orbits</button>
     <button class="btn toggle on" id="t-links" aria-pressed="true">Links</button>
     <button class="btn toggle" id="t-pause" aria-pressed="false">Pause</button>
+    <button class="btn toggle on" id="t-random" data-state="cloud" aria-label="Randomised addresses: one node per cloud">Random</button>
   </div>
-  <div class="group">
+  <div class="group" id="grp-watch">
     <span class="glabel">Watch</span>
     <button class="btn toggle" id="t-obs" aria-pressed="false">Observe</button>
     <button class="btn toggle" id="t-baseline" aria-pressed="false">Baseline</button>
@@ -559,21 +654,23 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
     <button class="btn toggle" id="t-inv" aria-pressed="false" title="Inventory table [I]">Inventory</button>
     <button class="btn" id="btn-export" title="Export this sky as text (local only)">Export</button>
   </div>
-  <div class="group">
+  <div class="group" id="grp-analyse">
     <span class="glabel">Analyse</span>
     <button class="btn" id="t-air" aria-pressed="false" title="Air quality per band [Q]">Air</button>
     <button class="btn" id="t-time" aria-pressed="false" title="Signal over time, threshold [J]">Time</button>
     <button class="btn" id="t-rec" aria-pressed="false" title="Recording and replay [H]">Record</button>
+    <button class="btn toggle ph-only" id="t-home" aria-pressed="false">Homing</button>
   </div>
-  <div class="group">
+  <div class="group" id="grp-look">
     <span class="glabel">Look</span>
     <button class="btn" id="t-theme">Wargames</button>
     <button class="btn" id="t-view">3D</button>
     <button class="btn toggle on" id="t-rotate" aria-pressed="true">Rotate</button>
     <button class="btn toggle on" id="t-spin" aria-pressed="true" title="Sky spin: everything slowly orbits the device [S]">Spin</button>
     <button class="btn toggle on" id="t-crt" aria-pressed="true" hidden>CRT</button>
+    <button class="btn" id="t-panels">Hide panels</button>
   </div>
-  <div class="group">
+  <div class="group" id="grp-layers">
     <span class="glabel">Layers</span>
     <button class="btn toggle on" id="t-agg" aria-pressed="true">Bubbles</button>
     <button class="btn toggle" id="t-vendor" aria-pressed="false">Vendor</button>
@@ -597,7 +694,7 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 
 <!-- ==== 15 CHANNEL BAR ==== -->
 <div id="chanbar" class="panel" hidden title="APs per channel · widths assumed 20 MHz where unknown">
-  <canvas id="chan"></canvas>
+  <span class="ph-label ph-only">Channels</span><canvas id="chan"></canvas>
   <button id="t-chan" title="Channel view: bars, spectrum, waterfall [Y]" aria-label="Channel view: bars">▤</button>
   <div id="chan-tip"></div>
 </div>
@@ -678,6 +775,12 @@ const AGG = { cellPx: 32, minCell: (nFree) => nFree <= 200 ? 4 : 3, minCluster: 
   keepFrac: 0.75, rMinPx: 14, rMaxPx: 46, expandMs: 6000, expandAlpha: 0.35, kPos: 4, minCounterPx: 9, minCounterAlpha: 0.5 };
 // §8.8 logical AP grouping: purely client-side heuristic, theme-free and deterministic (seed-free).
 const DEVICE = { mbssidBits: 3, seqWindow: 4, radioWindow: 16, seqTight: 2, essExpandMs: 6000 };
+// §8.8a random clouds (theme-free); JQLIB `clouds` in starchorus-display.sh uses the same values as literals.
+const CLOUD = { bandDb: 3, shiftEps: 0.01, shiftMax: 8, burstS: 2, burstCap: 1500, minAddr: 8, minBursts: 6, minHits: 5, cadMinS: 15, cadMaxS: 300, tolFrac: 0.1, tolMinS: 2,
+  lagMax: 3, candMax: 6, streamMax: 5, zK: 6, hMin: 2, ratio: 2, fundFrac: 0.8, kCap: 3, alpha: 0.001, margin: 3, muMax: 0.5, muMaxMore: 0.8,
+  joinDb: 6, mergeDb: 12, coincide: 0.6, mergeShare: 0.8, mixedShare: 0.6, keepAddr: 2, keepFrac: 0.5,
+  expandMs: 6000, pxBase: 5, pxGain: 1.5, px3d: [4.5, 11], listMax: 300 };
+const RANDOM_MODES = ["cloud", "show", "hide"];
 const CFG3D = { el: 0.42, azStart: 0, fovDeg: 50, distFactor: 0.8, distMin: 1.1, distMax: 9, elMin: -0.15, elMax: 1.45,
   yBand: { "2.4": -0.10, "5": 0, "6": 0.10, unknown: 0 }, yJitter: 0.04, freeYSpread: 0.36, freeZJitter: 0.03,
   fibonacciAbove: 60, hexY: 0.02,
@@ -710,6 +813,7 @@ const KEYS = [
   { key: "O", desc: "Orbit arcs", btn: "t-orbits" },
   { key: "K", desc: "Client links", btn: "t-links" },
   { key: "A", desc: "Aggregate dense clients into bubbles", btn: "t-agg" },
+  { key: "X", desc: "Randomised addresses: one node per cloud · one by one · hidden (cycles)", btn: "t-random" },
   { key: "E", desc: "Vendor names at labels", btn: "t-vendor" },
   { key: "N", desc: "Channel-overlap nebula (derived)", btn: "t-nebula" },
   { key: "G", desc: "Same-ESSID constellations", btn: "t-groups" },
@@ -718,26 +822,33 @@ const KEYS = [
   { key: "P", desc: "Probe orbits: clients circle the visible network they probe for (derived, not associated)", btn: "t-probes" },
   { key: "W", desc: "Observations: neutral, derived hints about this sky (replaces the legend while open)", btn: "t-obs" },
   { key: "I", desc: "Inventory: a sortable table of the access points on screen, with filter chips (replaces the legend while open)", btn: "t-inv" },
-  { key: "F", desc: "Homing meter for the access point chosen at the collector (coarse: one reading per poll)" },
+  { key: "F", desc: "Homing meter for the access point chosen at the collector (coarse: one reading per poll)", btn: "t-home" },
   { key: "Q", desc: "Air quality: per band the busiest channels, co-/adjacent-channel counts, the estimated beacon airtime (replaces the legend while open)" },
   { key: "J", desc: "Signal over time: curves of the selected access point's network, min / max / mean, scales 1 min · 10 min · 1 h, an operator threshold (ring and line)" },
   { key: "H", desc: "Recording and replay: the last captures held in memory; step through them, then Back to live" },
   { key: "Y", desc: "Channel view: bars · spectrum · channel-by-time waterfall", btn: "t-chan" },
   { key: "B", desc: "Baseline diff: what is new, changed or not heard now against the saved baseline (Set / Clear)", btn: "t-baseline" },
+  { key: "U", desc: "Hide or show the panels: the sky alone, with a status pill that brings them back", btn: "t-panels" },
   { key: "1 / 2 / 3", desc: "Band filter 2.4 / 5 / 6 GHz" },
   { key: "← → ↑ ↓", desc: "Orbit camera (3D)" },
   { key: "+ / −", desc: "Zoom (3D) · zoom around the device (2D)" },
   { key: "0", desc: "Reset camera and 2D zoom" },
   { key: "[ / ]", desc: "Cycle through pinned nodes (opens detail)" },
   { key: "Esc", desc: "Close dialogue / help / detail, clear hover" },
-  { key: "?", desc: "Keyboard shortcuts overlay" },
+  { key: "?", desc: "Keyboard shortcuts overlay", btn: "t-help" },
 ];
-// D15 edge-panel layout (theme-free, px): gap between panels, channel-bar width range, detail minimum,
-// small-screen bound (< smallPx the §9.8 CSS rules alone apply).
+// D15 edge-panel layout (theme-free, px): gap between panels, channel-bar width range, detail minimum, phone bound (§9.8).
 const EDGE = { gapPx: 12, chanMinPx: 280, chanMaxPx: 640, detailMinPx: 160, smallPx: 720 };
+// D21 phone mode (§9.8): up to smallPx wide, or a phone on its side; ?phone=1|0 overrides. Drag, flick, room above the half sheet.
+const PHONE = { query: "(max-width: " + EDGE.smallPx + "px), (max-height: 460px) and (pointer: coarse)", gapPx: 8, halfFrac: 0.5, dragPx: 8, flickPxMs: 0.4, starClearPx: 24, centreClearPx: 30 };
 const POLL_MS = 5000, HISTORY_LEN = 60, HIST_KEEP_S = 300, STORAGE_KEY = "starchorus.ui.v1";
-const STALE_POLLS = 6;                                            // D3: a poll-fed capture is stale after 6 ticks (≈ 30 s) without a new `generated`
-const HIST_KEEP_INGESTS = Math.round(HIST_KEEP_S * 1000 / POLL_MS);  // history of a vanished node survives 60 ingests (no wall clock)
+const STALE_POLLS = 6;                                            // D3: stale after 6 ticks of POLL_MS (30 s) without a new `generated` …
+const STALE = { floorS: 30, mul: 2, slackS: 15 };                 // … or, with center.interval, after max(30 s, 2 × interval + 15 s)
+const OFFLINE_POLLS = 3;                                          // D3: a stale feed whose last three polls got no answer is 'Offline', not 'Stale'
+// D3 cadence (§38 pollNextMs): spacing = the median of the last `gaps` capture gaps (first guess guessMul × interval, else POLL_MS); the next
+// poll comes leadMs before the next capture is due, then every stepMs until it arrives. maxIntervalS caps what a document may announce.
+const POLL = { gaps: 3, guessMul: 1.1, leadMs: 3000, stepMs: 2000, logMax: 60, maxIntervalS: 600 };
+const HIST_KEEP_INGESTS = Math.round(HIST_KEEP_S * 1000 / POLL_MS);  // history of a vanished node: HIST_KEEP_S of capture time, undated 60 ingests
 // D1 freshness (theme-free; APs and stations, each from its own last_seen): age = generated − last_seen → T0 < 60 s · T1 < 300 s · T2 < 900 s · T3 on record · undated.
 // The words and boundaries are provisional until the device's `time` cadence is verified (docs/architecture.md §14, D1).
 const FRESH = { tiersS: [60, 300, 900], futureS: 300 };
@@ -771,8 +882,8 @@ const COPY_SITES = {
     tag: COPY_ACTIVE + " — access points are stars, their clients orbit as satellites; distance from the centre tracks signal strength.",
     motto: "Wi-Fi landscape visualiser.",
     legRx: COPY_ACTIVE, legArc: "arc = heard probe", probeHint: "(heard probe requests)" },
-  chip: { demo: "Sample", live: "Live", stale: "Stale", recorded: "Recorded", active: "Active scan", none: "No feed" },
-  badge: { demo: "Simulation", live: "Live RX", stale: "Stale", recorded: "Recorded", active: "Active scan", none: "No feed" },   // the source badge (masthead): chrome text, never a data string
+  chip: { demo: "Sample", live: "Live", stale: "Stale", offline: "Offline", recorded: "Recorded", active: "Active scan", none: "No feed" },
+  badge: { demo: "Simulation", live: "Live RX", stale: "Stale", offline: "Offline", recorded: "Recorded", active: "Active scan", none: "No feed" },   // the source badge (masthead): chrome text, never a data string
   crowdSign: { title: "Channel crowding", caption: "derived from channel overlap · not a security assessment", steps: ["1", "2", "3", "4", "5"] },
   lamps: "capture counter, binary",
   tote: { title: "Plot freshness", labels: ["HEARD", "RECENT", "FADING", "ON RECORD"], undated: "undated" },   // one lamp per D1 tier (T0..T3), a row per band
@@ -841,7 +952,8 @@ THEMES.foundation = {
 };
 THEMES.wargames = {
   meta: { id: "wargames", label: "WARGAMES", isDefault: false },
-  copy: { ...COPY_SITES, logonListen: { rx: "LISTEN ONLY · STARCHORUS SENDS NO FRAMES", active: "" },
+  copy: { ...COPY_SITES, chip: { ...COPY_SITES.chip, offline: "Link down" }, badge: { ...COPY_SITES.badge, offline: "Link down" },
+    logonListen: { rx: "LISTEN ONLY · STARCHORUS SENDS NO FRAMES", active: "" },
     logonHead: ["STARCHORUS  ·  OBSERVATION TERMINAL", "LOGON: OBSERVER"], logonTail: ["…LOADING SKY"],
     bannerTop: "EXERCISE · STARCHORUS · NOT A GOVERNMENT SYSTEM",
     signal: ["MAX", "STRONG", "WEAK", "MIN"], skyVoice: "SKY SUMMARY",
@@ -889,7 +1001,7 @@ THEMES.wargames = {
 // on a dark table ground, teleprinter mono, plotting grid (no radar sweep, no bearings).
 THEMES.whitehall = {
   meta: { id: "whitehall", label: "WHITEHALL", isDefault: false },
-  copy: { ...COPY_SITES, logonMode: { demo: "MODE: RX ONLY - NOTHING IS TRANSMITTED - SAMPLE SKY", live: "MODE: RX ONLY - NOTHING IS TRANSMITTED - LIVE FEED", recorded: "MODE: RX ONLY - NOTHING IS TRANSMITTED - RECORDED CAPTURE",
+  copy: { ...COPY_SITES, chip: { ...COPY_SITES.chip, offline: "No link" }, badge: { ...COPY_SITES.badge, offline: "No link" }, logonMode: { demo: "MODE: RX ONLY - NOTHING IS TRANSMITTED - SAMPLE SKY", live: "MODE: RX ONLY - NOTHING IS TRANSMITTED - LIVE FEED", recorded: "MODE: RX ONLY - NOTHING IS TRANSMITTED - RECORDED CAPTURE",
       none: "MODE: RX ONLY - NOTHING IS TRANSMITTED - NO FEED", active: "MODE: ACTIVE SCAN - THE COLLECTOR SENT PROBE REQUESTS" },
     bannerBot: { demo: "SIMULATED PLOTS · PASSIVE RECEIVE ONLY · NOT A GOVERNMENT SYSTEM", live: "REAL-WORLD DATA · NOT EXERCISE PLAY · {src} · LIVE · NOT A GOVERNMENT SYSTEM",
       recorded: "REAL-WORLD DATA · NOT EXERCISE PLAY · {src} · RECORDED · NOT A GOVERNMENT SYSTEM", none: "ENDEX · NO FEED · NOT A GOVERNMENT SYSTEM",
@@ -1436,10 +1548,11 @@ function demoData() {
 const S = {
   aps: new Map(), clients: new Map(), groups: new Map(), hist: new Map(), bubbles: new Map(),
   devices: new Map(), deviceOf: new Map(), essClusters: new Map(), essOf: new Map(), essBySsid: new Map(), essExpand: new Map(),
-  identity: new Map(),
+  identity: new Map(), clouds: new Map(), cloudOrder: [],   // §8.8a
   ui: { theme: "foundation", view: "2d", labels: true, orbits: true, links: true, paused: false,
         agg: true, vendor: false, nebula: true, groups: true, rotate: true, spin: true, crt: true, autoLod: true, help: false,
         deviceLinks: false, essMerge: false, affinity: true, observations: false, baselineDiff: false, inventory: false,
+        random: "cloud", panels: true, sheet: "peek", legendCard: false,   // §9.8: panels (saved), the sheet and its legend card (not)
         filters: { "2.4": true, "5": true, "6": true } },
   queryLocked: new Set(),
   view: { blend: 0, blendT: 0 },
@@ -1449,8 +1562,8 @@ const S = {
           edgeTravelDotSpeed: 0, cursorBlinkMs: 0, flareMax: 2, flareEnabled: true, flareLenFactor: 6 },
   apOrder: [], clientOrder: [], order: [], orderDirty: true,
   mode: "demo", source: "", note: "", generated: null, centerLabel: "YOU ARE HERE", maxAgeS: null, pollIntervalS: null,
-  sourceKind: "none", sourceLabel: "", sourceKey: "", sourceApCount: 0, liveFeed: false, lastGen: null, stalePolls: 0, ingestSeq: 0,   // D3/D4 (§38)
-  captureSeq: 0, ev: { lastGen: null, arrived: 0, departed: 0, changed: 0, cues: 0, newStations: 0 },   // D2: one event record per source (see eventsBegin)
+  sourceKind: "none", sourceLabel: "", sourceKey: "", sourceApCount: 0, liveFeed: false, lastGen: null, stalePolls: 0, staleMs: 0, lostPolls: 0, gaps: [], fresh: false, ingestSeq: 0,   // D3/D4 (§38)
+  captureSeq: 0, ev: { lastGen: null, arrived: 0, departed: 0, changed: 0, cues: 0, newStations: 0, newInClouds: 0 },   // D2: one event record per source (see eventsBegin)
   sky: { seq: 0, ref: new Map(), t0: null, resets: 0, dev: [] }, crowding: { level: 1, busiest: null },   // D11: per-source EWMA reference of channel occupancy (skyUpdate), crowding 1–5
   pinned: new Set(), hover: null, locked: null,
   clock: 0, skyA: 0, dirty: true, settling: false, settlePhase: 0, settleCapped: false, relayHold: false, relayT0: 0, layoutDirty: true, aggDirty: true, fixedTime: null, moving: false,
@@ -1470,9 +1583,11 @@ const S = {
 };
 const canvasBg = document.getElementById("bg"), canvasSky = document.getElementById("sky"), canvasHud = document.getElementById("hud");
 const ctxBg = canvasBg.getContext("2d"), ctxSky = canvasSky.getContext("2d"), ctxHud = canvasHud.getContext("2d");
-let W = 0, H = 0, CX = 0, CY = 0, maxRadius = 300, inner = 64, hudDpr = 1;
+let W = 0, H = 0, CX = 0, CY = 0, skyH = 0, maxRadius = 300, inner = 64, hudDpr = 1;
 const mqReduce = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
 let rmApi = null, reduceMotion = false;
+const mqPhone = window.matchMedia ? window.matchMedia(PHONE.query) : { matches: false };   // D21 (§37 applyPhone)
+let phoneOn = false;
 function updateReduceMotion() {
   reduceMotion = rmApi !== null ? rmApi : (mqReduce.matches || query.rm1);
   document.documentElement.dataset.rm = reduceMotion ? "1" : "0";
@@ -1481,7 +1596,7 @@ function updateReduceMotion() {
 function setReducedMotion(on) { rmApi = on == null ? null : !!on; updateReduceMotion(); S.dirty = true; return reduceMotion; }
 if (mqReduce.addEventListener) mqReduce.addEventListener("change", () => { updateReduceMotion(); S.dirty = true; });
 updateReduceMotion();
-const PERSIST_KEYS = ["theme", "view", "labels", "orbits", "links", "agg", "vendor", "nebula", "groups", "rotate", "spin", "crt", "deviceLinks", "essMerge", "affinity", "observations", "baselineDiff", "inventory"];
+const PERSIST_KEYS = ["theme", "view", "random", "labels", "orbits", "links", "agg", "vendor", "nebula", "groups", "rotate", "spin", "crt", "deviceLinks", "essMerge", "affinity", "observations", "baselineDiff", "inventory", "panels"];
 function readStored() {
   const raw = safeStorage.get(STORAGE_KEY); if (!raw) return null;
   try { const o = JSON.parse(raw); return isObj(o) ? o : null; } catch (e) { return null; }
@@ -1490,7 +1605,8 @@ function loadUi() {
   const o = readStored(); if (!o || o.v !== 2) return;
   if (o.theme && THEMES[o.theme]) S.ui.theme = o.theme;
   if (o.view === "2d" || o.view === "3d") S.ui.view = o.view;
-  for (const k of PERSIST_KEYS.slice(2)) if (typeof o[k] === "boolean") S.ui[k] = o[k];
+  if (RANDOM_MODES.indexOf(o.random) >= 0) S.ui.random = o.random;
+  for (const k of PERSIST_KEYS.slice(3)) if (typeof o[k] === "boolean") S.ui[k] = o[k];
 }
 let saveTimer = 0;
 function saveUi() {
@@ -1521,7 +1637,7 @@ function newClient(mac) {
     parent: null, free: true, band: null, homeAngle: 0, homeR: 0.5, jitterR: 0, lx: 0, lz: 0, wx: 0, wz: 0, placed: false,   // placed: wx/wz hold a position (a flag instead of null, so both stay plain number fields and the per-frame writes allocate nothing)
     orbitR: 32, orbitPhase: 0, orbitSpeed: 0, orbitTilt: 0, rank: 0, p3: [0, 0, 0], p: [0, 0, 0], jitY: hash(mac + "h"), jitZ: hash(mac + "z"),
     sx: 0, sy: 0, zc: 1, px: 0, fog: 1, lod: 0, alphaDraw: 0, basePx: 3.5, basePxMax: 5,
-    target: 1, alpha: 0, born: 0, dying: null, bubble: null, bubbleBlend: 0, cell: 0, capSeq: -1, newSeq: -1,
+    target: 1, alpha: 0, born: 0, dying: null, bubble: null, bubbleBlend: 0, cell: 0, capSeq: -1, newSeq: -1, cloud: null, randOut: false,
     ageS: null, freshTier: null, freshA: 1, freshAT: 1, sparkDirty: true, baseState: null };
 }
 function histPush(node, rssi, gen) {
@@ -1540,7 +1656,7 @@ function histPush(node, rssi, gen) {
 // existing one is never evicted for it), so a present station's history cannot thrash under rotating randomised MACs.
 function histPushCl(seenCl, gen) {
   const liveAp = (id) => { const a = S.aps.get(id); return !!a && a.target !== 0; };
-  const want = []; seenCl.forEach(id => { if (!liveAp(id) && S.clients.has(id)) want.push(id); });
+  const want = []; seenCl.forEach(id => { const c = S.clients.get(id); if (liveAp(id) || !c) return; if (c.cloud != null) { S.hist.delete(id); return; } want.push(id); });   // §8.8a: a cloud keeps the series
   let ncl = 0; S.hist.forEach(h => { if (h.cl) ncl++; });
   let add = 0; for (const id of want) if (!S.hist.has(id)) add++;
   if (ncl + add > HIST_CL_MAX) {
@@ -1557,7 +1673,8 @@ function histPushCl(seenCl, gen) {
 // departure is counted in eventsSettle like an AP's, and both are exposed per station.
 const NEW_CAPTURES = 3, CUE_DB = 3, CUE_S = 0.9;   // "new" lasts 3 captures · RSSI jump that raises the change cue (dB) · cue pulse length (s of S.clock)
 function eventsReset() {
-  S.captureSeq = 0; S.ev = { lastGen: null, arrived: 0, departed: 0, changed: 0, cues: 0, newStations: 0, departedStations: 0 };
+  S.captureSeq = 0; S.ev = { lastGen: null, arrived: 0, departed: 0, changed: 0, cues: 0, newStations: 0, departedStations: 0, newInClouds: 0 };
+  S.clouds.clear(); S.cloudOrder = [];   // §8.8a
   S.long = new Map(); S.chanPeak = new Map(); S.recvT0 = null;   // the long RSSI history and the channel peak hold belong to one source too
   S.chg = new Map(); S.obsFirst = new Map(); S.obsProbe = { firstGen: null }; S.obsWatchSeen = new Set();   // the change log and the dwell clocks belong to one source too
   S.sky = { seq: 0, ref: new Map(), t0: null, resets: 0, dev: [] };   // D2: the sky reference belongs to one source too
@@ -1568,7 +1685,7 @@ function eventsBegin(gen, newSource) {   // → true when this ingest is a new c
   if (newSource) eventsReset();
   if (gen == null || gen === S.ev.lastGen) return false;
   S.captureSeq++; S.ev.lastGen = gen;
-  S.ev.arrived = S.ev.departed = S.ev.changed = S.ev.cues = S.ev.newStations = S.ev.departedStations = 0;
+  S.ev.arrived = S.ev.departed = S.ev.changed = S.ev.cues = S.ev.newStations = S.ev.departedStations = S.ev.newInClouds = 0;
   return true;
 }
 const isNewAp = (n) => n.newSeq > 0 && S.captureSeq - n.newSeq < NEW_CAPTURES;
@@ -1607,7 +1724,7 @@ function ingest(doc, opts = {}) {
   let changed = false;
   S.source = doc.source; S.note = doc.note; S.generated = doc.generated; S.centerLabel = doc.center.label;
   S.hop = doc.channels || null; S.own = { bssids: new Set(doc.center.own_bssids || []), ssids: new Set(doc.center.own_ssids || []) };   // the built-in demo skips normalizeDoc, hence the fallbacks
-  S.maxAgeS = doc.center.max_age; S.pollIntervalS = doc.center.interval;   // D1/D3: collector age window and cadence (null = unknown)
+  S.maxAgeS = doc.center.max_age; S.pollIntervalS = doc.center.interval && Math.min(doc.center.interval, POLL.maxIntervalS);   // D1/D3: collector age window and cadence, capped (null = unknown)
   for (const a of doc.aps) {
     let n = S.aps.get(a.bssid); const isNew = !n;
     if (!n) { n = newAp(a.bssid); S.aps.set(a.bssid, n); changed = true; n.born = now; if (opts.resume) resumeMarks(opts.resume.aps, n); }
@@ -1675,20 +1792,23 @@ function ingest(doc, opts = {}) {
   if (cmp) S.aps.forEach(n => { if (!seenAp.has(n.id) && n.capSeq === seq - 1) S.ev.departed++; });   // D2: in the previous capture, not in this one
   S.aps.forEach(n => { if (!seenAp.has(n.id) && n.target !== 0) { n.target = 0; n.dying = now; changed = true; } });
   S.clients.forEach(n => { if (!seenCl.has(n.id) && n.target !== 0) { n.target = 0; n.dying = now; changed = true; } });
-  // history sweep: a vanished node's history is dropped after HIST_KEEP_INGESTS ingests (≈ HIST_KEEP_S at POLL_MS; no wall clock)
+  if (rebuildClouds(gen, rp)) changed = true;   // §8.8a, before the station history
+  // history sweep: a vanished node's history goes HIST_KEEP_S of capture time after its last sample, or HIST_KEEP_INGESTS ingests when undated (no wall clock)
   if (!rp) histPushCl(seenCl, gen);   // station RSSI history (a replay writes to no engine)
   const live = (m) => !!m && m.target !== 0;   // a series stays while a present node of EITHER kind carries its key (a MAC can be heard as both)
-  if (!rp) S.hist.forEach((h, id) => { if (!live(S.aps.get(id)) && !live(S.clients.get(id)) && S.ingestSeq - h.lastSeq > HIST_KEEP_INGESTS) S.hist.delete(id); });
+  if (!rp) S.hist.forEach((h, id) => { if (!live(S.aps.get(id)) && !live(S.clients.get(id)) && (gen != null && h.lastGen != null ? Math.abs(gen - h.lastGen) > HIST_KEEP_S : S.ingestSeq - h.lastSeq > HIST_KEEP_INGESTS)) S.hist.delete(id); });
   if (cap) longSweep(seq);
   rebuildOrders();
   rebuildGroups();
   rebuildDevices();
   S.aps.forEach(n => { n.mobile = isMobileLikely(n); });
-  if (cap) { eventsSettle(pend, gen, seq, seenAp, seenCl); if (cmp && (S.ev.arrived > 0 || S.ev.newStations > 0)) S.recvT0 = S.clock; }   // something new was heard → the receive ring contracts once
+  if (cap) { eventsSettle(pend, gen, seq, seenAp, seenCl); if (cmp && (S.ev.arrived > 0 || S.ev.newStations > S.ev.newInClouds)) S.recvT0 = S.clock; }   // something new was heard → the receive ring contracts once (not a live cloud's new burst, §8.8a)
   rebuildEss();
+  if (applyRandom()) changed = true;   // §8.8a, before the probe orbits
   if (applyAffinity()) changed = true;
-  let free = 0, assoc = 0, freeLayout = 0;
-  S.clients.forEach(n => { if (n.target === 1) { if (n.free || n.affinity) free++; else assoc++; if (n.free) freeLayout++; } });
+  let free = 0, assoc = 0;
+  S.clients.forEach(n => { if (n.target === 1) { if (n.free || n.affinity) free++; else assoc++; } });
+  const freeLayout = countFreeLayout();
   if (S.nFreeTotal !== freeLayout) changed = true;   // the free set was resized since the last layout: aggForced() answers anew
   S.nFreeTotal = freeLayout;
   if (changed) { S.layoutDirty = true; S.aggDirty = true; }
@@ -1704,7 +1824,7 @@ function ingest(doc, opts = {}) {
   if (cap || gen == null) obsCompute();
   regulatorStart();
   updateStats();   // ends in layoutEdges() → drawChannelBar() with the fresh S._stats/analyzer counts
-  if (S.locked && !(S.aps.has(S.locked) || S.clients.has(S.locked))) closeDetail();
+  if (S.locked && !(S.aps.has(S.locked) || S.clients.has(S.locked) || liveCloud(S.locked))) closeDetail();
   else if (S.locked) openDetail(S.locked);
   S.dirty = true;
   return { aps: seenAp.size, clients: seenCl.size, free, assoc };
@@ -1722,6 +1842,7 @@ function applyAffinity() {
   let changed = false;
   for (const c of S.clientOrder) {
     if (!c.free && !c.affinity) continue;
+    if (c.randOut) { if (c.affinity) { changed = true; c.affinity = false; c.free = true; c.parent = null; c.band = null; c.probeVia = null; } continue; }   // §8.8a
     let best = null, via = null;
     if (S.ui.affinity && c.probes) for (const s of c.probes) {
       const list = bySsid.get(s); if (!list) continue;
@@ -1871,8 +1992,9 @@ function buildObstacles(withBubbles) {
   }
   if (withBubbles) S.bubbles.forEach(b => { if (b.target === 1) settleObstacles.push({ x: b.cxT, z: b.czT, zone: (b.rT + LAYOUT.bubbleZonePx) / maxRadius }); });
 }
-function buildActive(phase) {   // phase 2 leaves the aggregated clients to their bubbles
-  settleActive = S.clientOrder.filter(c => c.free && c.target === 1 && !(phase === 2 && c.bubble != null));
+function buildActive(phase) {   // phase 2 leaves the aggregated clients to their bubbles; §8.8a: no randOut, the shown clouds
+  settleActive = S.clientOrder.filter(c => c.free && c.target === 1 && !c.randOut && !(phase === 2 && c.bubble != null));
+  if (S.ui.random === "cloud") for (const k of S.cloudOrder) settleActive.push(k);
 }
 let sD = 0, sCell = 0, sTolW = 0, sCoreKeep = 0;
 const settleGrid = new Map();
@@ -2186,15 +2308,20 @@ function settleLayout(maxIter) {
     if (c.free) { if (c.placed) shown = true; homeOfClient(c); if (!c.placed) { c.wx = c.lx; c.wz = c.lz; c.placed = true; } }
     else { const ap = S.aps.get(c.parent); if (ap) { orbitOfClient(c, ap); if (!c.placed) { c.wx = ap.wx + Math.cos(c.orbitPhase) * c.orbitR / maxRadius; c.wz = ap.wz + Math.sin(c.orbitPhase) * c.orbitR / maxRadius; c.placed = true; } } }
   }
+  for (const k of S.cloudOrder) { if (k.placed) shown = true; homeOfClient(k); if (!k.placed) { k.wx = k.lx; k.wz = k.lz; k.placed = true; } }   // §8.8a
   S.relayHold = shown && S.settlePhase === 0; S.relayT0 = S.clock;   // stations on screen wait for the settled layout instead of following the relaxation from their homes; not when this interrupts a running relaxation (relayouts faster than the settle would freeze them)
   settleIterTotal = 0; S.settleCapped = false; S.settlePhase = 1;
   buildActive(1); buildObstacles(false);
   runSettlePhases(maxIter);
   return settleIterTotal;
 }
-function countFreeLayout() { let k = 0; S.clients.forEach(n => { if (n.target === 1 && n.free) k++; }); return k; }   // S.nFreeTotal, as ingest counts it
+function countFreeLayout() { let k = 0; S.clients.forEach(n => { if (n.target === 1 && n.free && !n.randOut) k++; }); return S.ui.random === "cloud" ? k + S.cloudOrder.length : k; }   // S.nFreeTotal (§8.8a)
 function heldFree(n) { return S.relayHold && S.settlePhase !== 0 && n.bubble == null && n.born < S.relayT0; }   // a free single that was on screen before this relayout (settleLayout): its display waits; one that arrived with it follows the relaxation. Bubbles and APs are not held, so a held single may wait inside a disc or zone until the glide
-function freeSingles() { return S.clientOrder.filter(c => c.free && c.target === 1 && c.bubble == null && !(c.alphaDraw < 0.5)); }
+function freeSingles() {
+  const a = S.clientOrder.filter(c => c.free && c.target === 1 && !c.randOut && c.bubble == null && !(c.alphaDraw < 0.5));
+  if (S.ui.random === "cloud") for (const k of S.cloudOrder) if (!(k.alphaDraw < 0.5)) a.push(k);
+  return a;
+}
 function layoutInfo() {
   const list = S.apOrder;
   let apMinGapPx = Infinity, apRadiusErrPx = 0;
@@ -2251,7 +2378,8 @@ function newBubble(id, gx, gz) {
 }
 function rebuildBubbles() {
   S.aggDirty = false;
-  const active = S.clientOrder.filter(c => c.free && c.target === 1);
+  const active = S.clientOrder.filter(c => c.free && c.target === 1 && !c.randOut);   // §8.8a
+  for (const c of S.clientOrder) if (!c.free || c.randOut) c.bubble = null;
   const nFree = active.length;
   const forced = aggForced();
   if (!S.ui.agg && !forced) {
@@ -2343,7 +2471,7 @@ const free3dRank = new Map(); let free3dSig = "";
 let skyC = 1, skyS = 0;                        // cos/sin of S.skyA, refreshed once per step (stepSky, §30)
 function skyPt(o, x, y, z, out) { return projPt(o[0] + x * skyC - z * skyS, o[1] + y, o[2] + x * skyS + z * skyC, out); }   // spun origin o + world offset (spun here)
 const yBandOf = (n) => CFG3D.yBand[n.band] ?? 0;
-function F3Dof() { return (H / 2) / Math.tan(CFG3D.fovDeg / 2 * Math.PI / 180); }
+function F3Dof() { return (skyH / 2) / Math.tan(CFG3D.fovDeg / 2 * Math.PI / 180); }   // skyH = H outside phone mode
 function camPreset(mode) {
   if (mode === "3d") { const F = F3Dof(); return { el: CFG3D.el, az: CFG3D.azStart, dist: F / (CFG3D.distFactor * maxRadius), F }; }
   return { el: Math.PI / 2 - 0.001, az: 0, dist: 20, F: 20 * maxRadius };
@@ -2365,6 +2493,11 @@ function freeY(n, nFree) {
 }
 function p3Of(node, nFree) {
   const p = node.p3;
+  if (node.kind === "cloud") {   // §8.8a
+    const h = heldFree(node);
+    p[0] = h ? node.wx : node.lx; p[1] = (node.jitY - 0.5) * CFG3D.freeYSpread; p[2] = (h ? node.wz : node.lz) + (node.jitZ - 0.5) * CFG3D.freeZJitter;
+    return p;
+  }
   if (node.kind === "ap") {
     p[0] = node.wx; p[1] = yBandOf(node) + (node.jitY - 0.5) * CFG3D.yJitter; p[2] = node.wz;
     return p;
@@ -2442,7 +2575,13 @@ function projectAll() {
     if (!n.placed) { n.wx = n.lx; n.wz = n.lz; n.placed = true; }
     const p3 = p3Of(n, nFree); easeSky(n, lerp(n.wx, p3[0], tS), lerp(0, p3[1], tS), lerp(n.wz, p3[2], tS), e);
     project(n, n.free ? 0.85 : 0.95, CFG3D.minPxClient, CFG3D.maxPxClient);
-    if (n.target === 1 && (n.bubble == null || n.bubbleBlend < 0.5)) count++;
+    if (n.target === 1 && !n.randOut && (n.bubble == null || n.bubbleBlend < 0.5)) count++;
+  }
+  for (const k of S.clouds.values()) {   // §8.8a
+    if (!k.placed) { k.wx = k.lx; k.wz = k.lz; k.placed = true; }
+    const p3 = p3Of(k, nFree); easeSky(k, lerp(k.wx, p3[0], tS), lerp(0, p3[1], tS), lerp(k.wz, p3[2], tS), e);
+    project(k, 0.85, CLOUD.px3d[0], CLOUD.px3d[1]);
+    if (k.target === 1 && S.ui.random === "cloud") count++;
   }
   for (const b of S.bubbles.values()) {
     let mx = 0, my = 0, mz = 0, cnt = 0;
@@ -2465,8 +2604,9 @@ function project2D() {   // the device (world origin) is pinned to CX,CY — zoo
     flat(n, n.wx, n.wz, n.basePx);
     n.alphaDraw = n.alpha * (n.free ? 0.85 : 0.95);
     if (isForced(n.id)) n.alphaDraw = n.alpha;
-    if (n.target === 1 && (n.bubble == null || n.bubbleBlend < 0.5)) count++;
+    if (n.target === 1 && !n.randOut && (n.bubble == null || n.bubbleBlend < 0.5)) count++;
   }
+  for (const k of S.clouds.values()) { flat(k, k.wx, k.wz, k.basePx); k.alphaDraw = isForced(k.id) ? k.alpha : k.alpha * 0.85; if (k.target === 1 && S.ui.random === "cloud") count++; }   // §8.8a
   for (const b of S.bubbles.values()) { flat(b, b.cx, b.cz, b.r); b.alphaDraw = b.alpha; if (b.target === 1 || b.alpha > 0.02) count++; }
   S.nodeCount = count;
 }
@@ -2723,7 +2863,7 @@ function skyStatsObj() {   // aggregates only: no MAC, BSSID or SSID (D11); cell
 }
 // ---- Baseline (persisted: <= 500 APs and <= 2000 stations as [rssi] without association), diff and ghosts (D19). Without channels[] hop data nothing is ever "gone"; a baseline AP counts as gone
 // only when the frequency of its baseline channel is among the visited ones; own transmitters and probable phone hotspots (P3) are left out.
-function baselineEligible(n) { return n.target === 1 && !eventSkip(n); }
+function baselineEligible(n) { return n.target === 1 && !eventSkip(n) && n.cloud == null; }   // §8.8a: never a cloud member
 function loadBaseline() {
   const raw = safeStorage.get(BASELINE_KEY); if (!raw) return;
   try {
@@ -2773,7 +2913,7 @@ function baselineRecompute() {
     // for an AP) but no channel match. No "changed" state: D2's change kinds (channel, security, SSID, band) are AP properties.
     // AP ghosts are placed first, so GHOST_MAX bounds them alone; a MAC now heard as an AP is not gone.
     const curCl = new Set();
-    S.clients.forEach(n => { if (!baselineEligible(n)) return; curCl.add(n.id); if (S.baseline.st.has(n.id)) n.baseState = "same"; else { b.newCl++; n.baseState = "new"; } });
+    S.clients.forEach(n => { if (n.target === 1 && n.cloud != null && !eventSkip(n)) { curCl.add(n.id); return; } if (!baselineEligible(n)) return; curCl.add(n.id); if (S.baseline.st.has(n.id)) n.baseState = "same"; else { b.newCl++; n.baseState = "new"; } });
     S.baseline.st.forEach((e, id) => {
       if (curCl.has(id) || (S.aps.has(id) && S.aps.get(id).target === 1) || S.own.bssids.has(id) || !visited) return;
       b.goneCl++; if (b.ghostsCl < GHOST_CL_MAX && !S.ghosts.has(id)) { S.ghosts.set(id, { ang: hash(id + "g") * Math.PI * 2, rssi: e[0] == null ? -75 : e[0], ssid: "", band: null, cl: true }); b.ghostsCl++; }
@@ -2836,6 +2976,10 @@ function obsCompute() {
     else if (S.hop !== null && S.obsWatchSeen && S.obsWatchSeen.has(w)) add("w-" + w, "Watchlist", "watched SSID not heard now: " + w);
   }
   for (const a of S.alerts) { const n = S.aps.get(a.ap); if (n && !eventSkip(n)) add("alert:" + a.ap, "Alerts", "many deauth/disassoc frames heard for this AP: " + (n.ssidKnown || n.ssid || n.bssid) + " (" + a.n + ")"); }   // P6: local-live only
+  if (S.cloudOrder.length) {   // §8.8a
+    const k = S.cloudOrder.length, a = S.cloudOrder.reduce((x, c) => x + c.n, 0), one = k === 1 && !cloudMixed(S.cloudOrder[0]);
+    add("s-clouds", "Stations", a + " randomised addresses in " + k + (k === 1 ? " cloud" : " clouds") + (one ? ": probably one nearby device changing its address" : ": possibly one or more nearby devices changing their address"));
+  }
   const cnt = (f) => aps.filter(f).length;   // Configuration hints
   let c = cnt(n => n.sec === "open" || n.sec === "wep"); if (c) add("c-open", "Configuration", c + " open or WEP network(s)");
   c = cnt(n => n.band === "2.4" && n.channel != null && ![1, 6, 11].includes(n.channel)); if (c) add("c-chan", "Configuration", c + " 2.4 GHz network(s) on channels other than 1, 6 and 11");
@@ -2926,7 +3070,8 @@ function airQuality() {   // per band the busiest channels, co-/adjacent-channel
   }
   return out;
 }
-// Long RSSI history: one Int8 sample per CAPTURE (a distinct `generated`), 720 samples, gaps as -128; time scales convert seconds to samples with the collector's interval (else the 5 s poll).
+// Long RSSI history: one Int8 sample per CAPTURE (a distinct `generated`), 720 samples, gaps as -128; time scales convert seconds to samples with the
+// observed capture spacing (§38), else the collector's announced interval, else the 5 s poll.
 const LONG_LEN = 720, LONG_KEEP = 120, TIME_SCALES = { "1m": 60, "10m": 600, "1h": 3600 };
 function longPush(id, dbm, seq) {
   let h = S.long.get(id); if (!h) { h = { buf: new Int8Array(LONG_LEN).fill(-128), head: 0, n: 0, lastSeq: seq }; S.long.set(id, h); }
@@ -2946,7 +3091,8 @@ function longSeries(id, want) {   // → the newest `want` samples, oldest first
   return out;
 }
 function timeModel(scale) {
-  const sc = TIME_SCALES[scale] ? scale : S.timeScale, iv = S.pollIntervalS > 0 ? S.pollIntervalS : POLL_MS / 1000;
+  const sc = TIME_SCALES[scale] ? scale : S.timeScale, sp = captureSpacing(), iv = sp ?? (S.pollIntervalS > 0 ? S.pollIntervalS : POLL_MS / 1000);
+  const from = sp != null ? "observed" : S.pollIntervalS > 0 ? "announced" : "assumed";
   const want = Math.max(2, Math.ceil(TIME_SCALES[sc] / iv)), win = Math.min(want, LONG_LEN);
   let ids = [];
   const sel = S.locked && S.aps.get(S.locked);
@@ -2958,7 +3104,7 @@ function timeModel(scale) {
     return { id, label: n ? aliasOf(id) || n.ssidKnown || n.ssid || n.bssid : id, band: n ? n.band : "unknown", samples: sm, n: vs.length, min: vs.length ? Math.min(...vs) : null, max: vs.length ? Math.max(...vs) : null, mean: vs.length ? Math.round(10 * vs.reduce((a, b) => a + b, 0) / vs.length) / 10 : null, last: vs.length ? vs[vs.length - 1] : null };
   });
   let above = 0; if (S.threshold != null) S.apOrder.forEach(a => { if (!eventSkip(a) && a.rssi != null && a.rssi >= S.threshold) above++; });
-  return { scale: sc, intervalS: iv, window: win, limited: want > LONG_LEN, threshold: S.threshold, above: S.threshold == null ? null : above, curves };
+  return { scale: sc, intervalS: iv, spacingFrom: from, window: win, limited: want > LONG_LEN, threshold: S.threshold, above: S.threshold == null ? null : above, curves };
 }
 // Recorder: the normalised captures as held in memory (complete), at most REC_MAX or REC_BYTES (an estimate) — a memory rule, not a privacy rule; never persisted.
 const REC_MAX = 120, REC_BYTES = 8 * 1024 * 1024;
@@ -2966,11 +3112,12 @@ const recEmpty = () => ({ key: null, docs: [], bytes: 0, seqNo: 0, lastGen: null
 const docBytes = (doc) => 1500 + doc.aps.length * 420 + doc.aps.reduce((a, x) => a + x.clients.length * 140, 0) + doc.unassociated.length * 160;
 function recAppend(doc, key) {
   if (!S.rec || S.rec.key !== key) { S.rec = recEmpty(); S.rec.key = key; }
-  const r = S.rec, gen = doc.generated; if (gen == null || gen === r.lastGen) return;
+  const r = S.rec, gen = doc.generated; if (gen == null || gen === r.lastGen) return false;   // → true when a capture was recorded
   r.lastGen = gen; const bytes = docBytes(doc);
   r.docs.push({ n: ++r.seqNo, gen, bytes, doc: JSON.parse(JSON.stringify(doc)) }); r.bytes += bytes;
   while (r.docs.length > REC_MAX || r.bytes > REC_BYTES) r.bytes -= r.docs.shift().bytes;
   if (S.replay && S.replay.i >= r.docs.length) S.replay.i = r.docs.length - 1;
+  return true;
 }
 function recObj() { const r = S.rec || recEmpty(); return { count: r.docs.length, bytes: r.bytes, max: REC_MAX, maxBytes: REC_BYTES, snapshots: r.docs.map(d => ({ n: d.n, generated: d.gen, aps: d.doc.aps.length, clients: d.doc.aps.reduce((a, x) => a + x.clients.length, 0) + d.doc.unassociated.length, bytes: d.bytes })) }; }
 function resumeMarks(map, node) { const m = map && map.get(node.id); if (m) { node.capSeq = m.capSeq; node.newSeq = m.newSeq; if ("changedSeq" in m) { node.changedSeq = m.changedSeq; node.cueSeq = m.cueSeq; } } }
@@ -2995,7 +3142,7 @@ function replayExit() {   // "Back to live": the newest capture (the last one bu
   const rp = S.replay; if (!rp) return false;
   const rec = S.rec && S.rec.docs.length ? S.rec.docs[S.rec.docs.length - 1].doc : null, doc = rp.pending || rec;
   S.replay = null;
-  if (doc) { const st = S.stalePolls; loadData(doc, S.sourceLabel, { mode: S.liveFeed ? "live" : "recorded", resume: rp.marks }); S.stalePolls = rp.pending ? S.stalePolls : st; }
+  if (doc) { const st = S.stalePolls, sm = S.staleMs; loadData(doc, S.sourceLabel, { mode: S.liveFeed ? "live" : "recorded", resume: rp.marks }); if (!rp.pending) { S.stalePolls = st; S.staleMs = sm; } }
   setSourcePanel(); applyDrawer(); S.dirty = true; return true;
 }
 function replayTick(dt) { const rp = S.replay; if (!rp || !rp.play || dt <= 0) return; rp.acc += dt; if (rp.acc < 1) return; rp.acc = 0; if (rp.i >= S.rec.docs.length - 1) { rp.play = false; renderRec(); return; } replayTo(rp.i + 1); renderRec(); }
@@ -3178,6 +3325,225 @@ function stepEss(dt) {
   return moving;
 }
 function essDrawFactor(n) { const b = n.essBlend || 0; if (b > 0) { n.alphaDraw *= 1 - b; n.px *= 1 - 0.4 * b; } }
+// §8.8a random clouds (model; theme-free, deterministic, order-free): randomised free stations with a capture time and a signal, banded by
+// signal and kept where their times form bursts in a rhythm; a loose address inside a burst joins. Probe SSIDs are listed, never a
+// key. A band that shares addresses with a live cloud keeps its node and holds down to keepAddr. JQLIB `clouds` is the same rule, stateless.
+function newCloud(id) {
+  return { id, kind: "cloud", mac: id /* relaxation hash key only */, members: [], n: 0, core: 0, joined: 0, centre: 0, rssi: -90, rssiMin: null, rssiMax: null,
+    first: null, last: null, bursts: 0, cadenceS: null, rhythm: 0, probes: [], anchor: "", kept: false, ageS: null, freshTier: null, freshA: 1, freshAT: 1,
+    homeAngle: 0, homeR: 0.5, jitterR: 0, homeX: 0, homeZ: 0, lx: 0, lz: 0, wx: 0, wz: 0, placed: false, jitY: hash(id + "h"), jitZ: hash(id + "z"),
+    p3: [0, 0, 0], p: [0, 0, 0], sx: 0, sy: 0, zc: 1, px: 0, fog: 1, scale: 1, basePx: CLOUD.pxBase, basePxMax: 7, bubble: null,
+    target: 1, alpha: 0, alphaDraw: 0, born: S.clock, dying: null, expandedUntil: null, sparkDirty: true,
+    hist: { buf: new Int8Array(HISTORY_LEN), ts: new Float64Array(HISTORY_LEN), head: 0, n: 0, lastGen: null, lastSeq: 0, cl: false } };   // its own series, not in S.hist
+}
+function cloudBands(E) {   // E sorted (rssi desc, MAC asc) → { bands: [{ c, W }], rest }: flat-window mean shift
+  let L = E; const bands = [];
+  while (L.length >= CLOUD.minAddr) {   // a band below minAddr cannot hold a cloud
+    const cnt = new Map(); let c = null, top = 0;
+    for (const e of L) cnt.set(e.r, (cnt.get(e.r) || 0) + 1);
+    cnt.forEach((n, r) => { if (n > top || (n === top && r > c)) { top = n; c = r; } });   // seed: the commonest value, the stronger on a tie
+    for (let k = 0; k < CLOUD.shiftMax; k++) {
+      let s = 0, n = 0;
+      for (const e of L) if (e.r >= c - CLOUD.bandDb && e.r <= c + CLOUD.bandDb) { s += e.r; n++; }
+      const m = s / n;
+      if (Math.abs(m - c) < CLOUD.shiftEps) break;
+      c = m;
+    }
+    const W = [], R = [];
+    for (const e of L) (e.r >= c - CLOUD.bandDb && e.r <= c + CLOUD.bandDb ? W : R).push(e);
+    bands.push({ c, W }); L = R;
+  }
+  return { bands, rest: L };
+}
+function cloudBursts(ts) {   // ascending times → [[start, end], …]
+  const B = [];
+  for (let i = 0; i < ts.length; i++) { if (i === 0 || ts[i] - ts[i - 1] > CLOUD.burstS) B.push([ts[i], ts[i]]); else B[B.length - 1][1] = ts[i]; }
+  return B;
+}
+// A rhythm is a period the burst starts of one band show far more often than unrelated bursts would. Two judges, both plain arithmetic (no exp() or pow()):
+// 1) pairs of bursts about one period apart against the pairs in the bands beside that window (what this band shows by chance, hard-core spacing and all),
+//    floored by the Poisson count; 2) for a band too dense for that, a chain of bursts one period apart (or two, three) that keeps its phase, against the
+//    longest chain bursts of that density make by chance. A device's gap is its period or a little more, never a fixed grid, so the first judge counts pairs.
+const cloudTol = (c) => Math.max(CLOUD.tolMinS, CLOUD.tolFrac * c);
+function cloudExpm(x) { let y = 1 - x / 1024; if (y < 0) return 0; for (let i = 0; i < 10; i++) y *= y; return y; }   // e^-x, ten squarings
+function cloudChance(n, T, c) {   // pair hits that n unrelated bursts over T s give at c ± tol, the second within lagMax bursts of the first (Poisson arrivals)
+  const lam = n / T; let f = 0, p = lam, q = 1;
+  for (let l = 1; l <= CLOUD.lagMax; l++) { f += p * q; p *= lam; q *= c / l; }
+  return n * f * cloudExpm(lam * c) * 2 * cloudTol(c);
+}
+function cloudHits(S, c) {   // burst pairs about c s apart → [i, j, distance], the bursts that take part, and the pairs in the two bands beside the window (mean)
+  const tol = cloudTol(c), p = [], sup = new Set(); let a = 0, b = 0;
+  for (let i = 0; i < S.length; i++) for (let j = i + 1; j < S.length && j <= i + CLOUD.lagMax; j++) {
+    const x = S[j] - S[i], d = x - c;
+    if (Math.abs(d) <= tol) { p.push([i, j, x]); sup.add(i); sup.add(j); } else if (d >= -3 * tol && d < -tol) a++; else if (d > tol && d <= 3 * tol) b++;
+  }
+  return { p, sup: Array.from(sup).sort((x, y) => x - y), side: (a + b) / 2 };
+}
+function cloudCands(S) {   // the commonest gaps (whole seconds, cadMin to cadMax) to the next lagMax bursts, one per tolerance: a neighbour of a taken gap is left out
+  const cnt = new Map();
+  for (let l = 1; l <= CLOUD.lagMax; l++) for (let i = 0; i + l < S.length; i++) { const d = Math.round(S[i + l] - S[i]); if (d >= CLOUD.cadMinS && d <= CLOUD.cadMaxS) cnt.set(d, (cnt.get(d) || 0) + 1); }
+  const all = Array.from(cnt.entries()).sort((a, b) => b[1] - a[1] || a[0] - b[0]), out = [];
+  for (const [d] of all) { if (out.length >= CLOUD.candMax) break; if (!out.some(c => Math.abs(d - c) <= cloudTol(c))) out.push(d); }
+  return out;
+}
+function cloudChain(S, c, km) {   // the longest chain of burst starts one, two … km periods apart (each link within tol, the smaller miss on a tie) → { idx, k }
+  const n = S.length, tol = cloudTol(c), f = new Array(n).fill(1), pv = new Array(n).fill(-1), dv = new Array(n).fill(0), kk = new Array(n).fill(0), reach = km * c + tol;
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n && S[j] - S[i] <= reach; j++) {
+    const x = S[j] - S[i], k = Math.round(x / c); if (k < 1 || k > km) continue;
+    const dev = Math.abs(x - k * c); if (dev > tol) continue;
+    const L = f[i] + 1; if (L > f[j] || (L === f[j] && dev < dv[j])) { f[j] = L; pv[j] = i; dv[j] = dev; kk[j] = k; }
+  }
+  let b = 0; for (let i = 1; i < n; i++) if (f[i] > f[b]) b = i;
+  const idx = [], ks = []; for (let i = b; i >= 0; i = pv[i]) { idx.push(i); ks.push(kk[i]); if (pv[i] < 0) break; }
+  return { idx: idx.reverse(), k: ks.reverse() };
+}
+function cloudNeed(n, mu) { let x = n, l = 1; while (x > CLOUD.alpha) { x *= mu; l++; if (l > 400) break; } return l; }   // the longest chain n starts make by chance (each followed with chance mu): n·mu^(l-1) <= alpha
+function cloudMedian(a) { const s = a.slice().sort((x, y) => x - y); return s[Math.round((s.length - 1) / 2)]; }
+function cloudStreams(S) {   // burst starts ascending → [{ idx, per }]: the clearest rhythm first, its bursts taken out, again up to streamMax; then the chains of a dense band
+  const out = [];
+  let R = S.map((_, i) => i);
+  for (let pass = 0; pass < CLOUD.streamMax && R.length >= CLOUD.minBursts; pass++) {
+    const Sr = R.map(i => S[i]), nn = Sr.length, TT = Sr[nn - 1] - Sr[0], ok = [], all = [];
+    for (const c of cloudCands(Sr)) {
+      const h = cloudHits(Sr, c), E = Math.max(1, h.side, TT > 0 ? cloudChance(nn, TT, c) : 0), x = h.p.length - E - CLOUD.hMin, z2 = x > 0 ? x * x / E : 0, o = { z2, c, h };
+      all.push(o);
+      if (h.p.length >= CLOUD.minHits && h.sup.length >= CLOUD.minBursts && h.p.length >= CLOUD.ratio * Math.max(1, h.side) && z2 >= CLOUD.zK * CLOUD.zK) ok.push(o);
+    }
+    if (!ok.length) break;
+    let best = ok.slice().sort((a, b) => b.z2 - a.z2 || a.c - b.c)[0];
+    for (const o of all.slice().sort((a, b) => a.c - b.c)) if (o !== best && o.h.p.length >= CLOUD.fundFrac * best.h.p.length && o.h.sup.length >= CLOUD.minBursts && [2, 3].some(k => Math.abs(k * o.c - best.c) <= cloudTol(best.c))) { best = o; break; }   // the fundamental, not its multiple
+    const deg = new Map(), bump = (i) => deg.set(i, (deg.get(i) || 0) + 1), drop = new Set();   // a burst only one pair holds, to a burst three hold, is a chance partner
+    for (const [i, j] of best.h.p) { bump(i); bump(j); }
+    for (const [i, j] of best.h.p) { if (deg.get(i) === 1 && deg.get(j) >= 3) drop.add(i); if (deg.get(j) === 1 && deg.get(i) >= 3) drop.add(j); }
+    const keep = best.h.sup.filter(i => !drop.has(i)), sup = new Set(keep);
+    if (keep.length < CLOUD.minBursts) break;
+    out.push({ idx: keep.map(i => R[i]), per: Math.round(cloudMedian(best.h.p.map(q => q[2]))) });
+    R = R.filter((_, i) => !sup.has(i));
+  }
+  for (let pass = 0; pass < CLOUD.streamMax && R.length >= CLOUD.minBursts; pass++) {   // a band too dense for pairs: chains, the first at muMax, later ones (the rest is thinner) at muMaxMore
+    const Sr = R.map(i => S[i]), n = Sr.length, T = Sr[n - 1] - Sr[0]; if (!(T > 0)) break;
+    const mm = pass ? CLOUD.muMaxMore : CLOUD.muMax; let best = null;
+    for (const c of cloudCands(Sr)) {
+      const tol = cloudTol(c); let prev = 0;
+      for (let km = 1; km <= CLOUD.kCap; km++) {   // as few skipped links as keep the chain: each link more is chance more
+        if (km * 2 * tol * n / T > mm) break;
+        const ch = cloudChain(Sr, c, km), L = ch.idx.length; if (L <= prev) break; prev = L;
+        if (L < CLOUD.minBursts) continue;
+        const a = Sr[ch.idx[0]], z = Sr[ch.idx[L - 1]], span = z - a; if (!(span > 0)) continue;
+        let ns = 0; for (const s of Sr) if (s >= a && s <= z) ns++;
+        const mu = km * 2 * tol * ns / span; if (mu > mm || L < cloudNeed(ns, mu) + CLOUD.margin) continue;
+        if (!best || L > best.L || (L === best.L && c < best.c)) best = { c, ch, L };
+      }
+    }
+    if (!best) break;
+    const ch = best.ch, sp = []; for (let q = 1; q < ch.idx.length; q++) sp.push((Sr[ch.idx[q]] - Sr[ch.idx[q - 1]]) / ch.k[q]);
+    out.push({ idx: ch.idx.map(i => R[i]), per: Math.round(cloudMedian(sp)) });
+    const used = new Set(ch.idx.map(i => R[i])); R = R.filter(i => !used.has(i));
+  }
+  return out;
+}
+function cloudKin(p, q) { const lo = Math.min(p, q), hi = Math.max(p, q); for (let m = 1; m <= CLOUD.kCap; m++) if (Math.abs(hi - m * lo) <= cloudTol(hi)) return true; return false; }   // one period, or a whole number of them (a band that holds every other burst)
+function cloudOnGap(g, cad) { const m = Math.round(g / cad); return m >= 1 && m <= CLOUD.kCap && Math.abs(g - m * cad) <= Math.max(CLOUD.tolMinS, CLOUD.tolFrac * m * cad); }   // one, two or three periods apart
+function cloudShare(cb, cad) { let on = 0; for (let i = 1; i < cb.length; i++) if (cloudOnGap(cb[i][0] - cb[i - 1][0], cad)) on++; return cb.length > 1 ? on / (cb.length - 1) : 0; }
+function cloudUnion(a, b) {   // two burst lists → one, ascending; a start within burstS of the one before it is the same burst
+  const u = a.concat(b).sort((x, y) => x[0] - y[0]), out = [];
+  for (const x of u) { if (out.length && x[0] - out[out.length - 1][0] <= CLOUD.burstS) { if (x[1] > out[out.length - 1][1]) out[out.length - 1][1] = x[1]; } else out.push([x[0], x[1]]); }
+  return out;
+}
+function cloudsOf(E) {   // E sorted (rssi desc, MAC asc) → accepted clouds [{ c, cs, core, merged, join, cb, cad, per, share }]; stateless, the Overview's `clouds` is this rule
+  const { bands } = cloudBands(E), cand = [];
+  bands.forEach((b, bi) => { b.B = cloudBursts(b.W.map(e => e.t).sort((x, y) => x - y)).slice(-CLOUD.burstCap); cloudStreams(b.B.map(x => x[0])).forEach((s, si) => cand.push({ b, bi, si, s })); });   // the newest burstCap bursts of a band
+  cand.sort((x, y) => y.s.idx.length - x.s.idx.length || x.bi - y.bi || x.si - y.si);   // the longest chain first
+  const acc = [], near = (x, y) => x >= y[0] - CLOUD.burstS && x <= y[1] + CLOUD.burstS;
+  for (const { b, s } of cand) {
+    const cb = s.idx.map(i => b.B[i]), core = b.W.filter(e => cb.some(y => e.t >= y[0] && e.t <= y[1]));   // the addresses of the stream's own bursts
+    // the same bursts seen in another signal band (one device with a wide spread), or bursts that fill in the same rhythm (a device that drifted from band to band)
+    const dup = acc.find(a => Math.abs(a.c - b.c) <= CLOUD.mergeDb && (cb.filter(x => a.cb.some(y => near(x[0], y))).length >= CLOUD.coincide * cb.length
+      || (cloudKin(a.per, s.per) && cloudShare(cloudUnion(a.cb, cb), Math.min(a.per, s.per)) >= CLOUD.mergeShare)));
+    if (dup) { dup.per = dup.cad = Math.min(dup.per, s.per); dup.cs.push(b.c); dup.merged = dup.merged.concat(core); dup.cb = cloudUnion(dup.cb, cb); dup.share = cloudShare(dup.cb, dup.per); }
+    else if (core.length >= CLOUD.minAddr) acc.push({ c: b.c, cs: [b.c], core, merged: [], join: [], cb, cad: s.per, per: s.per, share: cloudShare(cb, s.per) });   // the period shown is the fitted one
+  }
+  const used = new Set(); for (const a of acc) for (const e of a.core.concat(a.merged)) used.add(e.id);
+  for (const e of E) if (!used.has(e.id)) for (const a of acc) if (a.cs.some(c => Math.abs(e.r - c) <= CLOUD.joinDb) && a.cb.some(y => near(e.t, y))) { a.join.push(e); break; }   // a loose address heard inside a burst
+  return acc;
+}
+function liveCloud(id) { const k = id != null ? S.clouds.get(id) : null; return !!k && k.target === 1; }
+function cloudExpanded(id) { const k = id != null ? S.clouds.get(id) : null; return !!k && k.expandedUntil != null && k.expandedUntil > S.clock; }
+function pushCloudHist(k, rssi, gen) {
+  const h = k.hist;
+  h.buf[h.head] = clamp(Math.round(rssi), -120, 0); h.ts[h.head] = gen;
+  h.head = (h.head + 1) % HISTORY_LEN; h.n = Math.min(HISTORY_LEN, h.n + 1); h.lastGen = gen; h.lastSeq = S.ingestSeq; k.sparkDirty = true;
+}
+function rebuildClouds(gen, rp) {   // → true when a member list, the cloud set or a rounded signal changed
+  const E = [];
+  S.clients.forEach(c => {
+    c.cloud = null;
+    if (c.target === 1 && c.randomized && (c.free || c.affinity) && c.rssi != null && c.freshTier != null && !eventSkip(c)) E.push({ id: c.id, r: c.rssi, t: c.last_seen, c });   // own transmitters are no cloud
+  });
+  E.sort((a, b) => b.r - a.r || cmpStr(a.id, b.id));
+  const acc = cloudsOf(E), eOf = new Map(E.map(e => [e.id, e])), taken = new Map();
+  acc.forEach((a, ai) => { a.M = a.core.concat(a.merged, a.join); for (const e of a.M) taken.set(e.id, ai); });
+  // identity: an accepted cloud takes over a cloud that was live (or has only just faded) when they share at least half of the smaller one, the most shared first
+  const prs = [];
+  S.clouds.forEach(k => {
+    const sh = new Map(); let live = 0;
+    for (const m of k.members) if (eOf.has(m)) { live++; const ai = taken.get(m); if (ai != null) sh.set(ai, (sh.get(ai) || 0) + 1); }
+    sh.forEach((n, ai) => { if (n >= Math.max(1, Math.ceil(CLOUD.keepFrac * Math.min(live, acc[ai].M.length)))) prs.push({ k, ai, n }); });
+  });
+  prs.sort((x, y) => y.n - x.n || cmpStr(x.k.id, y.k.id) || x.ai - y.ai);
+  const claimed = new Set();
+  for (const p of prs) if (!claimed.has(p.k) && acc[p.ai].match == null) { claimed.add(p.k); acc[p.ai].match = p.k; }
+  const items = acc.map(a => ({ M: a.M, c: a.c, core: a.core.length + a.merged.length, joined: a.join.length, bursts: a.cb.length, cad: a.cad, share: a.share, kept: false, match: a.match || null, anchor: a.core }));
+  // a cloud that no accepted one took over stays while two of its own addresses are still here and in no other cloud: it never grows, it only runs down
+  S.clouds.forEach(k => {
+    if (claimed.has(k) || k.target !== 1) return;
+    const M = k.members.filter(m => eOf.has(m) && !taken.has(m)).map(m => eOf.get(m)); if (M.length < CLOUD.keepAddr) return;
+    items.push({ M, c: k.centre, core: M.length, joined: 0, bursts: cloudBursts(M.map(e => e.t).sort((x, y) => x - y)).length, cad: k.cadenceS, share: k.rhythm, kept: true, match: k, anchor: M });
+  });
+  let changed = false; const live = new Set();
+  for (const it of items) {
+    const M = it.M.slice().sort((x, y) => y.r - x.r || cmpStr(x.id, y.id));
+    let k = it.match; const was = !!k && k.target === 1;
+    if (!k) {   // a new cloud: its id hangs on its oldest core address
+      let a = it.anchor[0]; for (const e of it.anchor) if (e.t < a.t || (e.t === a.t && cmpStr(e.id, a.id) < 0)) a = e;
+      const base = "rc:" + hashInt(a.id).toString(16).padStart(8, "0"); let id = base;
+      for (let i = 2; S.clouds.has(id); i++) id = base + ":" + i;
+      k = newCloud(id); k.anchor = a.id; S.clouds.set(id, k); changed = true;
+    } else if (k.target !== 1) changed = true;   // a cloud that had just faded is back
+    let s = 0, lo = Infinity, hi = -Infinity, t0 = Infinity, t1 = -Infinity; const pc = new Map();
+    for (const e of M) { s += e.r; if (e.r < lo) lo = e.r; if (e.r > hi) hi = e.r; if (e.t < t0) t0 = e.t; if (e.t > t1) t1 = e.t; if (e.c.probes) for (const p of e.c.probes) pc.set(p, (pc.get(p) || 0) + 1); }
+    const mean = s / M.length, rssi = mean < 0 ? -Math.round(-mean) : Math.round(mean), members = M.map(e => e.id).sort(cmpStr);
+    if (k.rssi !== rssi || k.members.length !== members.length || k.members.some((m, i) => m !== members[i])) changed = true;
+    k.members = members; k.n = members.length; k.core = it.core; k.joined = it.joined; k.centre = it.c; k.rssi = rssi; k.rssiMin = lo; k.rssiMax = hi; k.first = t0; k.last = t1;
+    k.bursts = it.bursts; k.cadenceS = it.cad; k.rhythm = it.share; k.kept = it.kept; k.target = 1; k.dying = null; it.was = was;
+    k.probes = Array.from(pc.entries()).sort((x, y) => y[1] - x[1] || cmpStr(x[0], y[0])).slice(0, 8).map(x => x[0]);
+    const fr = freshOf(t1, gen); k.ageS = fr.ageS; k.freshTier = fr.tier; k.freshAT = ENCODING.fresh.alpha[fr.tier ?? 0]; if (!it.match) k.freshA = k.freshAT;
+    for (const e of M) e.c.cloud = k.id;
+    live.add(k.id);
+    if (!rp && gen != null && k.hist.lastGen !== gen) pushCloudHist(k, rssi, gen);
+  }
+  S.clouds.forEach(k => { if (k.target === 1 && !live.has(k.id)) { k.target = 0; k.dying = S.clock; k.expandedUntil = null; changed = true; } });
+  S.cloudOrder = Array.from(live).sort(cmpStr).map(id => S.clouds.get(id));
+  if (!rp && gen != null && gen === S.ev.lastGen && S.ev.cloudGen !== gen) {   // D2, once per capture: new addresses a live cloud took in
+    S.ev.cloudGen = gen; let nic = 0;
+    for (const it of items) if (it.was) for (const e of it.M) if (e.c.newSeq === S.captureSeq) nic++;
+    S.ev.newInClouds = nic;
+  }
+  return changed;
+}
+function applyRandom() {   // the Random switch: randOut = folded into a shown cloud or hidden; → true on a change
+  const m = S.ui.random; let changed = false;
+  S.clients.forEach(c => {
+    const out = c.target === 1 && (m === "cloud" ? c.cloud != null : m === "hide" && !!c.randomized && (c.free || !!c.affinity));
+    if (out !== !!c.randOut) { c.randOut = out; changed = true; }
+  });
+  return changed;
+}
+function pubCloud(k) {
+  return k ? { id: k.id, kind: "cloud", n: k.n, core: k.core, joined: k.joined, members: k.members.slice(), rssi: k.rssi, rssiMin: k.rssiMin, rssiMax: k.rssiMax, centre: r3(k.centre),
+    first: k.first, last: k.last, bursts: k.bursts, cadenceS: k.cadenceS, rhythm: r3(k.rhythm), probes: k.probes.slice(), kept: k.kept, shown: k.target === 1 && S.ui.random === "cloud",
+    expanded: cloudExpanded(k.id), pinned: S.pinned.has(k.id), freshTier: k.freshTier, ageS: k.ageS, sx: r3(k.sx), sy: r3(k.sy), px: r3(k.px), zc: r3(k.zc), alphaDraw: r3(k.alphaDraw) } : null;
+}
 function pubDevice(dev) { return dev ? { id: dev.id, members: dev.memberIds.slice(), bands: dev.bands.slice(), vendor: dev.vendor, reason: dev.reason.slice() } : null; }
 // Manual identity classification (per BSSID, persisted, operator-set — never automatic).
 const IDENTITY_KEY = "starchorus.identity.v1", IDENT_MAX = 5000;   // P8: a manual entry is never evicted, a new key is refused when full
@@ -3296,7 +3662,7 @@ function identityCounts() {
 // ==== 30 STEP ====
 let lastT = 0, lastBudgetT = 0;
 function regulatorStart() {   // §6.5: start levels from this sky (every capture, both ways) + the governor's own offset S.perf.down → lod, dprStep
-  const p = S.perf, mobile = W < 720, last = RENDER.dprSteps.length - 1;
+  const p = S.perf, mobile = phoneOn, last = RENDER.dprSteps.length - 1;
   const start = (k) => {   // [lod, dprStep] for k × the counts
     const n = k * (S.apOrder.length + S.clientOrder.length), cap = Math.min(window.devicePixelRatio || 1, RENDER.maxDpr, (n > 500 || k * S.nFreeTotal > 600) ? 1.5 : 2, n > 900 ? 1.25 : 2, mobile ? RENDER.mobile.dprCap : 2);
     const i = RENDER.dprSteps.findIndex(d => d <= cap);
@@ -3394,7 +3760,8 @@ function stepNodes(dt, liveDt) {
   for (const n of S.clients.values()) {
     const ap = n.parent ? S.aps.get(n.parent) : null;
     const parentOk = n.free || (ap && ap.target === 1 && S.ui.filters[ap.band] !== false);
-    const alphaT = (n.target === 1 && parentOk) ? 1 : 0;
+    const shownRnd = !n.randOut || (S.ui.random === "cloud" && (cloudExpanded(n.cloud) || isForced(n.id)));   // §8.8a
+    const alphaT = (n.target === 1 && parentOk && shownRnd) ? 1 : 0;
     n.alpha = easeBy(n.alpha, alphaT, alphaT > n.alpha ? eIn : eOut);
     if (n.alpha !== alphaT) moving = true;
     n.freshA = easeBy(n.freshA, n.freshAT, eIn); if (n.freshA !== n.freshAT) moving = true;   // D1: tier change fades, never pops
@@ -3415,6 +3782,21 @@ function stepNodes(dt, liveDt) {
   }
   S.moving = moving;
 }
+function stepClouds(dt) {   // §8.8a
+  if (!S.clouds.size) return;
+  const a = S.anim, eIn = Math.exp(-a.fadeInK * dt), eOut = Math.exp(-a.fadeOutK * dt), e3 = Math.exp(-3 * dt); let moving = false;
+  for (const k of S.clouds.values()) {
+    const alphaT = k.target === 1 && S.ui.random === "cloud" ? 1 : 0;
+    k.alpha = easeBy(k.alpha, alphaT, alphaT > k.alpha ? eIn : eOut); if (k.alpha !== alphaT) moving = true;
+    if (k.target === 0 && k.alpha < 0.02 && !S.replay) { S.clouds.delete(k.id); continue; }   // a replay keeps it: Back to live takes it up again
+    if (!k.placed) { k.wx = k.lx; k.wz = k.lz; k.placed = true; }
+    if (!heldFree(k)) { k.wx = easeBy(k.wx, k.lx, e3); k.wz = easeBy(k.wz, k.lz, e3); if (k.wx !== k.lx || k.wz !== k.lz) moving = true; }
+    k.basePx = CLOUD.pxBase + CLOUD.pxGain * rssiT(k.rssi) + (S.hover === k.id ? 0.5 : 0);
+    k.freshA = easeBy(k.freshA, k.freshAT, eIn); if (k.freshA !== k.freshAT) moving = true;
+    if (k.expandedUntil != null && k.expandedUntil <= S.clock) { k.expandedUntil = null; moving = true; }
+  }
+  if (moving) S.moving = true;
+}
 function stepSky(liveDt) {   // §4.2a: one shared angular rate → rigid, so no pair or zone distance ever changes
   const w = S.ui.spin ? LAYOUT.skySpinRadPerS : 0;
   if (S.fixedTime != null) S.skyA = (w * S.clock) % (2 * Math.PI);   // frozen frame: a pure function of the fixed clock
@@ -3428,7 +3810,7 @@ function step(dt, liveDt) {
   stepBlend(dt); stepCamera(dt);
   const transitioning = S.view.blend !== S.view.blendT;
   if (!transitioning && S.settlePhase !== 0) runSettlePhases(LAYOUT.settlePerFrame);
-  stepNodes(dt, liveDt);
+  stepNodes(dt, liveDt); stepClouds(dt);
   stepSky(liveDt);
   stepBubbles(dt);
   stepParticles(liveDt); stepFlares(dt);
@@ -3483,15 +3865,17 @@ function resizeCanvases() {
   }
 }
 function resize() {
-  W = window.innerWidth; H = window.innerHeight; CX = W / 2; CY = H / 2;
-  maxRadius = Math.min(W, H) / 2 * LAYOUT.outerFrac;
+  applyPhone();
+  W = window.innerWidth; H = window.innerHeight;
+  if (phoneOn) phoneLayout(true);
+  const sb = skyBox(); CX = sb.x + sb.w / 2; CY = sb.y + sb.h / 2; skyH = sb.h;   // the sky is centred in the free rectangle: the whole viewport outside phone mode
+  maxRadius = Math.min(sb.w, sb.h) / 2 * LAYOUT.outerFrac;
   inner = clamp(LAYOUT.innerFrac * maxRadius, LAYOUT.innerMinPx, LAYOUT.innerPx);
   resizeCanvases();
   rebuildBackground();
   S.layoutDirty = true; S.aggDirty = true;
   settleLayout(LAYOUT.settleSyncIter);
   computeGroupEdges();
-  updateDetailSheet();
   layoutEdges();
   S.dirty = true;
 }
@@ -3931,7 +4315,7 @@ function render() {
   DC.drawImage = 0; DC.fillRect = 0; DC.stroke = 0; DC.fillText = 0; DC.cue = 0;
   beginFrame();
   drawBackground(); drawRings(); drawShadows(); drawNebula(); drawConstellations();
-  drawGlows(); drawEdges(); drawOrbits(); drawDeviceLinks(); drawClients(); drawBubbles(); drawStars(); drawRecvRing(); drawGhosts(); drawThreshold(); drawChangeCues(); drawFlares(); drawParticles();
+  drawGlows(); drawEdges(); drawOrbits(); drawDeviceLinks(); drawClients(); drawClouds(); drawBubbles(); drawStars(); drawRecvRing(); drawGhosts(); drawThreshold(); drawChangeCues(); drawFlares(); drawParticles();
   drawHud();
   endFrame();
   if (S.anim.flickerAmp > 0 && !reduceMotion) {   // Layer 14: seeded ≤2 Hz flicker on #sky (canvas readback unaffected)
@@ -4279,6 +4663,18 @@ function drawClients() {
   }
   setAlpha(ctx, 1);
 }
+function drawClouds() {   // §8.8a one glyph per shown cloud, the theme's randomised mark
+  if (!S.clouds.size) return;
+  const ctx = ctxSky, rm = THEME.render.clientRandomizedMark;
+  for (const k of S.clouds.values()) {
+    if (k.alphaDraw <= 0.02) continue;
+    const variant = TD.clientKind === "clientCross" ? "L" + signalLevel(k.rssi) + (rm === "crossX" ? "x" : "") : rm === "hollow" ? "rnd" : "sharp";
+    setAlpha(ctx, (cloudExpanded(k.id) ? k.alphaDraw * AGG.expandAlpha : k.alphaDraw) * k.freshA);
+    blit(ctx, getSprite(TD.clientKind, "client", tierFor(k.px), variant), k.sx, k.sy, k.px);
+    drawSelectionMarks(ctx, k, k.alpha);
+  }
+  setAlpha(ctx, 1);
+}
 function drawBubbles() {
   const ctx = ctxSky, scale = S.cam.zoom2d || 1;
   S.bubbles.forEach(b => {
@@ -4564,11 +4960,21 @@ function drawHud() {
   }
   // §8.8 folded-ESS badges are sprites drawn in #sky — reserve their raster cells so labels step aside
   if (S.ui.essMerge) S.essClusters.forEach(c => { const f = essOfFolded(c.id); if (!f) return; const L = S.aps.get(f.leadId); if (L && L.alphaDraw > 0.05) occupy(L.sx - 16, L.sy - L.px - 17, 32, 16); });
+  // §8.8a cloud tags: baked like the bubble counters (no text slot, kept with L off), after the centre post
+  if (S.ui.random === "cloud") for (const k of S.cloudOrder) {
+    if (k.alphaDraw <= 0.3) continue;
+    const tag = k.n + " · " + (TD.upper ? "RANDOM" : "random"), w = textWidth(ctx, TD.fontLabel, tag), r = k.px;
+    let at = null;
+    for (const p of [[k.sx + r + 4, k.sy - 6], [k.sx - r - 4 - w, k.sy - 6], [k.sx - w / 2, k.sy + r + 3]]) if (occupy(p[0], p[1], w, 12)) { at = p; break; }
+    if (!at) continue;
+    ctx.globalAlpha = Math.min(1, k.alphaDraw); blitFixed(ctx, getSprite("text", "secondary", tag, "label"), at[0] + w / 2, at[1] + 6); ctx.globalAlpha = 1;
+    S.labelsList.push({ id: k.id, kind: "cloud", text: tag, x: r3(at[0]), y: r3(at[1]), sprite: true });
+  }
   const devCarrier = labelDevCarriers();   // device id → member that carries the one device label this frame (null: links off)
   // AP labels: eligibility + priority from labelCandidateList() (theme-free); fonts and the raster only place them
   const cand = S.ui.labels ? labelCandidateList(devCarrier) : [];   // L / #t-labels off = no AP labels, facets, ×n, vendor lines, badges or cursor; core text, 3D ring posts, group labels (G) and glyph sprites stay
   const lod = S.perf.lod;
-  const maxL = W < 720 ? RENDER.mobile.maxLabels : RENDER.maxLabels[lod][is3d ? 1 : 0];
+  const maxL = phoneOn ? RENDER.mobile.maxLabels : RENDER.maxLabels[lod][is3d ? 1 : 0];
   let apLabels = 0, cursorAt = null;
   const font = TD.fontLabel;
   for (const ap of cand) {
@@ -4684,7 +5090,8 @@ function nodeAt(mx, my, touch) {
   if (tS < 0.5) {
     // 2D: nearest wins (clients/stars over bubbles)
     let best = null, bd = Infinity;
-    S.clients.forEach(n => { if (n.target !== 1) return; if (n.bubble != null && n.bubbleBlend >= 0.98) return; const d = hyp(n.sx - mx, n.sy - my); if (d <= hitRadius(n, touch) && d < bd) { bd = d; best = n; } });
+    S.clients.forEach(n => { if (n.target !== 1) return; if (n.bubble != null && n.bubbleBlend >= 0.98) return; if (n.randOut && !(n.alphaDraw >= 0.25)) return; const d = hyp(n.sx - mx, n.sy - my); if (d <= hitRadius(n, touch) && d < bd) { bd = d; best = n; } });
+    if (S.ui.random === "cloud") S.clouds.forEach(k => { if (k.target !== 1) return; const d = hyp(k.sx - mx, k.sy - my); if (d <= hitRadius(k, touch) && d < bd) { bd = d; best = k; } });   // §8.8a
     S.aps.forEach(n => { if (n.target !== 1 || isEssFolded(n.id)) return; const d = hyp(n.sx - mx, n.sy - my); if (d <= hitRadius(n, touch) && d < bd) { bd = d; best = n; } });
     S.bubbles.forEach(b => { if (b.target !== 1 && b.alpha <= 0.02) return; const d = hyp(b.sx - mx, b.sy - my); if (d <= b.px + HIT.bubblePad && d < bd) { bd = d; best = b; } });
     return best ? best.id : null;
@@ -4694,11 +5101,13 @@ function nodeAt(mx, my, touch) {
   S.aps.forEach(n => { if (n.target === 1 && n.alphaDraw >= 0.25 && !isEssFolded(n.id)) cands.push(n); });
   S.clients.forEach(n => { if (n.target !== 1) return; if (n.bubble != null && n.bubbleBlend > 0.5) return; if (n.alphaDraw >= 0.25) cands.push(n); });
   S.bubbles.forEach(b => { if ((b.target === 1 || b.alpha > 0.02) && b.alphaDraw >= 0.25) cands.push(b); });
+  S.clouds.forEach(k => { if (k.target === 1 && k.alphaDraw >= 0.25) cands.push(k); });   // §8.8a
   cands.sort((a, b) => a.zc - b.zc);
   for (const n of cands) { const r = hitRadius(n, touch); const dx = mx - n.sx, dy = my - n.sy; if (dx * dx + dy * dy <= r * r) return n.id; }
   return null;
 }
-function nodeById(id) { return S.aps.get(id) || S.clients.get(id) || S.bubbles.get(id); }
+function nodeById(id) { return S.aps.get(id) || S.clients.get(id) || S.bubbles.get(id) || S.clouds.get(id); }
+function expandCloud(id) { const k = S.clouds.get(id); if (!k || k.target !== 1) return false; k.expandedUntil = S.clock + CLOUD.expandMs / 1000; S.dirty = true; return true; }
 function setHover(id) {
   if (S.hover === id) return;
   S.hover = id; S.dirty = true;
@@ -4764,7 +5173,7 @@ function endPointer(e) {
   const wasDrag = drag && drag.id === e.pointerId;
   const clicked = wasDrag && !drag.moved;
   pointers.delete(e.pointerId);
-  if (wasDrag) { drag = null; if (clicked) { const id = nodeAt(e.clientX, e.clientY, e.pointerType === "touch"); if (id) { clickPin(id, e.timeStamp); select(id); } else deselect(); } }
+  if (wasDrag) { drag = null; if (clicked) { const id = nodeAt(e.clientX, e.clientY, e.pointerType === "touch"); if (id) { clickPin(id, e.timeStamp); select(id); } else if (!phoneOn) deselect(); else { if (S.locked || !detail.hidden) deselect(); setSheet("peek"); } } }   // phone: empty sky collapses the sheet, an unlocked 3D camera stays
   if (pointers.size < 2) pinchBase = 0;
 }
 canvasHud.addEventListener("pointerup", endPointer);
@@ -4778,7 +5187,7 @@ canvasHud.addEventListener("wheel", (e) => {
   else setZoom2d(S.cam.zoom2d * Math.exp(-norm * CFG3D.wheelK));   // about the device, not the cursor
   S.dirty = true;
 }, { passive: false });
-function shortcutsAllowed() { const a = document.activeElement; return a == null || a === document.body || a === canvasHud; }
+function shortcutsAllowed() { const a = document.activeElement; return a == null || a === document.body || a === canvasHud || a === el("panels-pill"); }
 // 3D camera steps, shared by the arrow/+/- keys and the #cam-* buttons
 const CAM_STEP = {
   left: (c) => { c.azT -= CFG3D.btnAz; },
@@ -4796,8 +5205,8 @@ const KEY_ACT = { t: () => toggleTheme(), v: () => { setView(S.ui.view === "3d" 
   g: () => setToggle("groups", !S.ui.groups),
   d: () => setToggle("deviceLinks", !S.ui.deviceLinks), m: () => setToggle("essMerge", !S.ui.essMerge),
   p: () => setToggle("affinity", !S.ui.affinity), w: () => setToggle("observations", !S.ui.observations), b: () => setToggle("baselineDiff", !S.ui.baselineDiff), i: () => setToggle("inventory", !S.ui.inventory), f: () => { S.homeOpen = !S.homeOpen; if (S.homeOpen) S.dx = null; applyDrawer(); },
-  q: () => setDx("air"), j: () => setDx("time"), h: () => setDx("rec"), y: () => cycleChanMode(),
-  "[": () => cyclePinned(-1), "]": () => cyclePinned(1),
+  q: () => setDx("air"), j: () => setDx("time"), h: () => setDx("rec"), y: () => cycleChanMode(), u: () => setPanels(!S.ui.panels),
+  "[": () => cyclePinned(-1), "]": () => cyclePinned(1), x: () => cycleRandom(),
   "1": () => toggleBand("2.4"), "2": () => toggleBand("5"), "3": () => toggleBand("6") };
 window.addEventListener("keydown", (e) => {
   const k = (e.key || "").toLowerCase();
@@ -4807,10 +5216,13 @@ window.addEventListener("keydown", (e) => {
     if (!help.hidden) { toggleHelp(false); e.preventDefault(); return; }
     if (S.locked) { deselect(); e.preventDefault(); return; }
     if (S.hover) { setHover(null); e.preventDefault(); return; }
+    if (phoneOn && closeCard()) { e.preventDefault(); return; }   // §9.8: a drawer or the legend card first, then the sheet
+    if (phoneOn && S.ui.sheet !== "peek") { setSheet("peek"); e.preventDefault(); return; }
     return;
   }
-  if (!shortcutsAllowed()) return;
+  if (!shortcutsAllowed() || e.metaKey || (e.ctrlKey && !e.altKey)) return;   // Cmd/Ctrl + a key is the browser's; AltGr (Ctrl+Alt) types [ ]
   if (k === "?") { toggleHelp(); e.preventDefault(); return; }
+  if (k === "enter" && liveCloud(S.locked)) { expandCloud(S.locked); e.preventDefault(); return; }   // §8.8a
   // camera keys (3D orbit / 2D zoom around centre / reset)
   const c = S.cam; let camHandled = true;
   if (k === "0") resetCamera();
@@ -4843,7 +5255,6 @@ function fmtSignal(dbm) {   // D9: "-58 dBm (53 %, good)"; the level word is the
   if (dbm == null || !Number.isFinite(dbm)) return "n/a";
   return dbm + " dBm (" + signalPct(dbm) + " %, " + THEME.copy.signal[signalLevel(dbm)] + ")";
 }
-function updateDetailSheet() { if (detail) detail.classList.toggle("sheet", W < 720); }
 function toggleBand(b) {
   S.ui.filters[b] = !S.ui.filters[b];
   refreshEssLeads(); applyAffinity(); S.nFreeTotal = countFreeLayout();   // a filtered AP hands its ESS lead and its probe orbiters over
@@ -4872,27 +5283,32 @@ function setToggle(key, on, opts = {}) {
   return on;
 }
 const BTN_OF = { labels: "t-labels", orbits: "t-orbits", links: "t-links", paused: "t-pause", agg: "t-agg", vendor: "t-vendor", nebula: "t-nebula", groups: "t-groups", rotate: "t-rotate", spin: "t-spin", crt: "t-crt", deviceLinks: "t-devices", essMerge: "t-merge", affinity: "t-probes", observations: "t-obs", baselineDiff: "t-baseline", inventory: "t-inv" };
-function syncButton(key, on) { const b = el(BTN_OF[key]); if (b) { b.classList.toggle("on", !!on); b.setAttribute("aria-pressed", String(!!on)); } }
+function syncPressed(id, on) { const b = el(id); if (b) { b.classList.toggle("on", !!on); b.setAttribute("aria-pressed", String(!!on)); } }
+function syncButton(key, on) { syncPressed(BTN_OF[key], on); }
 function dropToggle(key) { if (S.ui[key]) { S.ui[key] = false; syncButton(key, false); } }   // a drawer yields to another: flag and button only
 function setToggles(o) {
   if (!o || typeof o !== "object") return getToggles();
   for (const key of Object.keys(o)) {
     if (key === "bands") { const bb = o.bands || {}; for (const b of Object.keys(bb)) { if (S.ui.filters[b] !== !!bb[b]) toggleBand(b); } continue; }
     if (key === "help") { toggleHelp(!!o.help); continue; }
+    if (key === "panels") { setPanels(!!o.panels); continue; }
+    if (key === "random") { setRandomMode(o.random); continue; }
     if (key === "autoLod") { S.ui.autoLod = !!o.autoLod; S.dirty = true; continue; }
-    if (key in S.ui) setToggle(key, !!o[key]);
+    if (key in S.ui && typeof S.ui[key] === "boolean") setToggle(key, !!o[key]);   // switches only
   }
   return getToggles();
 }
 function getToggles() {   // the BTN_OF keys (in their order), then the rest
   const o = {}; for (const key of Object.keys(BTN_OF)) o[key] = S.ui[key];
-  return Object.assign(o, { autoLod: S.ui.autoLod, help: S.ui.help, theme: S.ui.theme, view: S.ui.view, bands: { "2.4": S.ui.filters["2.4"], "5": S.ui.filters["5"], "6": S.ui.filters["6"] } });
+  return Object.assign(o, { autoLod: S.ui.autoLod, help: S.ui.help, panels: S.ui.panels, random: S.ui.random, theme: S.ui.theme, view: S.ui.view, bands: { "2.4": S.ui.filters["2.4"], "5": S.ui.filters["5"], "6": S.ui.filters["6"] } });
 }
 function updateControlsLook() {
   const tt = el("t-theme"); if (tt) { const lb = THEMES[nextTheme(S.ui.theme)].meta.label; tt.textContent = lb.charAt(0) + lb.slice(1).toLowerCase(); }
   const tv = el("t-view"); if (tv) tv.textContent = S.ui.view === "3d" ? "2D" : "3D";
-  const cam = el("cam"); if (cam) cam.hidden = S.ui.view !== "3d";
+  const cam = el("cam"); if (cam) cam.hidden = !phoneOn && S.ui.view !== "3d";   // phone: zoom and reset in 2D too
+  for (const k of ["left", "right", "up", "down"]) { const b = el("cam-" + k); if (b) b.hidden = phoneOn && S.ui.view !== "3d"; }
   const crtBtn = el("t-crt"); if (crtBtn) crtBtn.hidden = !THEME.crt.userToggle;
+  syncRandomButton();
   for (const key of Object.keys(BTN_OF)) syncButton(key, S.ui[key]);
   const agg = el("t-agg"); if (agg) { const forced = aggForced(); agg.classList.toggle("forced", forced && !S.ui.agg); agg.title = "forced: > 600 clients or density > 0.20"; }
   legendVisibility();
@@ -4909,6 +5325,10 @@ function invApRows() {
   const pass = (n) => (!f.band || n.band === f.band) && (!f.sec || n.sec === f.sec) && (!f.identity || identityOf(n.id) === f.identity) && (!f.vendor || (n.vendor || "—") === f.vendor);
   return { all: ap, rows: ap.filter(pass) };
 }
+function invRandomChip() {   // §8.8a
+  const s = S._stats || {}; if (!s.randomized) return "";
+  return '<span class="chip">' + s.randomized + ' randomised' + (s.clouds ? ' · ' + s.inClouds + ' in ' + s.clouds + (s.clouds === 1 ? ' cloud' : ' clouds') : '') + '</span>';
+}
 function renderInv() {
   const ib = el("inv-body"); if (!ib || !S.ui.inventory) return;
   const { all, rows } = invApRows(), f = S.inv.filter, key = S.inv.sort, dir = S.inv.dir;
@@ -4917,7 +5337,7 @@ function renderInv() {
   const ssids = new Set(all.map(n => n.ssidKnown || n.ssid).filter(Boolean)), chans = new Set(all.map(n => n.band + "/" + n.channel));
   const chips = (title, field, entries) => '<h4>' + title + '</h4><div class="chips">' + entries.map(([v, c]) => '<button class="chip' + (f[field] === v ? " on" : "") + '" data-f="' + field + '" data-v="' + esc(v) + '">' + esc(v) + " " + c + "</button>").join("") + "</div>";
   const tally = (fn) => { const m = new Map(); for (const n of all) { const v = fn(n); m.set(v, (m.get(v) || 0) + 1); } return Array.from(m.entries()).sort((a, b) => b[1] - a[1]); };
-  let h = '<h4>Inventory</h4><div class="chips"><span class="chip">' + ssids.size + ' SSIDs</span><span class="chip">' + all.length + ' APs</span><span class="chip">' + (S._stats ? S._stats.clients : 0) + ' stations (count only)</span><span class="chip">' + chans.size + ' channels</span><span class="chip">' + rows.length + " of " + all.length + " shown</span></div>";
+  let h = '<h4>Inventory</h4><div class="chips"><span class="chip">' + ssids.size + ' SSIDs</span><span class="chip">' + all.length + ' APs</span><span class="chip">' + (S._stats ? S._stats.clients + S._stats.randomHidden : 0) + ' stations (count only)</span>' + invRandomChip() + '<span class="chip">' + chans.size + ' channels</span><span class="chip">' + rows.length + " of " + all.length + " shown</span></div>";
   h += chips("Band", "band", tally(n => n.band)) + chips("Security", "sec", tally(n => n.sec)) + chips("Identity", "identity", tally(n => identityOf(n.id))) + chips("Vendor", "vendor", tally(n => n.vendor || "—").slice(0, 8));
   const th = (k, t) => '<th data-sort="' + k + '">' + t + (key === k ? (dir > 0 ? " ▲" : " ▼") : "") + "</th>";
   h += "<table><thead><tr>" + th("ssid", "SSID") + th("bssid", "BSSID") + th("band", "Band") + th("ch", "Ch") + th("rssi", "dBm") + th("sec", "Security") + th("heard", "Heard") + "</tr></thead><tbody>";
@@ -4960,34 +5380,47 @@ function exportModel() {
   const withNotes = (o, id) => { const nt = S.notes.get(id); if (nt && nt.a) o.alias = nt.a; if (nt && nt.t.length) o.tags = nt.t.slice(); return o; };   // alias/tags only: note text is NOT exported
   const aps = S.apOrder.filter(n => !eventSkip(n)).map(n => withNotes({ bssid: n.bssid, ssid: n.ssidKnown || n.ssid || "", band: n.band, channel: n.channel, security: n.security || ENCODING.security[n.sec].label, class: n.sec, rssi: n.rssi, heard: heardWord(n) }, n.id));
   let mob = 0; S.aps.forEach(n => { if (n.target === 1 && n.mobile) mob++; });
+  const clouds = S.cloudOrder.length > 0;
   // stations are first-class rows, incl. their AP association (a received-only directed-frame value). Own transmitters
   // (eventSkip) are left out, and an association is filed only when the PARENT is a real, non-own, non-mobile AP: a station
   // never drags an own/hotspot bssid into the file, and a derived probe orbit (affinity) is not an observed association.
   const stations = S.clientOrder.filter(n => n.target === 1 && !eventSkip(n)).map(n => {
     const par = (!n.free && !n.affinity && n.parent && !eventSkip(S.aps.get(n.parent))) ? n.parent : null;
-    return withNotes({ mac: n.mac, vendor: n.vendor || "", band: n.band || "", rssi: n.rssi, randomized: !!n.randomized, probes: (n.probes || []).slice(), association: par, heard: heardWord(n) }, n.id);
+    const o = { mac: n.mac, vendor: n.vendor || "", band: n.band || "", rssi: n.rssi, randomized: !!n.randomized, probes: (n.probes || []).slice(), association: par, heard: heardWord(n) };
+    if (clouds && n.cloud != null) o.cloud = n.cloud;
+    return withNotes(o, n.id);
   });
   const sc = { free: 0, associated: 0 }; stations.forEach(x => { if (x.association) sc.associated++; else sc.free++; });
-  return { footer: EXPORT_FOOTER, generated: S.generated, source: S.sourceKind, aps, stations, station_counts: sc, mobile_hotspots: mob, crowding: S.crowding.level };
+  const out = { footer: EXPORT_FOOTER, generated: S.generated, source: S.sourceKind, aps, stations, station_counts: sc, mobile_hotspots: mob, crowding: S.crowding.level };
+  if (clouds) {   // §8.8a only with a live cloud
+    sc.randomised = stations.filter(x => x.randomized).length; sc.in_clouds = stations.filter(x => x.cloud != null).length;
+    out.clouds = S.cloudOrder.map(k => ({ id: k.id, addresses: k.n, rssi: k.rssi, rssi_min: k.rssiMin, rssi_max: k.rssiMax, first_heard: k.first, last_heard: k.last, cadence_s: k.cadenceS, bursts: k.bursts,
+      probes: k.probes.slice(), estimate: (cloudMixed(k) ? "possibly one or more nearby devices changing their address" : "probably one nearby device changing its address") + "; not a device count" }));
+  }
+  return out;
 }
 function exportText(fmt) {
   const m = exportModel();
   if (fmt === "csv") {
     const q = (v) => { const t = v == null ? "" : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-    const head = "kind,bssid,ssid,band,channel,security,rssi,heard,alias,tags,association,randomized,probes";   // one table, a leading kind column, every row the same width
-    const apRow = (a) => ["ap", a.bssid, a.ssid, a.band, a.channel, a.security, a.rssi, a.heard, a.alias || "", (a.tags || []).join(" "), "", "", ""];
-    const stRow = (x) => ["station", x.mac, "", x.band, "", "", x.rssi, x.heard, x.alias || "", (x.tags || []).join(" "), x.association || "", x.randomized ? "1" : "", (x.probes || []).join(" ")];
+    const head = "kind,bssid,ssid,band,channel,security,rssi,heard,alias,tags,association,randomized,probes,cloud";   // one table, a leading kind column, every row the same width
+    const apRow = (a) => ["ap", a.bssid, a.ssid, a.band, a.channel, a.security, a.rssi, a.heard, a.alias || "", (a.tags || []).join(" "), "", "", "", ""];
+    const stRow = (x) => ["station", x.mac, "", x.band, "", "", x.rssi, x.heard, x.alias || "", (x.tags || []).join(" "), x.association || "", x.randomized ? "1" : "", (x.probes || []).join(" "), x.cloud || ""];
     return [head].concat(m.aps.map(a => apRow(a).map(q).join(","))).concat(m.stations.map(x => stRow(x).map(q).join(","))).concat(["# " + EXPORT_FOOTER]).join("\n") + "\n";
   }
   if (fmt === "sitrep") {
     const by = (fn) => { const c = {}; for (const a of m.aps) c[fn(a)] = (c[fn(a)] || 0) + 1; return Object.keys(c).sort().map(k => k + " " + c[k]).join(" · "); };
     const top = m.aps.slice().sort((a, b) => rssiOf(b) - rssiOf(a)).slice(0, 5).map(a => "  " + (a.alias || a.ssid || "(hidden)") + " · " + a.bssid + " · " + fmtBand(a.band) + (a.channel != null ? " ch " + a.channel : "") + " · " + a.rssi + " dBm");
-    const staTop = m.stations.slice().sort((a, b) => rssiOf(b) - rssiOf(a) || (a.mac < b.mac ? -1 : 1)).slice(0, STA_SITREP_MAX)
+    const cl = m.clouds || null, outside = cl ? m.stations.filter(x => x.cloud == null) : m.stations;
+    const staTop = outside.slice().sort((a, b) => rssiOf(b) - rssiOf(a) || (a.mac < b.mac ? -1 : 1)).slice(0, STA_SITREP_MAX)
       .map(x => "  " + (x.alias || x.mac) + " · " + fmtBand(x.band) + (x.rssi != null ? " · " + x.rssi + " dBm" : "") + " · " + (x.association ? "assoc " + x.association : x.probes.length ? "probes " + x.probes.length : "free"));
     const cap = m.generated != null ? new Date(m.generated * 1000).toISOString().slice(0, 19) + "Z" : "undated";
     return ["SITREP · Starchorus", EXPORT_FOOTER, "", "Capture: " + cap + " · source: " + m.source,
-      "Access points: " + m.aps.length + " · stations: " + m.stations.length + " (" + m.station_counts.free + " free, " + m.station_counts.associated + " associated) · mobile hotspots: " + m.mobile_hotspots,
-      "Bands: " + by(a => a.band), "Security: " + by(a => a.class), "Crowding: " + m.crowding + " of 5", "", "Strongest:"].concat(top, ["", "Stations (strongest " + Math.min(m.stations.length, STA_SITREP_MAX) + " of " + m.stations.length + "):"], staTop, ["", "Observations:"], S.obs.length ? S.obs.map(o => "  " + o.text) : ["  none"], ["", EXPORT_FOOTER]).join("\n") + "\n";
+      "Access points: " + m.aps.length + " · stations: " + m.stations.length + " (" + m.station_counts.free + " free, " + m.station_counts.associated + " associated) · mobile hotspots: " + m.mobile_hotspots]
+      .concat(cl ? ["Randomised: " + m.station_counts.randomised + " · " + m.station_counts.in_clouds + " of them in " + cl.length + (cl.length === 1 ? " cloud" : " clouds") + " (an estimate, not a device count)"] : [],
+      ["Bands: " + by(a => a.band), "Security: " + by(a => a.class), "Crowding: " + m.crowding + " of 5", "", "Strongest:"], top, ["", "Stations (strongest " + Math.min(outside.length, STA_SITREP_MAX) + " of " + outside.length + (cl ? " outside clouds" : "") + "):"], staTop,
+      cl ? ["", "Clouds of randomised addresses (an estimate):"].concat(cl.map(c => "  " + c.id + " · " + c.addresses + " addresses · " + c.rssi + " dBm (" + c.rssi_min + " to " + c.rssi_max + ")" + (c.cadence_s != null ? " · " + cadText(c.cadence_s) : "") + " · probes " + c.probes.length)) : [],
+      ["", "Observations:"], S.obs.length ? S.obs.map(o => "  " + o.text) : ["  none"], ["", EXPORT_FOOTER]).join("\n") + "\n";
   }
   return JSON.stringify(m, null, 1) + "\n";
 }
@@ -5004,6 +5437,7 @@ function refreshExport() { el("export-ta").value = exportText(el("export-fmt").v
 el("btn-export").addEventListener("click", openExport);
 for (const k of ["air", "time", "rec"]) el("t-" + k).addEventListener("click", () => setDx(k));
 el("t-chan").addEventListener("click", () => cycleChanMode());
+el("t-random").addEventListener("click", () => cycleRandom());
 el("export-close").addEventListener("click", closeExport);
 el("export-wrap").addEventListener("click", (e) => { if (e.target === el("export-wrap")) closeExport(); });
 el("export-fmt").addEventListener("change", refreshExport);
@@ -5014,6 +5448,26 @@ el("export-snap").addEventListener("click", () => { const im = el("export-png");
 function setDx(name) { S.dx = S.dx === name ? null : name; if (S.dx) { S.homeOpen = false; dropToggle("inventory"); dropToggle("observations"); } applyDrawer(); return S.dx; }
 const CHAN_MODES = ["bars", "spectrum", "waterfall"];
 function setChanMode(m) { if (CHAN_MODES.indexOf(m) < 0) return S.chanMode; S.chanMode = m; const b = el("t-chan"); if (b) { b.textContent = m === "bars" ? "▤" : m === "spectrum" ? "◠" : "▦"; b.setAttribute("aria-label", "Channel view: " + m); b.title = "Channel view: " + m + " (click or [Y] for the next)"; } drawChannelBar(); S.dirty = true; return m; }
+// §8.8a the Random switch (X): a view of the model; it changes what is drawn, hit and counted as visible, nothing else.
+const RANDOM_LOOK = { cloud: ["one node per cloud", "one by one"], show: ["one by one", "hidden"], hide: ["hidden", "one node per cloud"] };
+function syncRandomButton() {
+  const b = el("t-random"); if (!b) return;
+  const m = S.ui.random, L = RANDOM_LOOK[m] || RANDOM_LOOK.cloud, a = "Randomised addresses: " + L[0];
+  b.classList.toggle("on", m !== "show"); b.dataset.state = m; b.setAttribute("aria-label", a); b.title = a + " [X] · next: " + L[1];
+}
+function setRandomMode(m, opts = {}) {
+  if (RANDOM_MODES.indexOf(m) < 0) return S.ui.random;
+  S.ui.random = m; syncRandomButton(); applyRandom();
+  if (m !== "cloud" && S.locked && S.clouds.has(S.locked)) deselect();
+  if (m === "hide" && S.locked && (S.clients.get(S.locked) || {}).randOut) deselect();
+  if (S.hover && ((S.clients.get(S.hover) || {}).randOut || S.clouds.has(S.hover))) setHover(null);
+  applyAffinity(); S.nFreeTotal = countFreeLayout(); S.layoutDirty = true; S.aggDirty = true; settleLayout(LAYOUT.settleSyncIter);
+  if (opts.persist !== false) { S.queryLocked.delete("random"); saveUi(); }
+  updateControlsLook(); updateStats(); S.dirty = true; return m;
+}
+function cycleRandom() { return setRandomMode(RANDOM_MODES[(RANDOM_MODES.indexOf(S.ui.random) + 1) % RANDOM_MODES.length]); }
+function cloudMixed(k) { return !k.kept && k.rhythm < CLOUD.mixedShare; }   // §8.8a: its bursts keep no one rhythm (two devices of one period, or one that scans unevenly)
+function cadText(s) { return s < 90 ? "about every " + Math.round(s) + " s" : "about every " + Math.round(s / 60) + " min"; }
 function cycleChanMode() { return setChanMode(CHAN_MODES[(CHAN_MODES.indexOf(S.chanMode) + 1) % CHAN_MODES.length]); }
 const fmtDbm = (v) => v == null ? "—" : v + " dBm";
 function skyLine() {   // the Compendium line — our own wording from skyStats; uncertainty in words; never a device, an SSID or a MAC
@@ -5105,7 +5559,7 @@ function renderTime() {
   h += "</tbody></table>";
   h += '<h4>Threshold</h4><div class="chips"><input id="thr-in" type="number" min="-100" max="-20" step="1" placeholder="dBm" aria-label="Signal threshold in dBm" value="' + (S.threshold ?? "") + '" style="width:64px"><button class="chip" id="thr-set">Set</button><button class="chip" id="thr-clear">Clear</button></div>';
   h += '<div class="note">' + (tm.threshold == null ? "A threshold draws a dashed line here and a dashed ring on the map." : tm.above + " access points at or above " + tm.threshold + " dBm now (dashed ring on the map).") + "</div>";
-  h += '<div class="note">One sample per capture; gaps stay gaps. ' + tm.window + " samples at the " + tm.intervalS + " s interval" + (tm.limited ? " (the memory holds " + LONG_LEN + ")" : "") + ". The network is the selected access point's SSID, else the pinned ones, else the three strongest.</div>";
+  h += '<div class="note">One sample per capture; gaps stay gaps. ' + tm.window + " samples at " + (tm.spacingFrom === "observed" ? "the observed " + r3(tm.intervalS) + " s spacing" : tm.spacingFrom === "announced" ? "the announced " + tm.intervalS + " s interval" : "an assumed " + tm.intervalS + " s spacing") + (tm.limited ? " (the memory holds " + LONG_LEN + ")" : "") + ". The network is the selected access point's SSID, else the pinned ones, else the three strongest.</div>";
   tb.innerHTML = h;
   drawTimeChart(el("time-cv"), tm);
   for (const b of tb.querySelectorAll("[data-scale]")) b.addEventListener("click", () => { S.timeScale = b.getAttribute("data-scale"); renderTime(); });
@@ -5125,7 +5579,7 @@ function renderRec() {
   h += '<input id="rec-slider" type="range" min="0" max="' + (r.count - 1) + '" value="' + i + '" aria-label="Capture in the recording">';
   const gen = r.snapshots[i] ? r.snapshots[i].generated : null;
   h += '<div class="row" id="rec-pos">' + recPosHtml(rp, i, r, gen) + "</div>";
-  h += '<div class="note">' + (rp ? "A replay is a view: nothing is written to the event record, the change log or the sky reference. " + (rp.buffered ? rp.buffered + " newer captures arrived and are kept; they show after Back to live." : "New captures keep being recorded and show after Back to live.") : "Move the slider or step to look back; the live feed keeps recording.") + " The channel bar's Waterfall view draws these captures as channel by time.</div>";
+  h += '<div class="note">' + (rp ? "A replay is a view: nothing is written to the event record, the change log or the sky reference. " + (rp.buffered ? rp.buffered + (rp.buffered === 1 ? " newer capture arrived and is kept; it shows" : " newer captures arrived and are kept; they show") + " after Back to live." : "New captures keep being recorded and show after Back to live.") : "Move the slider or step to look back; the live feed keeps recording.") + " The channel bar's Waterfall view draws these captures as channel by time.</div>";
   rb.innerHTML = h;
   el("rec-slider").addEventListener("input", (e) => { replayTo(+e.target.value, { quiet: true }); });
   el("rec-prev").addEventListener("click", () => { replayTo((rp ? rp.i : r.count - 1) - 1); });
@@ -5147,7 +5601,8 @@ function applyDrawer() {   // the legend's box hosts one body at a time: legend 
   const d = S.homeOpen ? "home" : S.dx ? S.dx : S.ui.inventory ? "inv" : S.ui.observations ? "obs" : "legend";
   const was = document.documentElement.dataset.drawer; document.documentElement.dataset.drawer = d; document.documentElement.dataset.obs = d === "obs" ? "on" : "off";
   for (const [id, k] of [["obs-body", "obs"], ["inv-body", "inv"], ["home-body", "home"], ["air-body", "air"], ["time-body", "time"], ["rec-body", "rec"]]) { const e = el(id); if (e) e.hidden = d !== k; }
-  for (const [id, k] of [["t-air", "air"], ["t-time", "time"], ["t-rec", "rec"]]) { const b = el(id); if (b) { b.classList.toggle("on", S.dx === k); b.setAttribute("aria-pressed", String(S.dx === k)); } }
+  for (const [id, k] of [["t-air", "air"], ["t-time", "time"], ["t-rec", "rec"]]) syncPressed(id, S.dx === k);
+  syncPressed("t-home", S.homeOpen);
   renderObs(); renderInv(); renderHome(); renderAir(); renderTime(); renderRec();
   if (d !== was) { const b = el(d + "-body"); if (b) b.scrollTop = 0; }   // another body is shown: it opens at the top (the browser would bring back its old offset); one that stays keeps it
   layoutEdges();
@@ -5183,17 +5638,20 @@ function updateStats() {
     const on = S.ui.filters[n.band] !== false; if (on && !isEssFolded(n.id)) { aps++; freshVis[fk]++; if (n.band === "unknown") bandUnknown++; }
     if (n.band in bandsT) { bandsT[n.band]++; if (on && !isEssFolded(n.id)) bands[n.band]++; }
   });
-  let probing = 0, randomized = 0;
+  let probing = 0, randomized = 0, rndFree = 0;
   const freshCl = freshZero(), freshVisCl = freshZero();   // D1: all present stations | the drawn ones
   S.clients.forEach(n => {
-    if (n.target !== 1) return; if (n.free || n.affinity) free++; else assoc++; if (n.affinity) probing++; if (n.randomized) randomized++;
+    if (n.target !== 1) return; if (n.free || n.affinity) free++; else assoc++; if (n.affinity) probing++; if (n.randomized) { randomized++; if (n.free || n.affinity) rndFree++; }
     const fk = n.freshTier == null ? "undated" : "t" + n.freshTier; freshCl[fk]++;
     const ap = n.parent ? S.aps.get(n.parent) : null; if (n.free || (ap && ap.target === 1 && S.ui.filters[ap.band] !== false)) freshVisCl[fk]++;   // the draw rule of stepNodes
   });
+  const hiddenRnd = S.ui.random === "hide" ? rndFree : 0; free -= hiddenRnd;   // §8.8a hidden: not visible, still counted in the model
+  let inClouds = 0; for (const k of S.cloudOrder) inClouds += k.n; const nClouds = S.cloudOrder.length;
   const clients = free + assoc;
   const alarms = S.security.open + S.security.wep;
-  el("n-ap").textContent = String(apsTotal); el("n-ap").title = String(apsTotal);
-  el("n-cl").textContent = String(clients); el("n-cl").title = free + " free · " + assoc + " associated" + (probing ? " · " + probing + " on probe orbits (derived)" : "");
+  el("n-ap").textContent = String(apsTotal); el("n-ap").title = String(apsTotal); el("bar-ap").textContent = String(apsTotal); el("bar-cl").textContent = String(clients);
+  el("n-cl").textContent = String(clients); el("n-cl").title = free + " free · " + assoc + " associated" + (probing ? " · " + probing + " on probe orbits (derived)" : "")
+    + (randomized ? " · " + randomized + " randomised" + (nClouds ? ", " + inClouds + " of them in " + nClouds + (nClouds === 1 ? " cloud" : " clouds") : "") : "") + (hiddenRnd ? " · " + hiddenRnd + " hidden" : "");
   for (const [id, b] of [["n-24", "2.4"], ["n-5", "5"], ["n-6", "6"]]) { el(id).textContent = String(bands[b]); el(id).title = String(bandsT[b]); }
   const alarmCell = el("n-alarm-cell"); if (alarmCell) alarmCell.hidden = alarms === 0;
   const alarmNum = el("n-alarm"); if (alarmNum) { const num = alarmNum.querySelector(".num"); if (num) num.textContent = String(alarms); alarmNum.title = String(alarms); }
@@ -5204,7 +5662,7 @@ function updateStats() {
   const fc = el("n-fresh-cell"), rc = el("n-record-cell");
   if (fc) { fc.hidden = dated === 0; el("n-fresh").textContent = String(fresh.t0); el("n-fresh").title = ENCODING.fresh.words.map((w, i) => w + " " + fresh["t" + i]).join(" · ") + " · " + ENCODING.fresh.undated + " " + fresh.undated; }
   if (rc) { rc.hidden = dated === 0 || !reach[3]; el("n-record").textContent = String(fresh.t3); el("n-record").title = String(fresh.t3); }
-  S._stats = { apsTotal, aps, free, assoc, clients, bands, bandsT, alarms, groups: ng, probing, bandUnknown, fresh, freshVis, freshCl, freshVisCl, randomized };
+  S._stats = { apsTotal, aps, free, assoc, clients, bands, bandsT, alarms, groups: ng, probing, bandUnknown, fresh, freshVis, freshCl, freshVisCl, randomized, randomisedFree: rndFree, clouds: nClouds, inClouds, randomHidden: hiddenRnd };
   if (cc && apsTotal > 0) el("n-crowd").title = skyTitle();
   updateLegendCounts();
   renderObs(); renderInv(); renderHome(); renderTote(); renderAir(); renderTime(); renderRec();
@@ -5275,7 +5733,7 @@ function buildLegend() {   // D10: one builder, four blocks (Measured / Derived 
   rows.push('<div class="sep"></div><h4>Clients</h4>');
   rows.push('<div class="legrow" data-kind="client-free">' + clientSwatch(null) + '<span>free client</span></div>');
   rows.push('<div class="legrow" data-kind="client-assoc">' + clientSwatch("--band-24") + '<span>associated</span></div>');
-  rows.push('<div class="legrow" id="leg-random" data-kind="client-random" hidden>' + clientSwatch(null, true) + '<span>randomised MAC</span><span class="cnt"></span></div>');   // D8: only while such a client is present
+  rows.push('<div class="legrow" id="leg-random" data-kind="client-random" hidden>' + clientSwatch(null, true) + '<span>randomised MAC<span class="lsub" id="leg-random-cl"></span></span><span class="cnt"></span></div>');   // D8: only while such a client is present
   rows.push('<div class="legrow" data-kind="bubble">' + svgSwatch("circle", "--bubble-fill", "--bubble-stroke", 1) + '<span>n clients (bubble)</span></div>');
   rows.push('<div class="sep"></div><h4>Security</h4>');
   for (const sec of Object.keys(ENCODING.security)) {
@@ -5338,6 +5796,7 @@ function updateLegendCounts() {
   const cntRow = (id, n, show) => { const r = el(id); if (r) { r.hidden = !show; r.querySelector(".cnt").textContent = String(n); } };   // a counted row, shown while its mark can be drawn
   const nr = s.randomized || 0, nu = s.bandUnknown || 0;
   cntRow("leg-random", nr, nr !== 0); cntRow("leg-band-unknown", nu, nu !== 0);
+  const lc = el("leg-random-cl"), kc = s.clouds || 0; if (lc) lc.textContent = kc ? " · " + (s.inClouds || 0) + " in " + kc + (kc === 1 ? " cloud" : " clouds") : "";
   for (const k of Object.keys(ENCODING.security)) cntRow("leg-" + k, S.security[k], S.security[k] > 0);   // D10: a security class without an AP has no mark on the canvas
   // D1: the freshness rows exist exactly while a dated node (AP or station) is drawn; a tier the collector window cannot
   // reach is dropped. "undated" counts APs only, and only next to dated ones: a station without last_seen is the norm on
@@ -5355,7 +5814,9 @@ function buildHelp() {
 }
 function toggleHelp(on) {
   S.ui.help = on === undefined ? !S.ui.help : !!on;
+  if (S.ui.help && !S.ui.panels) setPanels(true);   // the overlay is a panel
   help.hidden = !S.ui.help; S.dirty = true;
+  if (phoneOn) layoutEdges();
 }
 function positionTip(n, mx, my) {
   tip.style.left = (mx || n.sx) + "px"; tip.style.top = (my || n.sy) + "px"; tip.style.opacity = "1";
@@ -5378,13 +5839,17 @@ function bubbleSummary(b) {
 function showTip(n) {
   const kv = (k, v, cls = "v") => '<span class="k">' + k + '</span><span class="' + cls + '">' + v + '</span>';   // one row of the tooltip grid
   let html = "";
-  if (n.kind === "bubble") {
+  if (n.kind === "cloud") {   // §8.8a
+    html += '<div class="ssid">random cloud</div><div class="sub">' + esc(n.n + " randomised addresses" + (n.cadenceS != null && !cloudMixed(n) ? " · " + cadText(n.cadenceS) : "")) + '</div><div class="grid">';
+    html += kv("Signal", esc(fmtSignal(n.rssi) + " · range " + n.rssiMin + " to " + n.rssiMax + " dBm")) + kv("Heard", esc(heardWord(n)));
+    if (n.probes.length) html += kv("Probes", esc(n.probes.join(" · ")));
+    html += '</div>';
+  } else if (n.kind === "bubble") {
     html += '<div class="ssid">density bubble</div><div class="sub">' + esc(bubbleSummary(n)) + '</div>';
     const macs = n.members.slice(0, 8).map(m => esc(fmtMac(m))).join("<br>");
     if (macs) html += '<div class="grid">' + kv("MACs", macs, "v mono") + '</div>';
     tipBody.innerHTML = html; tipSpark.hidden = true; tip.style.opacity = "1"; return;
-  }
-  if (n.kind === "ap") {
+  } else if (n.kind === "ap") {
     const al = aliasOf(n.id), name = al ? '<div class="ssid">' + esc(al) + '</div>' : n.hidden ? '<div class="ssid hidden">(hidden SSID)</div>' : '<div class="ssid">' + esc(n.ssidKnown || n.ssid) + '</div>';
     html += name + '<div class="sub">' + esc(n.bssid) + (al && !n.hidden ? " · " + esc(n.ssidKnown || n.ssid) : "") + '</div><div class="grid">';
     html += kv("Vendor", esc(n.vendor || "—"), "v mono") + kv("Band", bandChip(n.band) + apChan(n)) + kv("Signal", esc(fmtSignal(n.rssi)));
@@ -5424,26 +5889,51 @@ function overlapText(ap, max) {   // §8.2 "SSID (co-channel, ch 6) · SSID (adj
 }
 function lastSeenAge(n) { if (!(n.last_seen > 0) || S.generated == null) return null; return S.generated - n.last_seen; }   // capture-relative; D1: a zero stamp is no time
 function row(k, v, cls) { return '<tr><th>' + esc(k) + '</th><td' + (cls ? ' class="' + cls + '"' : '') + '>' + v + '</td></tr>'; }
+function cloudSheet(kc) {   // §8.8a the sheet of a random cloud: an estimate from signal and timing; it never counts devices
+  const g = S.generated;
+  let body = '<div class="obsnote">' + (kc.kept ? 'Probably the same nearby device as before, though its rhythm is no longer clear: the addresses still here are kept together.' : cloudMixed(kc) ? 'Possibly one or more nearby devices changing their address: the same signal, heard in bursts that keep no one rhythm.' : 'Probably one nearby device changing its address: the same signal, heard in bursts at a steady rhythm.') + ' An estimate from signal and timing only; it does not count devices.</div><table>';
+  body += row("Addresses", esc(kc.n + " · randomised (locally administered)"));
+  body += row("Signal", esc(fmtSignal(kc.rssi) + " · range " + kc.rssiMin + " to " + kc.rssiMax + " dBm"));
+  body += row("Rhythm", esc((cloudMixed(kc) ? "no one rhythm · " : kc.cadenceS != null ? cadText(kc.cadenceS) + " · " : "") + kc.bursts + (kc.bursts === 1 ? " burst" : " bursts")));
+  body += row("First heard", esc(fmtAge(g != null && kc.first != null ? g - kc.first : null)));
+  body += row("Last heard", esc(fmtAge(g != null && kc.last != null ? g - kc.last : null)));
+  body += row("Freshness", esc(heardWord(kc)));
+  body += row("Probes for", kc.probes.length ? esc(kc.probes.join(" · ")) + ' <span style="color:var(--ink-muted)">' + esc(copyFor("probeHint")) + '</span>' : "—");
+  body += '</table><div class="chips"><button class="chip" id="cloud-show">Show the addresses</button></div><div class="cloud-members" style="max-height:180px;overflow:auto;margin-top:8px">';
+  const ms = kc.members.map(m => S.clients.get(m)).filter(Boolean).sort((a, b) => (b.last_seen ?? -Infinity) - (a.last_seen ?? -Infinity) || cmpStr(a.mac, b.mac));
+  for (const c of ms.slice(0, CLOUD.listMax)) body += '<div class="legrow" style="cursor:pointer" data-member="' + esc(c.mac) + '"><span class="mono">' + esc(fmtMac(c.mac)) + '</span> · ' + (c.rssi != null ? c.rssi + " dBm" : "n/a") + ' · ' + esc(fmtAge(lastSeenAge(c))) + '</div>';
+  if (ms.length > CLOUD.listMax) body += '<div class="obsnote">first ' + CLOUD.listMax + ' shown</div>';
+  return body + '</div><div class="obsnote">Random [X]: one node per cloud, one by one, or hidden. Enter shows the addresses of the selected cloud again.</div>';
+}
 function openDetail(id) {
-  updateDetailSheet();
-  if (id !== detailShown) { detailShown = id; detail.scrollTop = 0; }   // another node opens at the top; a re-open of the same one (poll, theme, toggle) keeps the reader's offset
-  const bb = S.bubbles.get(id);
-  if (bb) {
+  const opening = id !== detailShown;
+  if (opening) { detailShown = id; detail.scrollTop = 0; }   // another node opens at the top; a re-open of the same one (poll, theme, toggle) keeps the reader's offset
+  const bb = S.bubbles.get(id), kc = bb ? null : S.clouds.get(id);   // the two aggregates, a density bubble (§4.6) and a random cloud (§8.8a): one sheet with a member list
+  if (bb || kc) {
     detail.hidden = false; detailSpark.hidden = true;
-    const title = bb.n + " clients";
+    const title = kc ? kc.n + " randomised addresses" : bb.n + " clients", expand = () => kc ? expandCloud(id) : expandBubble(id);
     detailTitle.textContent = title;
-    let body = "<table>";
-    body += row("Members", String(bb.n));
-    body += row("Mean signal", bb.meanRssi != null ? bb.meanRssi + " dBm" : "—");
-    if (bb.vendors.length) body += row("Vendors", esc(bb.vendors.slice(0, 5).map(v => v[0] + " (" + v[1] + ")").join(" · ")));
-    if (bb.randomized) body += row("Randomised", String(bb.randomized));
-    body += "</table>";
-    body += '<div class="bubble-members" style="max-height:180px;overflow:auto;margin-top:8px">';
-    for (const m of bb.members) { const c = S.clients.get(m); if (!c) continue; body += '<div class="legrow" style="cursor:pointer" data-member="' + esc(m) + '"><span class="mono">' + esc(fmtMac(m)) + '</span> · ' + (c.randomized ? "randomized" : esc(c.vendor || "—")) + ' · ' + (c.rssi != null ? c.rssi + " dBm" : "n/a") + '</div>'; }
-    body += '</div>';
+    let body;
+    if (kc) body = cloudSheet(kc);
+    else {
+      body = "<table>";
+      body += row("Members", String(bb.n));
+      body += row("Mean signal", bb.meanRssi != null ? bb.meanRssi + " dBm" : "—");
+      if (bb.vendors.length) body += row("Vendors", esc(bb.vendors.slice(0, 5).map(v => v[0] + " (" + v[1] + ")").join(" · ")));
+      if (bb.randomized) body += row("Randomised", String(bb.randomized));
+      body += "</table>";
+      body += '<div class="bubble-members" style="max-height:180px;overflow:auto;margin-top:8px">';
+      for (const m of bb.members) { const c = S.clients.get(m); if (!c) continue; body += '<div class="legrow" style="cursor:pointer" data-member="' + esc(m) + '"><span class="mono">' + esc(fmtMac(m)) + '</span> · ' + (c.randomized ? "randomized" : esc(c.vendor || "—")) + ' · ' + (c.rssi != null ? c.rssi + " dBm" : "n/a") + '</div>'; }
+      body += '</div>';
+    }
     detailBody.innerHTML = body;
-    expandBubble(id);
-    for (const rowEl of detailBody.querySelectorAll("[data-member]")) rowEl.addEventListener("click", () => { const mid = rowEl.getAttribute("data-member"); expandBubble(id); S.pinned.add(mid); select(mid); });
+    if (!kc || opening) expand();   // a cloud expands when its sheet opens, not again when a poll re-opens it
+    for (const rowEl of detailBody.querySelectorAll("[data-member]")) rowEl.addEventListener("click", () => { const mid = rowEl.getAttribute("data-member"); expand(); S.pinned.add(mid); select(mid); });
+    if (kc) {
+      const sb = el("cloud-show"); if (sb) sb.addEventListener("click", expand);
+      if (kc.hist.n >= 2) { if (sparkFocus.id !== id) sparkFocus = { id, cross: -1 }; detailSpark.hidden = false; drawSparkline(detailSpark, kc.hist, THEME.render.clientCore, { axis: true, cross: sparkFocus.cross }); }
+      else sparkFocus = { id: null, cross: -1 };
+    }
     layoutEdges();
     return title;
   }
@@ -5598,7 +6088,7 @@ function bandColorOf(band) { return TD.bandCore[band] || TD.bandCore.unknown; }
 // #stats centred in the free top gap, compact + wrapped (balanced rows) when one line does not fit; #legend
 // capped below the top panels over its column and scrolls; #chanbar between legend and controls, docked above
 // #controls when that gap is < chanMinPx, else collapsed; #detail between the top panels and the bottom-right
-// panels (a docked channel bar yields to the detail when it would leave < detailMinPx). < smallPx: §9.8 CSS only.
+// panels (a docked channel bar yields to the detail when it would leave < detailMinPx). Phone mode: phoneLayout() only, no --lay-* (§9.8).
 const edgeState = { stats: "line", chan: "none", legendMaxH: null, detailTop: null, detailMaxH: null };
 const LAY_VARS = ["--lay-stats-x", "--lay-stats-w", "--lay-legend-maxh", "--lay-chan-x", "--lay-chan-w", "--lay-chan-b", "--lay-detail-top", "--lay-detail-maxh"];
 const EDGE_SCROLLERS = ["legend-body", "obs-body", "inv-body", "home-body", "air-body", "time-body", "rec-body", "detail"].map(el).filter(Boolean);   // what scrolls inside a capped panel
@@ -5617,7 +6107,8 @@ function layoutEdges() {
   const chan = el("chanbar");
   statsEl.classList.remove("fit");
   edgeState.stats = "line"; edgeState.chan = "none"; edgeState.legendMaxH = edgeState.detailTop = edgeState.detailMaxH = null;
-  if (vw < EDGE.smallPx) { for (const k of LAY_VARS) rs.removeProperty(k); edgeState.stats = edgeState.chan = "small"; drawChannelBar(); return edgeState; }
+  if (phoneOn) { for (const k of LAY_VARS) rs.removeProperty(k); edgeState.stats = edgeState.chan = "phone"; phoneLayout(false); drawChannelBar(); return edgeState; }   // §9.8: --ph-* only
+  for (const k of PH_VARS) rs.removeProperty(k);
   // No variable is off :root at a measuring reflow: one that changes there restyles the whole page, one that is back with the
   // value it had restyles :root alone. .raw lays a panel out as without its variables, and comes off where the pass sets them
   // (or removes them for good) — so every box below is read in the state a pass that starts from a bare :root reads it in.
@@ -5632,7 +6123,7 @@ function layoutEdges() {
     if (w > hi - lo) {
       statsEl.classList.add("fit");
       const frame = statsEl.getBoundingClientRect().width - statsEl.clientWidth;   // borders
-      const cells = Array.from(statsEl.children).filter(c => !c.hidden).map(c => c.getBoundingClientRect().width);
+      const cells = Array.from(statsEl.children).filter(c => !c.hidden && !c.classList.contains("ph-label")).map(c => c.getBoundingClientRect().width);
       w = Math.ceil(statsFitWidth(cells, hi - lo - frame - 1) + frame) + 1;   // +1: sub-pixel slack for the flex wrap
       set("--lay-stats-w", w + "px"); edgeState.stats = "fit";
     } else rs.removeProperty("--lay-stats-w");
@@ -5669,7 +6160,7 @@ function layoutEdges() {
   }
   // 4 · detail between the top panels and the bottom-right panels of its column
   const d = boxOf(detail);
-  if (d && !detail.classList.contains("sheet")) {
+  if (d) {
     const t = over(top, d.left, d.right).reduce((m, r) => Math.max(m, r.bottom + G), mast ? mast.top : 20);
     const bottomOf = (list) => over(list, d.left, d.right).reduce((m, r) => Math.min(m, r.top - G), ctl ? ctl.bottom : vh - 20);
     let bt = bottomOf([ctl, cr]);
@@ -5688,9 +6179,9 @@ let chanHover = null;
 function drawChannelBar() {   // §8.2 three small multiples (2.4 | 5 | 6), shared y-axis; only on ingest/filter/theme/resize/hover
   const box = el("chanbar"), cv = el("chan"); if (!box || !cv) return;
   const total = S._stats ? S._stats.apsTotal : 0;
-  box.hidden = !(total > 0 && W >= 720) || edgeState.chan === "collapsed";
+  box.hidden = !(total > 0) || edgeState.chan === "collapsed";
   if (box.hidden || !box.clientWidth) return;
-  const cssW = box.clientWidth - 20, cssH = 66; cv.style.width = cssW + "px"; cv.style.height = cssH + "px";
+  const cssW = box.clientWidth - (phoneOn ? 0 : 20), cssH = 66; cv.style.width = cssW + "px"; cv.style.height = cssH + "px";   // less the padding (none in the sheet)
   const d = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   cv.width = Math.floor(cssW * d); cv.height = Math.floor(cssH * d);
   const ctx = cv.getContext("2d"); ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, cssW, cssH);
@@ -5787,7 +6278,7 @@ el("help-close").addEventListener("click", () => toggleHelp(false));
 // §8.1 keyboard on the focusable detail sparkline: arrows/Home/End move the crosshair, Esc releases; never fires shortcuts
 detailSpark.addEventListener("keydown", (e) => {
   const id = sparkFocus.id || S.locked; if (!id) return;
-  const h = S.hist.get(id); if (!h || !h.n) return;
+  const kh = S.clouds.get(id), h = S.hist.get(id) || (kh && kh.hist); if (!h || !h.n) return;
   const info = histSamples(h), last = info.s.length - 1;
   let cur = sparkFocus.cross < 0 ? last : sparkFocus.cross;
   const k = e.key;
@@ -5799,7 +6290,7 @@ detailSpark.addEventListener("keydown", (e) => {
   else return;
   sparkFocus.cross = cur; e.preventDefault(); e.stopPropagation();
   const ap = S.aps.get(id);
-  drawSparkline(detailSpark, h, ap ? bandColorOf(ap.band) : THEME.ink.primary, { marks: ap ? changeMarks(ap.id) : null, axis: true, cross: cur });
+  drawSparkline(detailSpark, h, ap ? bandColorOf(ap.band) : kh ? THEME.render.clientCore : THEME.ink.primary, { marks: ap ? changeMarks(ap.id) : null, axis: true, cross: cur });
   const v = info.s[cur];
   detailSpark.setAttribute("aria-label", "Signal history: " + (v === -128 ? "gap" : v + " dBm") + " · sample " + (cur + 1) + " of " + info.s.length);
 });
@@ -5811,7 +6302,11 @@ function cyclePinned(dir) {   // [ / ] step through pinned nodes and open their 
 }
 // camera buttons (#cam-*, 3D only)
 const wire = (id, fn) => { const b = el(id); if (b) b.addEventListener("click", fn); };
-for (const k of Object.keys(CAM_STEP)) wire("cam-" + k, () => { CAM_STEP[k](S.cam); S.cam.tween = null; interacted(); S.dirty = true; });
+for (const k of Object.keys(CAM_STEP)) wire("cam-" + k, () => {
+  if (tS < 0.5 && (k === "in" || k === "out")) setZoom2d(S.cam.zoom2d * (k === "in" ? CFG3D.btnZoom : 1 / CFG3D.btnZoom));   // 2D (phone): zoom about the device, as + and − do
+  else { CAM_STEP[k](S.cam); S.cam.tween = null; }
+  interacted(); S.dirty = true;
+});
 wire("cam-reset", () => resetCamera());
 // §8.2 channel-bar hover/click (redraw only on hover change; click pins that channel's APs for 6 s)
 (() => {
@@ -5832,43 +6327,190 @@ wire("cam-reset", () => resetCamera());
   });
 })();
 
+// ---- §9.8 phone mode (D21): the panels move into #bar and #sheet and back (same elements); the sheet is peek, half or full, one card at a time.
+const DE = document.documentElement, PH_VARS = ["--ph-banner-t", "--ph-banner-b", "--ph-top", "--ph-bar-b", "--ph-sheet-h", "--ph-sky-cx"];
+const PH_MOVES = [["mast-brand", "bar", 1], ["mode-chip", "bar"], ["grp-bands", "sheet-lead", 1]].concat(["controls", "chanbar", "stats", "source", "masthead", "legend", "detail", "help"].map(id => [id, "sheet-body"]));   // [id, new parent, first]
+const PH_TITLE = { obs: "Observations", inv: "Inventory", home: "Homing", air: "Air quality", time: "Signal over time", rec: "Recording", legend: "Legend", help: "Keyboard shortcuts" };
+let phHome = null, phCard = null, phBase = "peek", phDock = null;
+function applyPhone() {   // → true when the mode changed
+  const on = query.phone === "1" || (query.phone !== "0" && mqPhone.matches), ds = DE.dataset;
+  if (!phHome) phHome = PH_MOVES.map(([id]) => { const e = el(id); return [e, e.parentNode, e.nextSibling]; });   // each next sibling is a whitespace node: the way back is exact
+  if (on === phoneOn && ds.phone) return false;
+  phoneOn = on; ds.phone = on ? "on" : "off";
+  if (on) for (const [id, to, first] of PH_MOVES) { const p = el(to); p.insertBefore(el(id), first ? p.firstChild : null); }
+  else {
+    for (const [e, p, nx] of phHome.slice().reverse()) p.insertBefore(e, nx);
+    for (const k of ["card", "sheet", "dock", "sheetDrag"]) delete ds[k];
+    for (const k of PH_VARS) DE.style.removeProperty(k);
+    el("bar").className = "panel ph-only"; delete edgeState.sheet;
+  }
+  phCard = phDock = null; S.ui.sheet = "peek"; S.ui.legendCard = false;
+  updateControlsLook();
+  return true;
+}
+function phoneCardOf() { const d = DE.dataset.drawer || "legend"; return S.ui.help ? "help" : !detail.hidden ? "detail" : d !== "legend" ? "drawer" : S.ui.legendCard ? "legend" : "controls"; }
+function setSheet(d) { if (phoneOn && /^(peek|half|full)$/.test(d)) { S.ui.sheet = d; layoutEdges(); } return S.ui.sheet; }
+function toggleSheet() { return setSheet(S.ui.sheet === "peek" ? "half" : "peek"); }
+function closeCard() {   // × and Esc: the card on top goes; → true when one did
+  const c = phCard && phCard.split(":")[0];
+  if (c === "help") toggleHelp(false);
+  else if (c === "detail") deselect();
+  else if (c === "drawer") { for (const k of ["observations", "inventory"]) if (S.ui[k]) setToggle(k, false); S.dx = null; S.homeOpen = false; applyDrawer(); }
+  else if (c === "legend") S.ui.legendCard = false;
+  else return false;
+  layoutEdges(); return true;
+}
+function phoneLayout(fromResize) {   // D21 the phone pass of layoutEdges(): theme-free, DOM boxes only
+  const ds = DE.dataset, vh = innerHeight, set = (k, v) => DE.style.setProperty(k, v), box = (i) => el(i).getBoundingClientRect(), ae = document.activeElement;
+  if (!(phDock && ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName))) phDock = innerWidth > vh ? "side" : "bottom";   // not while typing
+  ds.dock = phDock;
+  if (ds.banner === "on") { set("--ph-banner-t", el("classbar-top").offsetHeight + "px"); set("--ph-banner-b", el("classbar-bot").offsetHeight + "px"); set("--ph-top", Math.ceil(box("dtg").bottom) + "px"); }   // the banners wrap on a phone
+  else for (const k of PH_VARS.slice(0, 3)) DE.style.removeProperty(k);
+  const barEl = el("bar"), cnt = el("bar-counts"); barEl.classList.remove("tight", "tighter", "tightest");
+  for (const c of ["tight", "tighter", "tightest"]) { if (cnt.firstElementChild.getBoundingClientRect().left - box("bar-counts").left >= 4) break; barEl.classList.add(c); }   // closer letters, no words, no counts
+  const bar = barEl.getBoundingClientRect(); set("--ph-bar-b", Math.ceil(bar.bottom) + "px");
+  const card = phoneCardOf(), key = card + ":" + (card === "drawer" ? ds.drawer : card === "detail" ? detailShown : ""), ctl = card === "controls", title = el("sheet-title"), body = el("sheet-body"), tg = el("sheet-toggle");
+  ds.card = card;   // first: the CSS shows this card before it is measured
+  el("sheet-lead").hidden = el("t-legend").hidden = !ctl; title.hidden = el("sheet-close").hidden = ctl;
+  title.textContent = card === "detail" ? detailTitle.textContent : PH_TITLE[card === "drawer" ? ds.drawer : card] || "";
+  el("sheet-prev").hidden = el("sheet-next").hidden = !(card === "detail" && S.pinned.size >= 2);
+  syncPressed("t-legend", S.ui.legendCard); el("sheet").setAttribute("aria-label", ctl ? "Controls" : title.textContent);
+  const bottom = box("sheet").bottom, peek = el("sheet-head").offsetHeight, full = Math.min(peek + body.scrollHeight, Math.max(peek, Math.floor(bottom - bar.bottom - PHONE.gapPx)));
+  const half = phDock === "side" ? full : Math.min(full, clamp(Math.floor(bottom - (bar.bottom + bottom - peek) / 2 - PHONE.centreClearPx), peek, Math.round(vh * PHONE.halfFrac)));   // clear of the device
+  if (key !== phCard) {   // another card, drawer or node (the first pass stays collapsed)
+    if (phCard && phCard.startsWith("controls")) phBase = S.ui.sheet;
+    if (phCard !== null) S.ui.sheet = ctl ? phBase : card === "detail" ? phDetailDetent(half, bottom) : S.ui.sheet === "peek" ? "half" : S.ui.sheet;
+    phCard = key; body.scrollTop = 0;
+  }
+  const open = (ds.sheet = S.ui.sheet) !== "peek", sb = skyBox();
+  tg.textContent = open ? "⌄" : "⌃"; tg.setAttribute("aria-expanded", open); tg.setAttribute("aria-label", (open ? "Collapse" : "Expand") + " the sheet");
+  const h = open ? (S.ui.sheet === "half" ? half : full) : peek;
+  if (ds.sheetDrag !== "on") set("--ph-sheet-h", h + "px");
+  set("--ph-sky-cx", Math.round(sb.x + sb.w / 2) + "px");
+  edgeState.sheet = { card, detent: S.ui.sheet, dock: phDock, peek, half, full, h };
+  if (!fromResize && (Math.abs(sb.x + sb.w / 2 - CX) > 0.5 || Math.abs(sb.y + sb.h / 2 - CY) > 0.5 || Math.abs(sb.h - skyH) > 0.5)) { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 100); }   // theme, banners, fonts
+  return edgeState.sheet;
+}
+function phDetailDetent(half, bottom) {   // half, or collapsed when the star would sit under it (3D: the camera turns it to the front)
+  if (phDock === "side") return S.ui.sheet === "peek" ? "half" : S.ui.sheet;
+  const n = nodeById(S.locked || detailShown);
+  return tS >= 0.5 || (n && n.sy >= bottom - half - PHONE.starClearPx) ? "peek" : "half";
+}
+function skyBox() {   // the free rectangle for the sky
+  if (!phoneOn) return { x: 0, y: 0, w: W, h: H };
+  const bar = el("bar").getBoundingClientRect(), sh = el("sheet").getBoundingClientRect(), ban = DE.dataset.banner === "on", bx = (x, y, r, b) => ({ x, y, w: Math.max(40, r - x), h: Math.max(40, b - y) });
+  if (!S.ui.panels) return bx(0, bar.top, W, sh.bottom - 52);   // above the pill
+  if (phDock === "side") return bx(Math.max(bar.right, sh.right) + PHONE.gapPx, ban ? el("dtg").getBoundingClientRect().bottom + 4 : 0, W - bar.left, ban ? H - el("classbar-bot").offsetHeight : H);
+  return bx(0, bar.bottom + 4, W, sh.bottom - el("sheet-head").offsetHeight - 4);
+}
+function setPanels(on) {   // §9.8 Hide panels, at every size; saved unless ?panels locks it
+  on = !!on; if (on === S.ui.panels) return on;
+  const ae = document.activeElement, pill = el("panels-pill");
+  S.ui.panels = on; DE.dataset.panels = on ? "on" : "off";
+  if (!on && S.ui.help) toggleHelp(false);
+  S.queryLocked.delete("panels"); saveUi();
+  if (phoneOn) resize(); else S.dirty = true;
+  if (!on && ae && ae.closest && ae.closest(".panel")) pill.focus();
+  else if (on && ae === pill) el(phoneOn ? "sheet-toggle" : "t-panels").focus();
+  return on;
+}
+(() => {   // the head: a drag moves the sheet (reduced motion too), a release or a flick picks a height, a tap toggles
+  const head = el("sheet-head"), sh = el("sheet"), ds = DE.dataset, stop = (e) => { e.stopPropagation(); e.preventDefault(); };
+  let g = null;
+  head.addEventListener("pointerdown", (e) => { if (phoneOn && e.button === 0) g = { id: e.pointerId, y0: e.clientY, h0: sh.getBoundingClientRect().height, y: e.clientY, t: e.timeStamp, v: 0, btn: !!e.target.closest("button") }; });
+  window.addEventListener("pointermove", (e) => {   // uncaptured: a tap keeps its button
+    const s = edgeState.sheet; if (!g || e.pointerId !== g.id || !s) return;
+    if (!g.moved) { if (Math.abs(e.clientY - g.y0) < PHONE.dragPx) return; g.moved = true; ds.sheetDrag = "on"; }
+    if (e.timeStamp > g.t) g.v = (e.clientY - g.y) / (e.timeStamp - g.t);   // px/ms (PointerEvent.timeStamp: UI only)
+    g.y = e.clientY; g.t = e.timeStamp;
+    DE.style.setProperty("--ph-sheet-h", clamp(g.h0 - (e.clientY - g.y0), s.peek, s.full) + "px");
+  });
+  const end = (e) => {
+    if (!g || e.pointerId !== g.id) return;
+    const d = g; g = null; delete ds.sheetDrag;
+    if (!d.moved) { if (!d.btn && e.type === "pointerup" && head.contains(e.target)) toggleSheet(); return; }
+    window.addEventListener("click", stop, true); setTimeout(() => window.removeEventListener("click", stop, true), 0);   // nor does a drag press it
+    const s = edgeState.sheet, h = sh.getBoundingClientRect().height, hs = [s.peek, s.half, s.full];
+    let i = 0;
+    if (Math.abs(d.v) < PHONE.flickPxMs) hs.forEach((x, k) => { if (Math.abs(x - h) < Math.abs(hs[i] - h)) i = k; });   // the nearest height
+    else if (d.v < 0) { i = hs.findIndex(x => x > h + 1); if (i < 0) i = 2; }   // a flick: the next height that way
+    else for (let k = 2; k >= 0; k--) if (hs[k] < h - 1) { i = k; break; }
+    setSheet(["peek", "half", "full"][i]);
+  };
+  window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
+})();
+for (const [id, fn] of [["sheet-toggle", toggleSheet], ["t-legend", () => { S.ui.legendCard = !S.ui.legendCard; layoutEdges(); }], ["sheet-close", closeCard], ["sheet-prev", () => cyclePinned(-1)],
+  ["sheet-next", () => cyclePinned(1)], ["t-panels", () => setPanels(false)], ["panels-pill", () => setPanels(true)], ["t-help", () => toggleHelp(true)], ["t-home", KEY_ACT.f]]) el(id).addEventListener("click", fn);
+el("sheet-body").addEventListener("scroll", () => { if (phoneOn && S.ui.sheet === "half" && el("sheet-body").scrollTop > 8) setSheet("full"); }, { passive: true });
+
 // ==== 38 DATA SOURCE ====
-// D4 source truth (theme-free): what the sky shows and how it arrived. D3 liveness: a poll-fed document is stale after
-// STALE_POLLS poll ticks without a new `generated` (or with a failed poll); demo, recorded and none are never stale.
+// D4 source truth (theme-free): what the sky shows and how it arrived. D3 liveness: a poll-fed document is stale after staleAfterMs() of
+// poll time without a new `generated` (demo, recorded and none never are). Poll time is what the cadence waited; no clock is read.
 function sourceKindOf(doc, via) {
   if (!doc || doc.source === "none") return "none";
   if (/ACTIVE/i.test(doc.source || "")) return "active";   // the collector's opt-in iw scan transmitted: wins over every arrival path
   return via === "demo" ? "demo" : via === "live" ? "live" : "recorded";
 }
 const srcKeyOf = (doc, label, via) => sourceKindOf(doc, via) + "|" + via + "|" + String(label) + "|" + (doc.source || "");
-function setSource(doc, label, via) {   // → true when the source changed (kind, arrival path, label or doc.source)
+function setSource(doc, label, via, tickMs) {   // → true when the source changed (kind, arrival path, label or doc.source)
   const kind = sourceKindOf(doc, via), lbl = String(label), key = srcKeyOf(doc, label, via);
   const changed = key !== S.sourceKey, gen = doc.generated ?? null;
-  if (changed || via !== "live" || gen !== S.lastGen) S.stalePolls = 0; else S.stalePolls++;   // same live source, same capture → one stale tick
+  if (changed) S.gaps = [];
+  else if (Number.isFinite(gen) && Number.isFinite(S.lastGen) && gen > S.lastGen) { S.gaps.push(gen - S.lastGen); if (S.gaps.length > POLL.gaps) S.gaps.shift(); }   // the observed capture spacing
+  S.fresh = changed || via !== "live" || gen !== S.lastGen;
+  if (S.fresh) S.stalePolls = S.staleMs = 0; else { S.stalePolls++; S.staleMs += tickMs ?? POLL_MS; }   // same live source, same capture → one stale tick
   S.sourceKey = key; S.sourceKind = kind; S.sourceLabel = lbl; S.liveFeed = via === "live"; S.lastGen = gen; S.sourceApCount = doc.aps.length;
   return changed;
 }
-function captureStale() { return !S.replay && S.liveFeed && S.sourceKind !== "none" && S.stalePolls >= STALE_POLLS; }
-function noteStalePoll() { if (!S.liveFeed) return; S.stalePolls++; renderSourceTruth(); }   // 404 / network error / unusable answer
+// Chip, masthead dot, source badge, lamps and the panels pill all read captureStale(): they flip together.
+function staleAfterMs() { const iv = S.pollIntervalS; return iv > 0 ? 1000 * Math.max(STALE.floorS, STALE.mul * iv + STALE.slackS) : STALE_POLLS * POLL_MS; }
+function captureStale() { return !S.replay && S.liveFeed && S.sourceKind !== "none" && S.staleMs >= staleAfterMs(); }
+// Offline: stale, and the server has answered none of the last OFFLINE_POLLS polls (network error, deadline, non-200): the page has not heard from it, which is not the same as a capture that is old.
+function captureOffline() { return captureStale() && S.lostPolls >= OFFLINE_POLLS; }
+const liveness = () => captureOffline() ? "offline" : captureStale() ? "stale" : "live";   // what a poll-fed feed is called; a feed that is not stale is "live"
+function noteStalePoll(tickMs, heard) { if (!S.liveFeed) return; const ms = tickMs ?? POLL_MS; S.stalePolls++; S.staleMs += ms; if (!heard) S.lostPolls++; renderSourceTruth(); }   // a failed poll: only its time counts (heard: the server answered, so only the capture is missing, not the link)
 let pollPromise = null, firstPollDone = false;
 // D3: a poll that never answers ends after POLL_TIMEOUT_MS: the request is aborted and the tick counts like a failed poll,
 // so a hung server or a half-open connection cannot keep the chip on "Live". `?pollto=<ms>` shortens it for tests only.
 const POLL_TIMEOUT_MS = Number.isFinite(+query.pollto) && +query.pollto >= 100 ? Math.min(+query.pollto, 60000) : 4000;
-function tryPoll() {   // MUSS BLEIBEN 1: the page's only network call; returns the in-flight promise (no double request)
+function tryPoll(tickMs) {   // MUSS BLEIBEN 1: the page's only network call; returns the in-flight promise (no double request). tickMs: the poll time it stands for
   if (pollPromise) return pollPromise;
   const ac = typeof AbortController === "function" ? new AbortController() : null;
-  const timer = ac ? setTimeout(() => ac.abort(), POLL_TIMEOUT_MS) : 0;
+  let late = false, heard = false; const tick = () => (tickMs ?? POLL_MS) + (late ? POLL_TIMEOUT_MS : 0);   // a deadline adds its time
+  const timer = ac ? setTimeout(() => { late = true; ac.abort(); }, POLL_TIMEOUT_MS) : 0;
   pollPromise = fetch("starchorus.json?_=" + S.clock.toFixed(0), ac ? { cache: "no-store", signal: ac.signal } : { cache: "no-store" })
-    .then(r => r.ok ? r.json() : Promise.reject(r.status))
-    .then(raw => { const r = guard(() => loadData(raw, "starchorus.json", { mode: "live" })); return !!(r && r.ok); }, () => false)
-    .then(ok => {
+    .then(r => { if (r.status !== 200) return Promise.reject(r.status); heard = true; S.lostPolls = 0; return r.json(); })   // any 200 is the server answering; any other status is silence
+    .then(raw => guard(() => loadData(raw, "starchorus.json", { mode: "live", tickMs: tick() })), () => null)
+    .then(r => {
+      const ok = !!(r && r.ok);
       clearTimeout(timer); pollPromise = null;
-      if (!ok) noteStalePoll();
-      if (!firstPollDone) { firstPollDone = true; releaseLogon(); }   // D13: the logon waits for the first completed poll
-      return { ok, stalePolls: S.stalePolls, captureStale: captureStale(), sourceKind: S.sourceKind };
-    });
+      if (!ok) guard(() => noteStalePoll(tick(), heard));   // nothing here may end the chain
+      if (!firstPollDone) { firstPollDone = true; guard(releaseLogon); }   // D13: the logon waits for the first completed poll
+      return { ok, fresh: ok && !!r.fresh, stalePolls: S.stalePolls, captureStale: captureStale(), sourceKind: S.sourceKind };
+    })
+    .catch(e => { pushError(e); return { ok: false }; });   // a fault is a failed poll
   return pollPromise;
 }
+// One poll at a time, armed when the last has ended (§9.9 item 1); without a live capture, and once stale, every POLL_MS. A capture already
+// there at the first poll after the lead may be late by any amount: the steps take over until the next one.
+function captureSpacing() { const g = S.gaps.slice().sort((a, b) => a - b), n = g.length; return n ? (n % 2 ? g[n >> 1] : (g[n / 2 - 1] + g[n / 2]) / 2) : null; }   // s, observed
+const pollPlan = { timer: 0, wait: 0, since: 0, lastOld: false, log: [] };
+function pollNextMs(r) {
+  const ok = !!(r && r.ok), fresh = ok && !!r.fresh, known = pollPlan.lastOld && pollPlan.wait <= POLL.stepMs;   // known: the poll before saw the old capture, one step ago
+  pollPlan.lastOld = ok && !fresh;
+  pollPlan.since = fresh ? 0 : pollPlan.since + pollPlan.wait;
+  if (!S.liveFeed) return POLL_MS;
+  if (fresh) { const s = captureSpacing(); return known || s === null ? Math.max(POLL.stepMs, Math.round(1000 * Math.min(s ?? (S.pollIntervalS > 0 ? POLL.guessMul * S.pollIntervalS : POLL_MS / 1000), POLL.maxIntervalS) - POLL.leadMs)) : POLL.stepMs; }   // a first capture: the first guess
+  return pollPlan.since < staleAfterMs() ? POLL.stepMs : POLL_MS;
+}
+function pollArm(ms) {
+  clearTimeout(pollPlan.timer); pollPlan.wait = ms;
+  pollPlan.timer = setTimeout(() => tryPoll(ms).then(r => {
+    pollPlan.log.push(ms); if (pollPlan.log.length > POLL.logMax) pollPlan.log.shift();   // the waits of the last scheduled polls
+    pollArm(pollNextMs(r));
+  }), ms);
+}
+function pollPlanObj() { return { spacingS: captureSpacing(), staleAfterS: staleAfterMs() / 1000, staleS: S.staleMs / 1000, sinceS: pollPlan.since / 1000, nextMs: pollPlan.wait, log: pollPlan.log.slice() }; }
 function copyFor(site) { return THEME.copy[S.sourceKind === "active" ? "active" : "rx"][site]; }   // D4: every claim site reads here
 const metaDescEl = document.querySelector('meta[name="description"]'), mastTag = document.querySelector("#masthead .tag"),
   mastMotto = document.querySelector("#masthead .motto"), mastDot = document.querySelector("#masthead .brand .dot");
@@ -5896,20 +6538,21 @@ function renderClock() {
   const h = el("plotclock-hand"); h.style.display = o.generated == null ? "none" : "block"; if (o.generated != null) h.style.transform = "rotate(" + o.angleDeg + "deg)";
   c.setAttribute("aria-label", THEME.copy.clock + (o.period == null ? ", no capture time" : ", period " + (o.period + 1) + " of 12"));
 }
-const staleNote = () => "no new capture for " + S.stalePolls + " polls";
+const staleNote = () => captureOffline() ? "The Pager could not be reached" + (Number.isFinite(S.generated) ? "; the last capture was at " + utcHM(S.generated) : "") + "." : "no new capture for " + S.stalePolls + " polls";
 function renderBadge() {   // the source badge in the masthead (token chrome.badge.show); chrome text from copy.badge, never a data string
   const b = el("mast-badge"); if (!b) return;
   b.hidden = !THEME.chrome.badge.show; if (b.hidden) return;
-  const k = S.replay ? "recorded" : S.sourceKind, chip = k === "live" && captureStale() ? "stale" : k, cp = THEME.copy.badge;
+  const k = S.replay ? "recorded" : S.sourceKind, chip = k === "live" ? liveness() : k, cp = THEME.copy.badge;
   b.textContent = cp[chip] || cp.none; b.dataset.kind = chip;
-  b.title = chip === "active" ? cp.active + " · " + String(S.source || "").slice(0, 40) : chip === "stale" ? staleNote() : (cp[chip] || cp.none);
+  b.title = chip === "active" ? cp.active + " · " + String(S.source || "").slice(0, 40) : chip === "stale" || chip === "offline" ? staleNote() : (cp[chip] || cp.none);
 }
+function utcHM(g) { return new Date(g * 1000).toISOString().slice(11, 16) + " UTC"; }   // a capture time, as the caption and the offline note say it
 // the place-and-time caption: where the observer is and when the capture was made, said once on a theme or view
 // change and then gone. The place is `center.label`, a data string: printed as it stands, never upper-cased (D16).
 // The time comes from `generated`, never from a wall clock, so with no capture time there is no caption.
 function captionObj() {
   const g = S.generated, ok = Number.isFinite(g);
-  return { shown: !!THEME.chrome.caption.show, place: String(S.centerLabel || ""), time: ok ? new Date(g * 1000).toISOString().slice(11, 16) + " UTC" : null };
+  return { shown: !!THEME.chrome.caption.show, place: String(S.centerLabel || ""), time: ok ? utcHM(g) : null };
 }
 let captionTimer = null, captionFade = null;
 function renderCaption() {
@@ -5935,15 +6578,15 @@ function renderLamps() {   // IMSAI-style lamps = the capture counter in binary;
   l.dataset.frozen = o.frozen ? "1" : "0"; l.dataset.value = String(o.value); l.setAttribute("aria-label", THEME.copy.lamps + " " + o.value);
 }
 function setSourcePanel() {   // §9.5: fixed templates; label/note only via esc() (max 80 chars)
-  const k = S.replay ? "recorded" : S.sourceKind, stale = captureStale(), chip = k === "live" && stale ? "stale" : k;
+  const k = S.replay ? "recorded" : S.sourceKind, ls = liveness(), stale = ls !== "live", chip = k === "live" ? ls : k;
   modeChip.textContent = THEME.copy.chip[chip];
   modeChip.className = "mode " + chip + (stale && chip !== "stale" ? " stale" : "");
   const ts = Number.isFinite(S.generated) ? new Date(S.generated * 1000).toISOString().slice(11, 19) : "—";
   let d;
   if (k === "demo") d = 'Simulated sky. Load a <b>starchorus.json</b> to see your own sky.';
   else if (k === "none") d = 'No capture source · ' + esc((S.note || "").slice(0, 80));
-  else if (S.replay) d = 'Replay <b>' + (S.replay.i + 1) + ' of ' + S.rec.docs.length + '</b> · ' + ts + (S.replay.buffered ? ' · ' + S.replay.buffered + ' newer captures kept' : '');
-  else if (S.liveFeed) d = 'Live from <b>' + esc(S.sourceLabel.slice(0, 80)) + '</b> · ' + ts;
+  else if (S.replay) d = 'Replay <b>' + (S.replay.i + 1) + ' of ' + S.rec.docs.length + '</b> · ' + ts + (S.replay.buffered ? ' · ' + S.replay.buffered + (S.replay.buffered === 1 ? ' newer capture kept' : ' newer captures kept') : '');
+  else if (S.liveFeed) d = (ls === "offline" ? 'Last capture from <b>' : 'Live from <b>') + esc(S.sourceLabel.slice(0, 80)) + '</b> · ' + ts;
   else d = 'Showing <b>' + esc(S.sourceLabel.slice(0, 80)) + '</b> · ' + S.sourceApCount + ' APs';
   sourceDesc.innerHTML = d;
   if (stale) modeChip.title = staleNote(); else modeChip.removeAttribute("title");
@@ -5951,7 +6594,10 @@ function setSourcePanel() {   // §9.5: fixed templates; label/note only via esc
     const st = S.liveFeed && !S.replay && k !== "none" ? (stale ? "stale" : "live") : "off";
     mastDot.dataset.live = st;
     mastDot.title = st === "live" ? "live feed" : st === "stale" ? staleNote() : "not a live feed";
+    el("pill-dot").dataset.live = st;
   }
+  el("pill-chip").textContent = modeChip.textContent;   // the pill mirrors the chip
+  el("panels-pill").setAttribute("aria-label", "Show the panels · " + modeChip.textContent + (stale ? " · " + staleNote() : ""));
   srcCenter.textContent = S.centerLabel;
   renderBadge(); renderLamps(); renderClock(); renderTote();
   layoutEdges();
@@ -5971,17 +6617,18 @@ function loadData(raw, label, opts = {}) {
   if (!doc) { if (opts.paste) { pasteErr.textContent = "Could not parse: expected { aps: [ … ] }"; } return { ok: false, error: "invalid document" }; }
   const via = opts.mode === "live" || opts.mode === "demo" ? opts.mode : "recorded";
   if (S.replay) {   // U4: a replay is a view; live polls are still recorded but only shown after "Back to live"; anything else is a new source and ends it
-    if (via === "live" && !opts.resume) { recAppend(doc, srcKeyOf(doc, label, via)); S.replay.pending = doc; S.replay.buffered++; renderRec(); setSourcePanel(); return { ok: true, replay: true, aps: doc.aps.length, clients: 0, free: 0, assoc: 0, sourceKind: "recorded" }; }
+    if (via === "live" && !opts.resume) { const fresh = recAppend(doc, srcKeyOf(doc, label, via)); S.replay.pending = doc; if (fresh) S.replay.buffered++; renderRec(); setSourcePanel(); return { ok: true, replay: true, fresh, aps: doc.aps.length, clients: 0, free: 0, assoc: 0, sourceKind: "recorded" }; }   // counts captures
     S.replay = null; applyDrawer();
   }
-  const changed = setSource(doc, label, via) || opts.paste === true || opts.drop === true;   // before ingest: the detail panel that ingest re-opens reads the new source's copy; paste/drop are always a new capture (D2)
+  const changed = setSource(doc, label, via, opts.tickMs) || opts.paste === true || opts.drop === true;   // before ingest: the detail panel that ingest re-opens reads the new source's copy; paste/drop are always a new capture (D2)
+  if (changed) S.gaps = [];
   S.mode = via === "demo" ? "demo" : "live";
   recAppend(doc, S.sourceKey);   // the normalised capture, as held in memory (distinct `generated` only)
   const res = ingest(doc, { newSource: changed, resume: opts.resume });
   if (changed) particlesReset();   // only a new source re-gathers (§7.2); the same source keeps its dust — new APs gather, gone APs dissolve
   renderSourceTruth();
   S.dirty = true;
-  return { ok: true, aps: res.aps, clients: res.clients, free: res.free, assoc: res.assoc, sourceKind: S.sourceKind };
+  return { ok: true, fresh: S.fresh, aps: res.aps, clients: res.clients, free: res.free, assoc: res.assoc, sourceKind: S.sourceKind };
 }
 function sourceHint(name) { sourceDesc.innerHTML = 'Could not read <b>' + esc(String(name).slice(0, 80)) + '</b> · still showing the previous sky'; }
 // paste dialog + drag/drop
@@ -6096,26 +6743,28 @@ function pubNode(n) {
     sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: null, bubbleBlend: 0, pinned: S.pinned.has(n.id) };
   return { id: n.id, kind: "client", mac: n.mac, rssi: n.rssi, vendor: n.vendor, randomized: n.randomized, last_seen: n.last_seen, ageS: n.ageS, freshTier: n.freshTier, isNew: isNewAp(n),
     packets: n.packets, parent: n.parent, free: n.free, affinity: !!n.affinity, probeVia: n.probeVia || null, probes: n.probes ? n.probes.slice() : null, band: n.band, basePxMax: r3(n.basePxMax),
-    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: n.bubble, bubbleBlend: r3(n.bubbleBlend), pinned: S.pinned.has(n.id) };
+    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: n.bubble, bubbleBlend: r3(n.bubbleBlend), pinned: S.pinned.has(n.id), cloud: n.cloud || null, randOut: !!n.randOut };
 }
 function nodeVisible(n) { return n.target === 1 && n.alphaDraw > 0.05 && (n.kind !== "ap" || (S.ui.filters[n.band] !== false && !isEssFolded(n.id))); }
 function eventsObj() {   // D2: counters of the LAST capture of this source (per station: STARCHORUS.node(mac).isNew); "<5" is a display rule
   let nw = 0, chg = 0, cue = 0; S.aps.forEach(n => { if (n.target !== 1 || eventSkip(n)) return; if (isNewAp(n)) nw++; if (n.changedSeq === S.captureSeq && S.captureSeq > 0) chg++; if (n.cueSeq === S.captureSeq && S.captureSeq > 0) cue++; });
   const e = S.ev;
-  return { captureSeq: S.captureSeq, arrived: e.arrived, departed: e.departed, changed: chg, cues: cue, newAps: nw, newStations: e.newStations, departedStations: e.departedStations, newStationsText: e.newStations === 0 ? "0" : e.newStations < 5 ? "<5" : String(e.newStations) };
+  return { captureSeq: S.captureSeq, arrived: e.arrived, departed: e.departed, changed: chg, cues: cue, newAps: nw, newStations: e.newStations, newInClouds: e.newInClouds || 0, departedStations: e.departedStations, newStationsText: e.newStations === 0 ? "0" : e.newStations < 5 ? "<5" : String(e.newStations) };
 }
 function statsObj() {
   const st = S._stats || { apsTotal: 0, aps: 0, free: 0, assoc: 0, clients: 0, bands: { "2.4": 0, "5": 0, "6": 0 }, bandsT: { "2.4": 0, "5": 0, "6": 0 }, alarms: 0, groups: 0 };
   let vis = 0; S.clients.forEach(n => { if (n.target === 1 && n.alphaDraw > 0.05 && (n.bubble == null || n.bubbleBlend < 0.5)) vis++; });
+  let visK = 0; S.clouds.forEach(k => { if (k.target === 1 && k.alphaDraw > 0.05) visK++; });
   let hidden = 0; S.aps.forEach(n => { if (n.target === 1 && n.hidden) hidden++; });
   return { aps: st.aps, apsTotal: st.apsTotal, clients: st.clients, clientsTotal: st.clients, free: st.free, assoc: st.assoc,
+    randomised: st.randomized || 0, randomisedFree: st.randomisedFree || 0, clouds: st.clouds || 0, inClouds: st.inClouds || 0, visibleClouds: visK, randomMode: S.ui.random, randomHidden: st.randomHidden || 0,   // §8.8a
     groups: st.groups, bubbles: S.bubbles.size, visibleClients: vis, visibleAps: st.aps, alarms: st.alarms, hidden, revealed: S.revealed,
     bands: st.bands, bandsTotal: st.bandsT, security: Object.assign({}, S.security), fresh: Object.assign({}, st.fresh || freshZero()),
     freshClients: Object.assign({}, st.freshCl || freshZero()),   // D1 over the present stations (fresh stays APs only)
     events: eventsObj(), crowding: S.crowding.level, deviations: S.sky.dev.length, baseline: Object.assign({}, S.base), observations: S.obs.length, changeEntries: Array.from(S.chg.values()).reduce((a, x) => a + x.length, 0), watch: S.watch.length,
     hop: S.hop === null ? null : { channels: S.hop.length, busy: S.hop.filter(c => c.busy_pct != null).length }, own: { bssids: S.own.bssids.size, ssids: S.own.ssids.size },   // counts only, never the values
     theme: S.ui.theme, view: S.ui.view, mode: S.mode, source: S.source, generated: S.generated, centerLabel: S.centerLabel,
-    sourceKind: S.sourceKind, sourceLabel: S.sourceLabel, liveFeed: S.liveFeed, stalePolls: S.stalePolls, captureStale: captureStale(),
+    sourceKind: S.sourceKind, sourceLabel: S.sourceLabel, liveFeed: S.liveFeed, stalePolls: S.stalePolls, captureStale: captureStale(), captureOffline: captureOffline(),
     fps: S.perf.fps, frameMs: r3(S.perf.frameMs), lod: S.perf.lod, dpr: r3(S.perf.dpr), dprStep: S.perf.dprStep, autoLod: S.ui.autoLod,
     nodes: S.nodeCount, sprites: spriteCache.size, spriteBytes, particles: particles.count, flares: flareCount(), travelDots: S.travelDots, probeArcs: S.probeArcs,
     labels: S.labelsList.length, twinkles: S.twinkles, interferencePairs: analyzer.pairs.length,
@@ -6244,7 +6893,7 @@ function contrastPairs(pairs, themeId) {
   });
 }
 window.STARCHORUS = Object.freeze({
-  version: "0.1.0",
+  version: "0.1.1",
   setTheme: (id) => guard(() => applyTheme(id, { intro: false })),
   getTheme: () => guard(() => S.ui.theme),
   setView: (v) => guard(() => setView(v)),
@@ -6252,7 +6901,8 @@ window.STARCHORUS = Object.freeze({
   setReducedMotion: (on) => guard(() => setReducedMotion(on)),
   load: (obj, label = "API", opts) => guard(() => loadData(obj, label, { mode: opts && opts.mode === "live" ? "live" : "recorded" })),   // D3/D4: {mode:"live"} = poll-fed
   loadDemo: () => guard(() => loadData(demoData(), "demo", { mode: "demo" })),
-  pollNow: () => { try { return tryPoll(); } catch (e) { pushError(e); return Promise.resolve({ error: String(e) }); } },   // the regular poll, now; → {ok, stalePolls, captureStale, sourceKind}
+  pollNow: () => { try { return tryPoll(); } catch (e) { pushError(e); return Promise.resolve({ error: String(e) }); } },   // the regular poll, now (a POLL_MS tick); → {ok, fresh, stalePolls, captureStale, sourceKind}
+  pollPlan: () => guard(pollPlanObj),   // D3: the cadence's state
   logonLines: () => guard(() => logonLines()),
   stats: () => guard(statsObj),
   layoutInfo: () => guard(layoutInfo),
@@ -6265,21 +6915,24 @@ window.STARCHORUS = Object.freeze({
   select: (id) => guard(() => select(id)),
   deselect: () => guard(() => deselect()),
   hover: (x, y) => guard(() => { const id = nodeAt(x, y, false); setHover(id); return id; }),
-  hoverNode: (id) => guard(() => { if (id == null) { setHover(null); return null; } const n = S.aps.get(id) || S.clients.get(id); if (!n) return null; S.hover = id; showTip(n); positionTip(n, n.sx, n.sy); S.dirty = true; return id; }),
+  hoverNode: (id) => guard(() => { if (id == null) { setHover(null); return null; } const n = S.aps.get(id) || S.clients.get(id) || S.clouds.get(id); if (!n) return null; S.hover = id; showTip(n); positionTip(n, n.sx, n.sy); S.dirty = true; return id; }),
   hoverChannel: (band, ch) => guard(() => hoverChannelText(band, ch)),
   pin: (id, on) => guard(() => { const has = S.pinned.has(id); const want = on === undefined ? !has : !!on; if (want) S.pinned.add(id); else S.pinned.delete(id); S.dirty = true; return S.pinned.has(id); }),
   expandBubble: (id) => guard(() => expandBubble(id)),
   hitTest: (x, y) => guard(() => nodeAt(x, y, false)),
-  node: (id) => guard(() => pubNode(S.aps.get(id) || S.clients.get(id))),
+  node: (id) => guard(() => { const n = S.aps.get(id) || S.clients.get(id); return n ? pubNode(n) : pubCloud(S.clouds.get(id)); }),
   nodes: (filter) => guard(() => {
     const out = [];
     const push = (n, kind) => out.push({ id: n.id, kind, sx: r3(n.sx), sy: r3(n.sy), px: r3(n.px), zc: r3(n.zc), alphaDraw: r3(n.alphaDraw), visible: nodeVisible(n), bubble: n.bubble || null, vendor: n.vendor || null, width: n.kind === "ap" ? n.width : null, rssi: n.rssi });
     if (!filter || filter === "ap") S.aps.forEach(n => { if (n.target === 1) push(n, "ap"); });
     if (!filter || filter === "client" || filter === "free" || filter === "assoc") S.clients.forEach(n => { if (n.target !== 1) return; if (filter === "free" && !n.free) return; if (filter === "assoc" && n.free) return; push(n, "client"); });
+    if (filter === "cloud") S.clouds.forEach(k => { if (k.target === 1) push(k, "cloud"); });   // §8.8a
     if (filter === "bubble") S.bubbles.forEach(b => out.push({ id: b.id, kind: "bubble", sx: r3(b.sx), sy: r3(b.sy), px: r3(b.px), zc: r3(b.zc), alphaDraw: r3(b.alpha), visible: true, bubble: null, vendor: null, width: null, rssi: null }));
     return out;
   }),
-  nodeScreen: (id) => guard(() => { const n = S.aps.get(id) || S.clients.get(id); if (n) return { sx: r3(n.sx), sy: r3(n.sy), px: r3(n.px), zc: r3(n.zc), fog: r3(n.fog), visible: nodeVisible(n) }; const b = S.bubbles.get(id); if (b) return { sx: r3(b.sx), sy: r3(b.sy), px: r3(b.px), zc: r3(b.zc), fog: r3(b.fog), visible: b.alpha > 0.05 }; return null; }),
+  nodeScreen: (id) => guard(() => { const n = S.aps.get(id) || S.clients.get(id) || S.clouds.get(id); if (n) return { sx: r3(n.sx), sy: r3(n.sy), px: r3(n.px), zc: r3(n.zc), fog: r3(n.fog), visible: nodeVisible(n) }; const b = S.bubbles.get(id); if (b) return { sx: r3(b.sx), sy: r3(b.sy), px: r3(b.px), zc: r3(b.zc), fog: r3(b.fog), visible: b.alpha > 0.05 }; return null; }),
+  clouds: () => guard(() => S.cloudOrder.map(pubCloud)),   // §8.8a
+  expandCloud: (id) => guard(() => expandCloud(id)),
   bubbles: () => guard(() => { const out = []; S.bubbles.forEach(b => out.push({ id: b.id, n: b.n, sx: r3(b.sx), sy: r3(b.sy), r: r3(b.r), expanded: b.expandedUntil != null && b.expandedUntil > S.clock, members: b.members.slice() })); return out; }),
   labels: () => guard(() => S.labelsList.map(l => ({ id: l.id, kind: l.kind, text: l.text, x: l.x, y: l.y, sprite: !!l.sprite }))),   // sprite = baked once and blitted, so it costs no slot of RENDER.maxText
   labelCandidates: () => guard(() => labelCandidateList(labelDevCarriers()).map(n => n.id)),   // theme-free eligibility + priority (no fonts/raster/budget/cap)
@@ -6293,7 +6946,7 @@ window.STARCHORUS = Object.freeze({
   setIdentity: (bssid, id) => guard(() => setIdentity(bssid, id)),
   identity: (bssid) => guard(() => identityOf(bssid)),
   identities: () => guard(() => { const o = {}; S.identity.forEach((v, k) => { o[k] = v; }); return o; }),
-  hist: (bssid) => guard(() => { const h = S.hist.get(bssid); if (!h) return null; const { s: samples, t } = histSamples(h), ts = t.map(v => Number.isFinite(v) ? v : null), valid = samples.filter(v => v !== -128); return { n: h.n, last: samples.length ? samples[samples.length - 1] : null, min: valid.length ? Math.min(...valid) : null, max: valid.length ? Math.max(...valid) : null, samples, ts }; }),
+  hist: (bssid) => guard(() => { const h = S.hist.get(bssid) || (S.clouds.get(bssid) || {}).hist; if (!h) return null; const { s: samples, t } = histSamples(h), ts = t.map(v => Number.isFinite(v) ? v : null), valid = samples.filter(v => v !== -128); return { n: h.n, last: samples.length ? samples[samples.length - 1] : null, min: valid.length ? Math.min(...valid) : null, max: valid.length ? Math.max(...valid) : null, samples, ts }; }),
   themeAudit: (live) => guard(() => JSON.parse(JSON.stringify(live ? auditThemes() : themeAuditBoot))),   // boot audit (before any crash-guard fill) or a fresh one
   themeCheck: () => guard(() => { const cs = getComputedStyle(document.documentElement); const mm = []; for (const [name] of CSS_MIRROR) { const css = cs.getPropertyValue(name).trim(); const js = TD.css[name]; if (css !== js) mm.push([name, css, js]); } return { ok: mm.length === 0, mismatches: mm }; }),
   skyStats: () => guard(skyStatsObj),
@@ -6339,7 +6992,7 @@ window.STARCHORUS = Object.freeze({
   inventory: (filter) => guard(() => { if (filter !== undefined) { S.inv.filter = Object.assign({}, filter || {}); S.dirty = true; } return invApRows().rows.map(n => n.id); }),
   clearLocalData: () => guard(clearLocalData),   // P8: deletes every starchorus.* key this page writes
   contrast: (pairs, themeId) => guard(() => contrastPairs(pairs, themeId)),   // WCAG 2.x ratios, default = CONTRAST_PAIRS
-  settle: (maxIter = 600) => guard(() => { S.layoutDirty = true; S.aggDirty = true; S.aps.forEach(n => { n.hexA = 0; }); S.clientOrder.forEach(n => { n.orbitPhase = NaN; }); settleLayout(maxIter); S.clients.forEach(n => { if (n.free) { n.wx = n.lx; n.wz = n.lz; n.placed = true; } }); S.aps.forEach(n => { n.angle = n.angleT; n.radius = n.radiusT; n.wx = Math.cos(n.angle) * n.radius; n.wz = Math.sin(n.angle) * n.radius; }); S.clients.forEach(n => { if (n.free) return; const ap = S.aps.get(n.parent); if (ap) { n.wx = ap.wx + Math.cos(n.orbitPhase) * n.orbitR / maxRadius; n.wz = ap.wz + Math.sin(n.orbitPhase) * n.orbitR / maxRadius; n.placed = true; } }); computeGroupEdges(); projectAll(); sortOrder(); render(); return layoutInfo(); }),
+  settle: (maxIter = 600) => guard(() => { S.layoutDirty = true; S.aggDirty = true; S.aps.forEach(n => { n.hexA = 0; }); S.clientOrder.forEach(n => { n.orbitPhase = NaN; }); settleLayout(maxIter); S.clients.forEach(n => { if (n.free) { n.wx = n.lx; n.wz = n.lz; n.placed = true; } }); S.clouds.forEach(k => { k.wx = k.lx; k.wz = k.lz; k.placed = true; }); S.aps.forEach(n => { n.angle = n.angleT; n.radius = n.radiusT; n.wx = Math.cos(n.angle) * n.radius; n.wz = Math.sin(n.angle) * n.radius; }); S.clients.forEach(n => { if (n.free) return; const ap = S.aps.get(n.parent); if (ap) { n.wx = ap.wx + Math.cos(n.orbitPhase) * n.orbitR / maxRadius; n.wz = ap.wz + Math.sin(n.orbitPhase) * n.orbitR / maxRadius; n.placed = true; } }); computeGroupEdges(); projectAll(); sortOrder(); render(); return layoutInfo(); }),
   frame: () => guard(() => { projectAll(); sortOrder(); render(); S.perf.rendered++; }),
   wait: (ms) => new Promise(r => setTimeout(r, ms)),
   measure: (seconds = 2) => new Promise(res => { const t0 = performance.now(); const startR = S.perf.rendered; let rafs = 0; let maxMs = 0; const samples = []; let last = t0; const loop = () => { const now = performance.now(); rafs++; const d = now - last; last = now; if (rafs > 1) { samples.push(d); if (d > maxMs) maxMs = d; } if (now - t0 < seconds * 1000) requestAnimationFrame(loop); else { samples.sort((a, b) => a - b); const p = (q) => samples.length ? samples[Math.min(samples.length - 1, Math.floor(q * samples.length))] : 0; res({ fps: Math.round(rafs * 1000 / (now - t0)), renderedFrames: S.perf.rendered - startR, rafFrames: rafs, p50Ms: r3(p(0.5)), p95Ms: r3(p(0.95)), maxMs: r3(maxMs), drawCalls: Object.assign({}, S.perf.drawCalls) }); } }; requestAnimationFrame(loop); }),
@@ -6352,6 +7005,9 @@ window.STARCHORUS = Object.freeze({
   resetStorage: () => guard(() => safeStorage.remove(STORAGE_KEY)),
   errors: () => guard(() => S.errors.slice()),
   edgeLayout: () => guard(() => Object.assign({}, layoutEdges())),
+  phone: () => guard(() => Object.assign({ on: phoneOn, sky: { cx: r3(CX), cy: r3(CY), r: r3(maxRadius) } }, phoneOn ? layoutEdges().sheet : {})),   // §9.8
+  setSheet: (d) => guard(() => setSheet(d)),
+  setPanels: (on) => guard(() => setPanels(on)),
   _internals: query.debug1 ? { S, THEMES, TK, TD, LAYOUT, AGG, CFG3D, RENDER, spriteCache, particles } : undefined,
 });
 
@@ -6363,12 +7019,16 @@ S.labelsList = [];
   // query overrides win over localStorage and are not persisted
   if (query.theme && THEMES[query.theme]) { S.ui.theme = query.theme; S.queryLocked.add("theme"); }
   if (query.view === "2d" || query.view === "3d") { S.ui.view = query.view; S.queryLocked.add("view"); }
+  if (RANDOM_MODES.indexOf(query.random) >= 0) { S.ui.random = query.random; S.queryLocked.add("random"); }
   for (const [v, key] of [[query.agg, "agg"], [query.crt, "crt"], [query.autolod, "autoLod"], [query.deviceLinks, "deviceLinks"], [query.essMerge, "essMerge"],
-    [query.affinity, "affinity"], [query.spin, "spin"], [query.baseline, "baselineDiff"], [query.obs, "observations"], [query.inv, "inventory"]]) {
+    [query.affinity, "affinity"], [query.spin, "spin"], [query.baseline, "baselineDiff"], [query.obs, "observations"], [query.inv, "inventory"], [query.panels, "panels"]]) {
     if (v === "0" || v === "1") { S.ui[key] = v === "1"; S.queryLocked.add(key); }
   }
   validateThemes();   // symmetric, once, all themes, before the first applyTheme
-  buildHelp(); applyDrawer();
+  el("mast-ver").textContent = window.STARCHORUS.version;   // the masthead shows the version, read from the frozen API object so the number is written once
+  document.documentElement.dataset.panels = S.ui.panels ? "on" : "off";
+  buildHelp(); syncRandomButton(); applyDrawer(); applyPhone();   // the drawer first: a saved one does not open the sheet
+  if (mqPhone.addEventListener) mqPhone.addEventListener("change", resize); else if (mqPhone.addListener) mqPhone.addListener(resize);   // older Safari
   const startTheme = S.ui.theme, startView = S.ui.view;
   // ?fixed= must be known BEFORE the first applyTheme: applyTheme ends in runIntro(), and the coalescing
   // intro refuses to start under frozen time.
@@ -6377,8 +7037,8 @@ S.labelsList = [];
   resize();
   setView(startView, { persist: !S.queryLocked.has("view"), snap: true });
   const demo = demoData(); setSource(demo, "demo", "demo"); ingest(demo, { newSource: true }); renderSourceTruth();
-  tryPoll();
-  if (!query.poll0) setInterval(tryPoll, POLL_MS);
+  const boot = tryPoll();
+  if (!query.poll0) boot.then(r => pollArm(pollNextMs(r)));   // §9.9 item 1
   // The embedded label font loads async; once ready, invalidate text caches and repaint so canvas
   // labels switch from the fallback to the signage face (matters for the Whitehall theme).
   try {
@@ -6390,7 +7050,7 @@ S.labelsList = [];
   } catch (e) {}
   if (window.ResizeObserver) {   // D15 safety net: any chrome size change (fonts, copy, buttons) re-runs the theme-free layout next frame
     let rq = 0; const ro = new ResizeObserver(() => { if (!rq) rq = requestAnimationFrame(() => { rq = 0; layoutEdges(); }); });
-    for (const id of ["masthead", "stats", "source", "legend", "controls"]) { const e = el(id); if (e) ro.observe(e); }
+    for (const id of ["masthead", "stats", "source", "legend", "controls", "bar"]) { const e = el(id); if (e) ro.observe(e); }
   }
   requestAnimationFrame(tick);
 })();

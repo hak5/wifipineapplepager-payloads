@@ -16,12 +16,14 @@ open:
     http://172.16.52.1:8199/
 
 The Pager serves the page itself; nothing needs to be installed on the viewing device, and any
-current browser will do. The page refreshes every 5 seconds from the latest capture. It is served
+current browser will do. The page refreshes as each new capture arrives. It is served
 on the management address only, so it never appears on other networks the Pager may join.
 
 ![Foundation: the sky on a laptop, from simulated data](https://raw.githubusercontent.com/starchorus/pager/main/docs/img/starchorus-foundation.jpg)
 
-The Pager's own display carries a compact dashboard instead: seven screens of counts and lists, for
+<img src="https://raw.githubusercontent.com/starchorus/pager/main/docs/img/starchorus-phone.jpg" width="250" alt="The sky on a phone, from simulated data: the status bar at the top, the controls in a sheet at the bottom">
+
+The Pager's own display carries a compact Overview instead: seven screens of counts and lists, for
 a glance when no second screen is to hand. To see what the second screen shows without a Pager,
 open the demonstration at <https://starchorus.com/pager/>.
 
@@ -49,35 +51,48 @@ named in the collector's LOG with its pid and working directory.
 | `payload.sh` | the payload: on-device menu, settings, start and stop |
 | `starchorus-collect.sh` | passive collector; writes `starchorus.json` |
 | `index.html` | the page, one self-contained file; it fetches only `starchorus.json` and sends nothing |
-| `starchorus-display.sh` | dashboard on the Pager's display |
-| `starchorus-serve.sh` | netcat fallback server for the page, used when no other web server is present |
+| `starchorus-display.sh` | the Overview on the Pager's display |
+| `starchorus-serve.sh` | netcat page server: what serves the page on a Pager without `uhttpd` and `python3` |
 | `LICENSE` | GNU General Public License, version 3 |
 
-On its first run the payload copies the collector, the page, the dashboard and the fallback server
+On its first run the payload copies the collector, the page, the Overview and the netcat server
 into `/root/loot/starchorus` and runs them from there; `starchorus.json` and the settings file
 `settings.conf` live in the same directory. A collector already present there is never overwritten.
-To take a newer version of this payload, delete `/root/loot/starchorus/starchorus-collect.sh` and
-start the payload again; your settings are kept.
+
+To upgrade, stop Starchorus, replace this payload directory, delete
+`/root/loot/starchorus/starchorus-collect.sh` and start the payload again; it copies the new files and
+your settings are kept. When the payload opens
+it compares the installed collector and Overview with itself, by version and by their `# Contract:`
+number (the interface the three share). If you replace the payload directory but not the installed
+files, a dialogue ('Installed …, payload …' or 'Installed files differ from the payload.') says so
+and names the file to delete.
 
 ## Requirements
 
 - The Pager with its recon service running. The collector reads the service's database read-only.
 - `sqlite3` and `jq`, both present on the Pager.
-- Optionally, a web server to serve the page: the payload uses `uhttpd`, otherwise `python3`,
-  otherwise the bundled fallback server (reliable for `curl`, less so for a browser). Without one,
-  the collector still writes `starchorus.json`, and the dashboard on the Pager works as usual.
+- A page server on the Pager: the payload uses `uhttpd` or `python3` where the Pager has them,
+  and otherwise the bundled netcat server, which is what a Pager normally has after its system
+  update. It answers one request at a time, which suits one browser. Without any server, the
+  collector still writes `starchorus.json`, and the Overview on the Pager works as usual.
 
 ## Running it
 
 1. On the Pager's dashboard, open **Payloads**, then **Reconnaissance**, then **Starchorus**.
-2. Choose **Start** and confirm 'Start collector, web page?'.
-3. The dashboard opens on the Pager's display. Key B opens its menu.
-4. On a laptop, tablet or phone connected over USB-C or the Pager's management Wi-Fi, open
-   `http://172.16.52.1:8199/` for the full sky.
+2. Choose **Start**. Nothing asks for confirmation, and nothing starts before you choose it.
+3. The 'Starting' spinner stays up until the first scan has been written (up to 20 seconds), and the
+   Overview opens on the Pager's display with a summary. It starts its wait for a key before it draws a
+   screen and keeps one open while it draws, so a press made while it reads is kept, and it never redraws by itself: key A draws the
+   screen again, Left and Right step through the other screens, and key B goes up one level, to the
+   list of screens and from there to the menu.
+4. Choose **Open on Phone** for a QR code of the page's address (firmware 1.1.1 or later; an older
+   firmware shows the address as text), or, on a laptop, tablet or phone connected over USB-C or the
+   Pager's management Wi-Fi, open `http://172.16.52.1:8199/` for the full sky.
 
-The payload's menu offers 'Start', 'Dashboard', 'Services' (collector and web page, each on or
-off), 'Options', 'Status', 'Stop' and 'Exit'. 'Exit' leaves running services running; 'Stop' ends
-the collector and the page server.
+The menu's title says whether Starchorus is running. While it runs, the menu offers 'Overview',
+'Open on Phone', 'Stop' and 'Settings'; while it is stopped, 'Start' and 'Settings'. Key B goes back
+one level and, on the menu, leaves the payload with everything still running; only 'Stop' ends the
+collector and the page server.
 
 Over ssh, the same payload works without the menu:
 
@@ -103,14 +118,15 @@ environment variable of the same meaning takes precedence over the file.
 | `port` | `8199` | `1024`–`65535`, not `1471` | port of the page server |
 | `bind` | `auto` | `auto`, `all` or an IPv4 address | address of the page server (command line only) |
 | `vendor` | `on` | `on`, `off` | vendor names from the local OUI list |
-| `own` | `off` | `on`, `off` | mark the Pager's own radios |
 | `survey` | `off` | `on`, `off` | channel occupancy from the survey dump |
-| `collector` | `on` | `on`, `off` | 'Start' starts the collector |
 | `page` | `on` | `on`, `off` | 'Start' starts the page server |
-| `dashboard` | `on` | `on`, `off` | open the dashboard after 'Start' |
 
-A window of one hour keeps each pass small enough for the Pager's CPU; 'All' and windows above
-six hours ask for confirmation first.
+In the menu's Settings, `interval` is 'Refresh', `window` is 'Show Last', `vendor` is 'Vendor
+Names', `survey` is 'Channel Load' and `page` is 'Web Page'. A change made there while Starchorus
+runs is applied when you leave Settings, except 'Web Page', which takes effect at once. A window of one hour keeps each pass small enough for the
+Pager's CPU; 'Show Last' also offers 'All (may be slow)'. Marking the Pager's own radios
+(`STARCHORUS_OWN=1`) and keeping the Overview closed after 'Start' (`STARCHORUS_DASHBOARD=0`) are
+environment variables only.
 
 ## Network exposure
 

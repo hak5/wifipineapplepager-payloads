@@ -9,7 +9,8 @@
 #               no injection, no association/connection, no channel jamming, no active
 #               features of the device's AP service. It only RECEIVES what the air already carries.
 # Author:       Starchorus
-# Version:      0.1.0
+# Version:      0.1.1
+# Contract:     2
 # Category:     reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Notes:        Monitor-mode capture (tcpdump / airodump-ng) and reading the already-passive
@@ -21,7 +22,9 @@
 # PASSIVITY CONTRACT (read this):
 #   Allowed here      : monitor-mode RX (airodump-ng with NO injection, tcpdump, tshark),
 #                       reading an existing recon SQLite DB read-only, channel *tuning*
-#                       (receiver retuning is not a transmission).
+#                       (receiver retuning is not a transmission), and, opt-in only
+#                       (STARCHORUS_SOURCE=pineap), the AP service's two read-only recon list
+#                       commands (RECON APS / RECON DEVICES, format=json; docs/device-notes.md V-3).
 #   Never done here   : aireplay/mdk (deauth), hostapd/airbase (rogue AP), hcxdumptool active,
 #                       besside/wifite, associating to any BSS, AP-service impersonation / beacon
 #                       responses / SSID pool broadcast. This script contains none of those.
@@ -39,14 +42,27 @@
 #   STARCHORUS_INTERVAL       Seconds between JSON rewrites.                 (default 5)
 #   STARCHORUS_OUTDIR         Directory for starchorus.json.                      (default /tmp/starchorus)
 #   STARCHORUS_IFACE          Monitor interface to use, or "auto" to detect. (default auto)
-#   STARCHORUS_SOURCE         auto|capture|recondb|iwscan  data source.      (default auto)
+#   STARCHORUS_SOURCE         auto|capture|recondb|pineap|iwscan  data source. pineap = the AP service's
+#                        own recon lists (read-only commands, opt-in; see PINEAP below).  (default auto)
+#   STARCHORUS_PINEAP_CALLS   pineap only: recent = ONE bounded RECON DEVICES (sort=time sortdir=desc limit=400; its passivity is
+#                        checked on the device, the ordering and the cut are still to be looked at, device-notes §5a and §6a),
+#                        the access points taken from the beacon records in it; full = RECON APS + RECON DEVICES, both
+#                        unbounded, so every device of the AP service's session is parsed (about 22 ms of the device's CPU
+#                        each: 46 s for 2,100 devices).  (default recent)
 #   STARCHORUS_RECON_DB       Path to recon SQLite DB, or "auto" to find it. (default auto)
 #   STARCHORUS_ALLOW_ACTIVE   1 = allow the ACTIVE `iw scan` fallback.       (default 0 = never)
 #   STARCHORUS_CREATE_MON     1 = allow creating a monitor VIF if none.      (default 1)
-#   STARCHORUS_MAX_AGE        recon.db only: show only devices seen in the
+#   STARCHORUS_MAX_AGE        recon.db and pineap only: show only devices seen in the
 #                        last N seconds (live-presence view). 0 = off,
 #                        show the full accumulated history.             (default 0)
-#   STARCHORUS_CAPDIR         Where capture files / DB work copy are written.(default $OUTDIR/cap)
+#   STARCHORUS_CAPDIR         Where capture files, the vendor cache and the OUI index are written.   (default $OUTDIR/cap)
+#   STARCHORUS_TMPDIR         recondb and pineap only: where the work copy of recon.db lives (RAM: /tmp is tmpfs on
+#                        the device, so the 3.5 MB copy is not written to flash every cycle), and, for pineap, the
+#                        security cache starchorus-sec.txt (not a writable directory: every access point reads
+#                        Unknown). With less room than the database copy needs, $CAPDIR is used for that copy.   (default /tmp)
+#   STARCHORUS_SKIP_UNCHANGED  recondb only: 1 = a cycle whose recon.db (size, mtime, journal) is the same as at
+#                        the last full pass, and in which no row can have left the window, only refreshes
+#                        "generated" in the document of that pass; 0 = always rebuild.   (default 1)
 #   STARCHORUS_PIDDIR         Where pidfiles live.                           (default $OUTDIR)
 #   STARCHORUS_VENDOR         1 = add the optional "vendor" / "randomized" fields via a LOCAL,
 #                        passive MAC-prefix (OUI) file lookup; 0 = never (no post-pass:
@@ -68,18 +84,18 @@
 #   STARCHORUS_HOMING_BSSID   one access point to home in on: adds a top-level "homing": {"bssid","dbm","peak","t"} taken from that AP's row
 #                        in the same document (a station / unknown / own BSSID is refused). Also read from the first line of
 #                        $STARCHORUS_OUTDIR/homing.target (the device writes it). Coarse: one reading per cycle.  (default: none)
-#   STARCHORUS_APCLI_RO       1 = apcli_ro() may run its three read-only AP-service CLI commands; nothing calls it
-#                        in this release (spec §14.6). The refusal rules are self-tested.  (default 0)
+#   STARCHORUS_APCLI_RO       1 = apcli_ro() may run its three literal read-only AP-service CLI lines (see there); nothing calls it
+#                        except the pineap source, which switches it on for itself (spec §14.6). The refusal rules are self-tested.  (default 0)
 #
 # OPTIONAL JSON FIELDS (all additive; a field is simply ABSENT when unknown, never null):
 #   AP     : "vendor" (string, from the OUI file, every source), "rate" (int, Mbit/s: airodump Speed,
 #            or the highest legacy rate in a tcpdump beacon, <= 54: without -v tcpdump prints only the
 #            Supported Rates IE), "last_seen" (int, Unix seconds, recon.db MAX(time), running schema
-#            only; airodump's local-time text is deliberately NOT converted: DST-ambiguous). tcpdump
+#            only, and the pineap source's `time`; airodump's local-time text is deliberately NOT converted: DST-ambiguous). tcpdump
 #            also fills "channel"/"freq"/"band" from "CH: n" (or the radiotap MHz prefix) and
 #            "security" = "Secured"/"Open" from the PRIVACY bit.
 #   client : "vendor", "randomized": true (locally-administered / private MAC, no lookup
-#            done), "last_seen" (recon.db only). Same for associated and unassociated clients.
+#            done), "last_seen" (recon.db and pineap only). Same for associated and unassociated clients.
 #   AP, recon.db only (never a station): "akm" (["psk","sae",...]), "cipher" ({"group", "pairwise": []}),
 #            "auth" (["open","sae",...]) decoded from libwifi's encryption_info (layout pinned above
 #            build_from_recondb); "security" says OWE for OWE, "WPA2-Enterprise"/"WPA3-Enterprise" for
@@ -105,6 +121,9 @@ ALLOW_ACTIVE=${STARCHORUS_ALLOW_ACTIVE:-0}
 CREATE_MON=${STARCHORUS_CREATE_MON:-1}
 MAX_AGE=${STARCHORUS_MAX_AGE:-0}
 CAPDIR=${STARCHORUS_CAPDIR:-$OUTDIR/cap}
+TMPDIR_RAM=${STARCHORUS_TMPDIR:-/tmp}              # recon.db work copy: tmpfs on the device (CAPDIR is eMMC)
+SKIP_UNCHANGED=${STARCHORUS_SKIP_UNCHANGED:-1}     # 1 = a cycle with an unchanged recon.db only refreshes "generated"
+PINEAP_CALLS=${STARCHORUS_PINEAP_CALLS:-recent}    # pineap source: recent = one bounded RECON DEVICES; full = RECON APS + RECON DEVICES (every device parsed)
 PIDDIR=${STARCHORUS_PIDDIR:-$OUTDIR}
 VENDOR=${STARCHORUS_VENDOR:-1}
 OUI_FILE=${STARCHORUS_OUI_FILE:-auto}
@@ -113,7 +132,7 @@ HOPINFO=${STARCHORUS_HOPINFO:-0}                  # 1 = top-level channels[] {fr
 SURVEY=${STARCHORUS_SURVEY:-0}                    # 1 = add busy_pct/noise to channels[] from `iw dev IF survey dump` (read-only)
 OWN=${STARCHORUS_OWN:-0}                          # 1 = center.own_bssids[] (interface MACs from sysfs) and center.own_ssids[] (a file, see below)
 OWN_SSID_FILE=${STARCHORUS_OWN_SSID_FILE:-}       # one SSID per line; the ONLY source of own_ssids (never the AP service's SSID pool)
-APCLI_RO=${STARCHORUS_APCLI_RO:-0}              # 1 = apcli_ro() may run its three read-only AP-service CLI commands (spec §14.6); nothing calls it
+APCLI_RO=${STARCHORUS_APCLI_RO:-0}              # 1 = apcli_ro() may run its three read-only AP-service CLI lines (spec §14.6); only the pineap source calls it
 # The homing target: ONE access point the operator chose (this variable, or the first line of $OUTDIR/homing.target that the
 # device writes). It only adds a top-level "homing" reading taken from the AP's row in the SAME document; a station, a BSSID
 # not in this document's aps[] and one of our own transmitters are refused (no field, no error). Nothing is transmitted or looked up.
@@ -134,6 +153,8 @@ RESOLVED=none
 OUI_PATH=""         # resolved OUI file ("" = none found -> no vendor field)
 OUI_CACHE=""        # $CAPDIR/oui-cache.txt once the vendor lookup is active ("" = no cache)
 OUI_HDR=""          # header line the cache must carry for OUI_PATH (set by setup_vendor)
+OUI_IDX=""          # $CAPDIR/oui-index once it holds the lines of OUI_PATH by first octet ("" = none: a new prefix costs a scan of the OUI file)
+OUI_IDX_MAX=1500    # an octet with more lines than this in the OUI file is indexed by its first two octets (see oui_index)
 VENDOR_NEWF=""      # this instance's temp file of new cache lines (removed by cleanup)
 CACHE_LOCKED=0      # lock depth: >0 while this instance holds $OUI_CACHE.lock (released by cleanup)
 VENDOR_STATE=""     # last logged vendor-setup state: setup_vendor logs only when it changes
@@ -141,6 +162,31 @@ STARTED_AIRODUMP=0  # 1 if THIS instance started airodump (only then does cleanu
 LOCK_BUDGET=100     # cache_lock: wait at most this long (0.1-s units) for a live holder
 LOCK_BUSY_UNTIL=0   # epoch until which cache writes are skipped after a lock give-up (backoff)
 LOCK_BUSY_LOGGED=0  # a lock give-up is logged once per episode, not every cycle
+VENDOR_DROP_LOGGED=0  # a dropped cache merge is logged once per episode too
+QDB=""              # the recon.db file the queries read: the RAM copy, the CAPDIR copy or the live file
+QDB_RAM=0           # 1 while QDB is a RAM copy this process made (recon_workdone removes it)
+RDB_PATH=""         # find_recon_db result kept for the daemon's lifetime (RDB_KEY = the setting it was found for)
+RDB_KEY=""
+HAS_TIME=""         # ssid has a `time` column: 1 yes, 0 no, "" not known yet (read from the first batch)
+RS_SIG=""           # recon.db files (size, mtime, journal) at the last full pass; "" = none, so the next cycle rebuilds
+RS_RAW=""           # the same for this cycle, taken once by recon_sample ("" = unknown); the skip test compares it with RS_SIG
+RS_NEW=""           # RS_RAW if the next cycle may skip on it (no journal, not changed in the last 2 s), else ""
+RS_SZ=0             # size of recon.db in bytes, from the same sample (0 = unknown)
+RS_TAKEN=0          # 1 = run_cycle has taken this cycle's sample, build_from_recondb must not take another
+RS_WMIN=""          # build_from_recondb: the oldest `time` of any row the window counted ("" = none / not asked)
+RS_MIN=""           # the same, kept from the last full pass: the clock the skip test runs the window by ("" = unknown: no skip while there is a window)
+RS_DOCV=""          # the document of the last full pass, in this process's memory; a skipped cycle publishes THIS (with a new generated), never what $OUTFILE holds now
+RS_DOCN=""          # its line count
+CX_EMBED=0          # 1 = build_from_recondb puts center_extra() into the document itself (run_cycle then needs no add_center pass)
+CENTER_DONE=0       # 1 = the document of this cycle has its center extras already
+RS_TS=0             # when that pass ran
+PN_FELL=0           # pineap source: 1 while it has fallen back to recon.db (logged once per episode)
+PSEC_T=0            # pineap source: when the security cache was last refreshed from recon.db
+PSEC_FAIL=0         # pineap source: 1 while the last security lookup failed (logged once per episode)
+RQ_BAIL=""          # "-bail" while the pineap source's security lookup runs its query (see recondb_query)
+RS_CFG=""           # the settings the document depends on, then (rs_cfg)
+RS_SKIPS=0          # cycles skipped since the last full pass
+SKIP_MAX=20         # skip at most this many cycles in a row, then rebuild anyway (belt and braces)
 
 # --------------------------------------------------------------------------- small helpers
 log() { printf '[starchorus] %s\n' "$*" >&2; }   # printf: dash/bash-as-sh echo would eat \t \b \n in paths
@@ -150,6 +196,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 # Strips NUL..BS, VT..US (incl CR) and DEL. `"` `\` `\t` are escaped later in awk.
 clean_ctrl() { tr -d '\000-\010\013-\037\177'; }
 RECON_TAB=$(printf '\t')   # recon.db column separator: the one control byte clean_ctrl keeps besides LF
+NL=$(printf '\nx'); NL=${NL%x}   # a newline (a command substitution drops a trailing one, hence the x)
 
 # Is a PID alive?  kill -0 is POSIX and works under busybox, but it also FAILS (EPERM) for a live
 # process of another user (a mixed-user dev box; the device runs everything as root), so a failed
@@ -209,6 +256,24 @@ is_own_child() {
     return 1
 }
 
+# Is $1 the pid of a LIVE process whose command line contains $2? The pidfiles live in PIDDIR, which on the device is
+# persistent (/root/loot/starchorus), so after a reboot -- or after a crash and a long uptime -- the pid they name may
+# belong to anything. --stop and --status therefore believe a pidfile only while its pid still runs what was started
+# there: the loop runs this script, the capture runs airodump. /proc/<pid>/cmdline on Linux (empty for a zombie or a
+# kernel thread: not ours), else `ps -p PID -o args=` / `ps w`. No command line readable at all: not ours, because a
+# stop must never signal a stranger (holder_alive above decides the other way round, for a lock).
+pid_ours() {
+    pid_alive "$1" || return 1
+    if [ -d "/proc/$1" ]; then
+        oc=$(tr '\000' ' ' < "/proc/$1/cmdline" 2>/dev/null)
+    else
+        oc=$(ps -p "$1" -o args= 2>/dev/null)
+        [ -n "$oc" ] || oc=$(ps w 2>/dev/null | awk -v p="$1" '$1==p')
+    fi
+    case "$oc" in *"$2"*) return 0 ;; esac
+    return 1
+}
+
 # Kill every running collector DAEMON LOOP, with or without a pidfile (the backstop for the pidfile
 # logic): command lines naming this script but NO "--" flag, so --stop/--once/--status/--selftest
 # runs, including THIS one, never match; our own PID is skipped.
@@ -240,37 +305,39 @@ kill_loops() {
 }
 
 # --------------------------------------------------------------------------- --stop / --status
-stop_pidfile() {   # $1 = pidfile, $2 = label: kill the live pid it names (sets stopped=1), drop the file
+stop_pidfile() {   # $1 = pidfile, $2 = label, $3 = what its command line holds: kill the pid it names only while it is ours (sets stopped=1), drop the file
     [ -f "$1" ] || return 0
     sp=$(cat "$1" 2>/dev/null)
-    if pid_alive "$sp"; then
+    if pid_ours "$sp" "$3"; then
         kill "$sp" 2>/dev/null && log "stopped $2 pid $sp" && stopped=1
+    elif pid_alive "$sp"; then
+        log "left pid $sp alone: it is no $2 any more (stale $(basename "$1"))"
     fi
     rm -f "$1"
 }
 stop_instances() {
     stopped=0
     own_loop=$(cat "$LOOP_PIDFILE" 2>/dev/null)   # read before stop_pidfile removes the file: not re-reported by kill_loops
-    stop_pidfile "$LOOP_PIDFILE" "collector loop"
+    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE"
     # backstop: any collector loop without a live pidfile (e.g. its pidfile was overwritten by a re-run)
     # shellcheck disable=SC2009  # see kill_loops(): ps+grep is the portable count here
     before=$(ps w 2>/dev/null | grep "$SELF_BASE" | grep -v grep | grep -v -- '--' | grep -vc "^ *$$ ")
     kill_loops stop "$own_loop"
     [ "${before:-0}" -gt 0 ] 2>/dev/null && stopped=1
-    stop_pidfile "$AIRODUMP_PIDFILE" airodump
+    stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump
     [ "$stopped" = "1" ] || log "nothing running for this OUTDIR ($OUTDIR)"
 }
 
-status_pidfile() {   # $1 = label, $2 = pidfile
-    if [ -f "$2" ] && pid_alive "$(cat "$2" 2>/dev/null)"; then
+status_pidfile() {   # $1 = label, $2 = pidfile, $3 = what the command line of a running one holds
+    if [ -f "$2" ] && pid_ours "$(cat "$2" 2>/dev/null)" "$3"; then
         log "$1 RUNNING (pid $(cat "$2"))"
     else
         log "$1 not running"
     fi
 }
 status_instances() {
-    status_pidfile loop "$LOOP_PIDFILE"
-    status_pidfile airodump "$AIRODUMP_PIDFILE"
+    status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE"
+    status_pidfile airodump "$AIRODUMP_PIDFILE" airodump
     [ -f "$OUTFILE" ] && log "last JSON: $OUTFILE ($(wc -c < "$OUTFILE" 2>/dev/null) bytes)"
 }
 
@@ -418,6 +485,11 @@ resolve_source() {
     if [ "$SOURCE" != "auto" ]; then
         RESOLVED=$SOURCE
         [ "$RESOLVED" = "capture" ] && setup_monitor_iface
+        if [ "$RESOLVED" = "pineap" ]; then
+            # asking for this source IS the opt-in for its two read-only commands (STARCHORUS_APCLI_RO stays 0 otherwise)
+            APCLI_RO=1
+            apcli_ro present || { log "STARCHORUS_SOURCE=pineap, but the AP service command line is not on this device"; RESOLVED=none; }
+        fi
         return 0
     fi
     setup_monitor_iface
@@ -471,11 +543,14 @@ cleanup() {
     trap - INT TERM EXIT
     if [ "$STARTED_AIRODUMP" = "1" ] && [ -f "$AIRODUMP_PIDFILE" ]; then
         p=$(cat "$AIRODUMP_PIDFILE" 2>/dev/null)
-        pid_alive "$p" && kill "$p" 2>/dev/null
+        pid_ours "$p" airodump && kill "$p" 2>/dev/null
         rm -f "$AIRODUMP_PIDFILE"
     fi
     [ "$(cat "$LOOP_PIDFILE" 2>/dev/null)" = "$$" ] && rm -f "$LOOP_PIDFILE"
-    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.v" 2>/dev/null        # a cycle cut short by the signal
+    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.v" "$OUTFILE.gen$$" 2>/dev/null        # a cycle cut short by the signal
+    rm -rf "$CAPDIR"/oui-index.new.$$.* 2>/dev/null                                  # ... or an index build
+    rm -f "$TMPDIR_RAM/starchorus-pineap-$$.unk" "$TMPDIR_RAM/starchorus-pineap-$$.neg" "$TMPDIR_RAM/starchorus-pineap-$$.all" 2>/dev/null
+    rm -f "$TMPDIR_RAM/starchorus-recon-$$.db" "$TMPDIR_RAM/starchorus-recon-$$.db-wal" "$TMPDIR_RAM/starchorus-recon-$$.db-shm" 2>/dev/null   # ... and its RAM copy of recon.db
     [ -n "$VENDOR_NEWF" ] && rm -f "$VENDOR_NEWF" 2>/dev/null
     [ "${CACHE_LOCKED:-0}" -gt 0 ] 2>/dev/null && CACHE_LOCKED=1  # release fully, whatever the depth
     cache_unlock
@@ -490,7 +565,9 @@ cleanup() {
 # Shared awk helpers, prepended to every JSON-emitting awk program so the emission stays identical
 # across sources. POSIX/busybox-awk safe: no gensub, no asorti, no length(array), no {n} interval regex.
 AWK_JSON_HELPERS='
-    function jesc(s,   i,c,o,n){ o=""; n=length(s)
+    function jesc(s,   i,c,o,n){
+        if(!index(s,"\\") && !index(s,"\"") && !index(s,"\t")) return s     # nothing to escape (nearly always): three searches, not a walk over the string
+        o=""; n=length(s)
         for(i=1;i<=n;i++){ c=substr(s,i,1)
             if(c=="\\") o=o "\\\\"
             else if(c=="\"") o=o "\\\""
@@ -498,8 +575,8 @@ AWK_JSON_HELPERS='
             else o=o c }
         return o }
     function numval(v){ if(v ~ /^-?[0-9]+$/) return v; return "null" }
-    function macfmt(s,   t,i,o){ t=s; gsub(/[^0-9A-Fa-f]/,"",t)
-        if(length(t)==12){ o=""; for(i=1;i<=12;i+=2){ o=o (i>1?":":"") tolower(substr(t,i,2)) } return o }
+    function macfmt(s,   t){ t=s; gsub(/[^0-9A-Fa-f]/,"",t)
+        if(length(t)==12){ t=tolower(t); return substr(t,1,2) ":" substr(t,3,2) ":" substr(t,5,2) ":" substr(t,7,2) ":" substr(t,9,2) ":" substr(t,11,2) }
         return s }
     function ismac(s){ return (length(s)==17 && s ~ /^[0-9A-Fa-f:]+$/) }
     function band_from_freq(f){
@@ -528,7 +605,7 @@ AWK_JSON_HELPERS='
         if(ch>=1) return 5950+ch*5
         return "" }
     # document pieces shared by every emitter (ts, center and src are set by each emitter via -v)
-    function doc_head(){ printf "{\n  \"generated\": %s,\n  \"center\": {\"label\": \"%s\"},\n  \"source\": \"%s\",\n", ts, jesc(center), src }
+    function doc_head(){ printf "{\n  \"generated\": %s,\n  \"center\": {\"label\": \"%s\"%s},\n  \"source\": \"%s\",\n", ts, jesc(center), ENVIRON["SC_CX"], src }
     function ap_json(pbss,pssid,pch,pband,pfreq,prssi,psec,pextra,pcli){
         return sprintf("    {\"bssid\": \"%s\", \"ssid\": \"%s\", \"channel\": %s, \"band\": \"%s\", \"freq\": %s, \"rssi\": %s, \"security\": \"%s\"%s, \"clients\": [%s]}", pbss, pssid, pch, pband, pfreq, prssi, psec, pextra, pcli) }
     function cl_json(cmac,crssi,cextra){ return sprintf("    {\"mac\": \"%s\", \"rssi\": %s%s}", cmac, crssi, cextra) }
@@ -539,10 +616,13 @@ AWK_JSON_HELPERS='
 # that is already on the device (the firmware ships /lib/hak5/oui.txt; nmap and macchanger ship their
 # own). Nothing is fetched, nothing is sent. Implemented as ONE awk post-pass over the finished
 # emitter JSON (all sources get it for free, the emitters stay untouched):
-#   * loads the persistent prefix cache $CAPDIR/oui-cache.txt  (PREFIX<TAB>vendor; an empty
-#     vendor is a NEGATIVE entry = "not in the file", so it is never scanned for again),
-#   * collects the prefixes of every "mac"/"bssid" value that is NOT yet cached,
-#   * scans the OUI file ONCE for exactly those prefixes (stops early when all are found),
+#   * collects the prefixes of every "mac"/"bssid" value and looks them up in the persistent prefix
+#     cache $CAPDIR/oui-cache.txt  (PREFIX<TAB>vendor; an empty vendor is a NEGATIVE entry = "not in
+#     the file", so it is never looked up again),
+#   * reads the OUI file for exactly the prefixes that are NOT yet cached, once (stops early when all
+#     are found): not the whole file but the index of it (oui_index: the file split by first octet,
+#     built once per OUI file, a few hundred lines to read instead of 38,959); without an index the
+#     whole file, as before,
 #   * appends the new hits + negatives to the cache, then rewrites the JSON lines, inserting
 #     `, "vendor": "..."` right after the MAC value (jesc-escaped) or `, "randomized": true`
 #     for locally-administered client MACs (U/L bit set: 2nd hex digit 2/6/A/E). Those are
@@ -601,12 +681,79 @@ find_oui_file() {
     return 1
 }
 
+# The OUI index. A new prefix used to cost a pass over the whole OUI file (38,959 lines on the device, about 14 s of its CPU in awk), and in a
+# busy place a new prefix shows up in most cycles. The index is the OUI file split by first octet: $CAPDIR/oui-index/00 ... FF (upper case), each
+# holding that octet's lines as they stand in the file, in file order (a few hundred lines each), and hdr: the header line the cache carries for
+# the same OUI file (path, size, mtime), and a second line naming the octets that are split further. The IEEE list has a third of its lines
+# under 00, so an octet with more than OUI_IDX_MAX lines (the two biggest at most) is split by its first TWO octets (00AB, ...: its lines are in
+# those files only). A lookup reads the files of the prefixes it needs with the same parser as a pass over the file, so the vendor strings, the
+# first-line-wins rule and the negative entries are the same by construction. The index is built once per OUI file (setup_vendor: at start and
+# when the file changed) in a directory of its own, moved into place under the cache lock with hdr written last: a directory with a matching
+# hdr and all its files is complete. A missing or mismatching index is no error: the awk scans the OUI file instead, as before.
+# Only lines that start with two hex digits are kept. In a split octet a line must also yield its second octet (compact `AABBCC` or separated
+# `AA-BB-CC`), or the parser would reject it anyway.
+# shellcheck disable=SC2016  # awk program text
+AWK_OUIIDX='
+    BEGIN{ d=ENVIRON["SC_IDXDIR"]; nh=split(ENVIRON["SC_IDXHEAVY"], HV, " "); for(i=1;i<=nh;i++) HEAVY[HV[i]]=1
+        H16="0123456789ABCDEF"; L16="0123456789abcdef"
+        for(i=1;i<=16;i++) for(j=1;j<=16;j++){ k=substr(H16,i,1) substr(H16,j,1); F[k]=d "/" k      # F: the file of each octet
+            KEY[k]=k; KEY[substr(L16,i,1) substr(H16,j,1)]=k; KEY[substr(H16,i,1) substr(L16,j,1)]=k; KEY[substr(L16,i,1) substr(L16,j,1)]=k } }   # KEY: hex pair in any case -> octet
+    { k=KEY[substr($0,1,2)]; if(k==""){ sk++; next }
+      if(nh>0 && (k in HEAVY)){ c3=substr($0,3,1)
+          o2=toupper((c3==" " || c3==":" || c3=="-") ? substr($0,4,2) : substr($0,3,2))
+          if(!(o2 in F)){ sk++; next }
+          k=k o2; if(!(k in F)) F[k]=d "/" k }
+      print > F[k] }
+    END{ for(i=0;i<256;i++){ k=sprintf("%02X",i)      # a file for every octet, empty if the OUI file has none: a missing one means a damaged index
+             if(k in HEAVY){ for(j=0;j<256;j++) printf "" > (d "/" k sprintf("%02X",j)) }
+             else printf "" > (d "/" k) }
+        print NR-sk }
+'
+oui_index_ok() {   # 0 = $CAPDIR/oui-index was built from the OUI file OUI_HDR names and has all its files
+    ih=""; ovf=""; { { IFS= read -r ih; IFS= read -r ovf; } < "$CAPDIR/oui-index/hdr"; } 2>/dev/null
+    [ -n "$OUI_HDR" ] && [ "$ih" = "$OUI_HDR" ] || return 1
+    # shellcheck disable=SC2086  # the word splitting is the count: the split octets
+    set -- $ovf
+    ix_c=$((257 + 255 * $#))      # 256 octets and hdr, 255 more for each split octet
+    set -- "$CAPDIR/oui-index"/*
+    [ $# -eq $ix_c ]
+}
+oui_index() {   # sets OUI_IDX; builds the index when it is not there for this OUI file
+    OUI_IDX=""
+    [ -n "$OUI_CACHE" ] && [ -n "$OUI_PATH" ] || return 0
+    ix="$CAPDIR/oui-index"
+    if oui_index_ok; then OUI_IDX=$ix; return 0; fi
+    nd=$(mktemp -d "$ix.new.$$.XXXXXX" 2>/dev/null) && [ -d "$nd" ] || return 0       # (named for this pid: the start-up sweep removes those of dead ones)
+    ix_t0=$(date +%s 2>/dev/null)
+    ix_h=$(cut -c1-2 "$OUI_PATH" 2>/dev/null | sort -f | uniq -c -i | sort -rn | head -n 2 | \
+           awk -v t="$OUI_IDX_MAX" '$1 + 0 > t + 0 { k = toupper($2); if (k ~ /^[0-9A-F][0-9A-F]$/) printf "%s%s", (n++ ? " " : ""), k }')
+    # (the awk keeps up to 256 + 255 per split octet files open: the soft limit of a desktop shell is lower than that)
+    # shellcheck disable=SC3045  # BusyBox ash, dash and bash have ulimit -n; where it fails the limit stays and a build that cannot open its files fails whole
+    ix_n=$(ulimit -n 1024 2>/dev/null; SC_IDXDIR="$nd" SC_IDXHEAVY="$ix_h" awk "$AWK_OUIIDX" "$OUI_PATH" 2>/dev/null); ix_rc=$?
+    # every line the awk kept must be on disk: a file cut short (no room) would turn into negative cache entries for good
+    if [ "$ix_rc" = 0 ] && [ "${ix_n:-0}" -gt 0 ] 2>/dev/null && [ "$(cat "$nd"/* 2>/dev/null | wc -l | tr -d ' ')" = "$ix_n" ] \
+       && { printf '%s\n%s\n' "$OUI_HDR" "$ix_h" > "$nd/hdr"; } 2>/dev/null; then
+        cache_lock; ix_lr=$?
+        if [ "$ix_lr" != 2 ]; then
+            if oui_index_ok; then :           # another instance has just built the same index
+            else rm -rf "$ix" 2>/dev/null; mv "$nd" "$ix" 2>/dev/null; rm -rf "${ix:?}/${nd##*/}" 2>/dev/null; fi
+        fi
+        cache_unlock
+        if oui_index_ok; then
+            OUI_IDX=$ix
+            ix_t1=$(date +%s 2>/dev/null)
+            [ -z "$ix_t0" ] || [ -z "$ix_t1" ] || log "vendor index: $ix_n lines of $OUI_PATH in $ix${ix_h:+ (octets $ix_h split by their first two)}, $((ix_t1 - ix_t0)) s, built once per OUI file"
+        fi
+    fi
+    rm -rf "$nd" 2>/dev/null
+}
+
 # Called at startup (after CAPDIR exists) and again every 120 cycles by the daemon loop, so a
 # replaced OUI file (firmware update, swapped USB stick) is picked up without a restart. Sets
 # OUI_PATH / OUI_CACHE; logs only when the outcome changed. With STARCHORUS_VENDOR=0 the post-pass is
 # never run (plain emitter JSON).
 setup_vendor() {
-    OUI_PATH=""; OUI_CACHE=""
+    OUI_PATH=""; OUI_CACHE=""; OUI_IDX=""
     if [ "$VENDOR" != "1" ]; then
         [ "$VENDOR_STATE" = "off" ] || log "vendor lookup disabled (STARCHORUS_VENDOR=$VENDOR)"
         VENDOR_STATE="off"; return 0
@@ -622,7 +769,7 @@ setup_vendor() {
         fi
         VENDOR_STATE=$st; return 0
     fi
-    sz=$({ wc -c < "$OUI_PATH"; } 2>/dev/null | tr -d ' ')   # braces: the shell's own "cannot open" too
+    file_size "$OUI_PATH"; sz=$FSZ
     mt=$(file_mtime "$OUI_PATH")
     hdr="# oui=$OUI_PATH size=${sz:-0} mtime=${mt:-0}"
     vc="$CAPDIR/oui-cache.txt"
@@ -640,16 +787,19 @@ setup_vendor() {
         OUI_CACHE=$vc
         cache_repair          # a crash mid-append may have left an unterminated last line
     fi
-    st="$hdr|${OUI_CACHE:-nocache}"
+    oui_index
+    st="$hdr|${OUI_CACHE:-nocache}|${OUI_IDX:-noindex}"
     if [ "$VENDOR_STATE" != "$st" ]; then
         [ -n "$OUI_CACHE" ] || log "warning: cannot write $vc; vendor cache off (OUI file scanned every cycle)"
-        log "vendor lookup: $OUI_PATH${OUI_CACHE:+ (cache $OUI_CACHE)}"
+        log "vendor lookup: $OUI_PATH${OUI_CACHE:+ (cache $OUI_CACHE)}${OUI_IDX:+ (index $OUI_IDX)}"
+        [ -z "$OUI_CACHE" ] || [ -n "$OUI_IDX" ] || log "warning: no OUI index in $CAPDIR; a new prefix costs a scan of the OUI file"
     fi
     VENDOR_STATE=$st
 }
 
 # awk body of the post-pass. Needs AWK_JSON_HELPERS (jesc) prepended. Environment: SC_CACHE (file or ""),
-# SC_OUI (file or ""), SC_NEWF (append target for new cache lines, or ""), SC_TERM (see BEGIN).
+# SC_OUI (file or ""), SC_IDX (the OUI index directory, or "") with SC_HDR (the header its hdr file must carry),
+# SC_NEWF (append target for new cache lines, or ""), SC_TERM (see BEGIN).
 # shellcheck disable=SC2016  # awk program text: $0 is awk's field, deliberately not expanded
 AWK_VENDOR='
     function vtrim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
@@ -657,14 +807,16 @@ AWK_VENDOR='
         for(i=1;i<=n;i++){ c=substr(s,i,1); if(index(CTRL,c)==0) o=o c }
         return o }
     function cload(l,   p,v){
+        # Only the prefixes this document has are looked at at all (seen, from collect): a line for any other costs two operations, not eleven.
         # STRICT: exactly 6 upper hex + ONE tab + a vendor without further tab. A torn, fused or
         # foreign line is ignored, so its prefix is simply looked up again. Control bytes in the
         # vendor part (bit rot, an editor that left a CR) are stripped -- served from the cache they
         # would otherwise make EVERY cycle emit invalid JSON. (The regex gate keeps the per-line
         # cost near zero for the usual plain-ASCII cache.)
+        p=substr(l,1,6); if(!(p in seen)) return
         if(substr(l,1,1)=="#") return
         if(index(l,"\t")!=7) return
-        p=substr(l,1,6); if(p !~ /^[0-9A-F]+$/) return
+        if(p !~ /^[0-9A-F]+$/) return
         v=substr(l,8); if(index(v,"\t")>0) return
         if(v ~ /[^ -~]/) v=vstrip(v)
         if(!(p in V)) V[p]=v }
@@ -682,49 +834,78 @@ AWK_VENDOR='
     function pfx(mac){ return toupper(substr(mac,1,2) substr(mac,4,2) substr(mac,7,2)) }
     function laa(mac){ return (substr(mac,2,1) ~ /[26AEae]/) }
     function ismac17(m){ return (m ~ /^[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]$/) }
+    # collect() looks at every MAC of the document once and remembers what it found (PF: MAC -> prefix, LA: locally administered), so that enrich()
+    # does not have to work it out again; a MAC collect() did not see (the two walk the line a character apart) is judged afresh, as before.
     function collect(line,key,   pos,rest,mac,p,kl){ rest=line; kl=length(key)
         while((pos=index(rest,key))>0){ mac=substr(rest,pos+kl,17)
-            if(ismac17(mac) && !laa(mac)){ p=pfx(mac); if(!(p in V)) want[p]=1 }
+            if(ismac17(mac)){ if(laa(mac)) LA[mac]=1; else { p=pfx(mac); PF[mac]=p; seen[p]=1 } }
             rest=substr(rest,pos+kl+17) } }
-    function enrich(line,key,iscl,   out,pos,rest,mac,p,ins,kl){ out=""; rest=line; kl=length(key)
+    function enrich(line,key,iscl,   out,pos,rest,mac,p,ins,kl,kind){ out=""; rest=line; kl=length(key)
         while((pos=index(rest,key))>0){ mac=substr(rest,pos+kl,17); ins=""
-            if(ismac17(mac) && substr(rest,pos+kl+17,1)=="\""){
-                if(laa(mac)){ if(iscl) ins=", \"randomized\": true" }
-                else { p=pfx(mac); if((p in V) && V[p]!="") ins=", \"vendor\": \"" jesc(V[p]) "\"" } }
+            if(mac in PF){ kind=1; p=PF[mac] }
+            else if(mac in LA) kind=2
+            else if(ismac17(mac)){ if(laa(mac)) kind=2; else { kind=1; p=pfx(mac) } }
+            else kind=0
+            if(kind>0 && substr(rest,pos+kl+17,1)=="\""){
+                if(kind==2){ if(iscl) ins=", \"randomized\": true" }
+                else if((p in V) && V[p]!="") ins=", \"vendor\": \"" jesc(V[p]) "\"" }
             out=out substr(rest,1,pos+kl+17) ins
             rest=substr(rest,pos+kl+18) }
         return out rest }
-    BEGIN{ cache=ENVIRON["SC_CACHE"]; oui=ENVIRON["SC_OUI"]; newf=ENVIRON["SC_NEWF"]
+    # One file in an OUI format (the OUI file itself, or one file of the index) read until every wanted prefix is found. Returns the last getline
+    # status: < 0 = the file could not be read. A line that cannot be a wanted prefix is skipped before the parser sees it (the parser costs about
+    # 0.36 ms a line on the device, these tests a third of that or less); they only drop lines the parser would not have taken for a wanted prefix:
+    # gate 1 (the file as a whole): the first octet is not wanted; gate 2 (a file of the index, all of one octet): the first six hex digits are
+    # neither wanted as they stand (AABBCC) nor as the separated form (AA-BB-CC, any of blank colon dash).
+    function ouiscan(f, gate,   r,line,p,rest){
+        while((r=(getline line < f))>0){
+            if(gate==1){ if(!(toupper(substr(line,1,2)) in OCT)) continue }
+            else if(gate==2){ p=toupper(substr(line,1,6)); if(!(p in want)){ p=toupper(substr(line,1,2) substr(line,4,2) substr(line,7,2)); if(!(p in want)) continue } }
+            if(substr(line,length(line),1)==CR) line=substr(line,1,length(line)-1)
+            if(!match(line,/^[0-9A-Fa-f]+/)) continue
+            if(RLENGTH==6){ p=substr(line,1,6); rest=substr(line,7) }
+            else if(RLENGTH==2 && line ~ /^[0-9A-Fa-f][0-9A-Fa-f][ :-][0-9A-Fa-f][0-9A-Fa-f][ :-][0-9A-Fa-f][0-9A-Fa-f]/){
+                p=substr(line,1,2) substr(line,4,2) substr(line,7,2); rest=substr(line,9) }
+            else continue
+            if(rest!="" && rest !~ /^[ \t]/) continue
+            p=toupper(p)
+            if(!(p in want)) continue
+            delete want[p]; V[p]=vend(rest)
+            if(newf!="") printf "%s\t%s\n", p, V[p] >> newf
+            nw--; if(nw<=0) break }
+        close(f)
+        return r }
+    # The wanted prefixes from the index (see oui_index): the file of the first octet of each prefix, or of its first two where hdr names the octet as split,
+    # the lines in file order, so the first line for a prefix wins as it does in the file. 0 = every file needed was read (what is left in want is not
+    # in the OUI file); -1 = no usable index (no hdr naming this OUI file, a file missing or unreadable): the caller scans the OUI file instead.
+    function ouiindex(   h,hf,xp,k,i,r){
+        hf=idx "/hdr"
+        if((getline h < hf)<=0 || h!=ENVIRON["SC_HDR"]){ close(hf); return -1 }
+        if((getline h < hf)>0){ k=split(h, IXH, " "); for(i=1;i<=k;i++) IXHEAVY[IXH[i]]=1 }
+        close(hf)
+        k=0; for(xp in want){ h=(substr(xp,1,2) in IXHEAVY) ? substr(xp,1,4) : substr(xp,1,2); if(!(h in IXS)){ IXS[h]=1; IXO[++k]=h } }
+        for(i=1;i<=k && nw>0;i++){ hf=idx "/" IXO[i]; r=ouiscan(hf,2); if(r<0) return -1 }
+        return 0 }
+    BEGIN{ cache=ENVIRON["SC_CACHE"]; oui=ENVIRON["SC_OUI"]; idx=ENVIRON["SC_IDX"]; newf=ENVIRON["SC_NEWF"]
         KM="\"mac\": \""; KB="\"bssid\": \""; n=0
         CTRL=sprintf("%c",127); for(i=1;i<=31;i++) CTRL=CTRL sprintf("%c",i)
-        CR=sprintf("%c",13)
+        CR=sprintf("%c",13) }
+    { L[++n]=$0; if(index($0,KM)) collect($0,KM); if(index($0,KB)) collect($0,KB) }
+    END{
         if(cache!=""){
-            # Lines are committed one behind: the LAST line is trusted only if the shell saw the
-            # cache end with a newline (SC_TERM=1). A line cut off by a crash looks well-formed to
-            # cload() and must not be served when cache_repair could not drop it (unwritable dir).
+            # The prefix cache, only for the prefixes of this document (cload). Lines are committed one behind: the LAST line is trusted only if the
+            # shell saw the cache end with a newline (SC_TERM=1). A line cut off by a crash looks well-formed to cload() and must not be served
+            # when cache_repair could not drop it (unwritable dir).
             have=0
             while((getline l < cache)>0){ if(have) cload(prev); prev=l; have=1 }
             if(have && ENVIRON["SC_TERM"]=="1") cload(prev)
-            close(cache) } }
-    { L[++n]=$0; collect($0,KM); collect($0,KB) }
-    END{
-        nw=0; for(p in want) nw++
+            close(cache) }
+        nw=0; for(p in seen) if(!(p in V)){ want[p]=1; nw++ }
         r=0
         if(nw>0 && oui!=""){
-            while((r=(getline line < oui))>0){
-                if(substr(line,length(line),1)==CR) line=substr(line,1,length(line)-1)
-                if(!match(line,/^[0-9A-Fa-f]+/)) continue
-                if(RLENGTH==6){ p=substr(line,1,6); rest=substr(line,7) }
-                else if(RLENGTH==2 && line ~ /^[0-9A-Fa-f][0-9A-Fa-f][ :-][0-9A-Fa-f][0-9A-Fa-f][ :-][0-9A-Fa-f][0-9A-Fa-f]/){
-                    p=substr(line,1,2) substr(line,4,2) substr(line,7,2); rest=substr(line,9) }
-                else continue
-                if(rest!="" && rest !~ /^[ \t]/) continue
-                p=toupper(p)
-                if(!(p in want)) continue
-                delete want[p]; V[p]=vend(rest)
-                if(newf!="") printf "%s\t%s\n", p, V[p] >> newf
-                nw--; if(nw<=0) break }
-            close(oui)
+            r=-1
+            if(idx!="") r=ouiindex()
+            if(r<0){ for(p in want) OCT[substr(p,1,2)]=1; r=ouiscan(oui,1) }
             # r<0: the file could not be opened/read (unplugged stick, permissions, i/o error) --
             # then nothing is known about the remaining prefixes, so NO negative entries; they are
             # simply tried again next cycle. Negatives only after a complete scan (r==0; r>0 means
@@ -785,7 +966,8 @@ cache_lock() {
     fi
     if [ "${LOCK_BUSY_UNTIL:-0}" -gt 0 ] 2>/dev/null; then
         lnow=$(date +%s 2>/dev/null)
-        if [ -n "$lnow" ] && [ "$lnow" -lt "$LOCK_BUSY_UNTIL" ] 2>/dev/null; then return 2; fi
+        # (a clock set back by more than the backoff -- the device has no battery clock -- must not hold it for hours)
+        if [ -n "$lnow" ] && [ "$lnow" -lt "$LOCK_BUSY_UNTIL" ] && [ $((LOCK_BUSY_UNTIL - lnow)) -le 60 ] 2>/dev/null; then return 2; fi
         LOCK_BUSY_UNTIL=0                                # backoff over: try again
     fi
     while :; do
@@ -851,8 +1033,9 @@ cache_unlock() {
 # An EMPTY (or missing) file counts as terminated: nothing can fuse with it, and cache_append
 # re-creates the header in it (a header cut short by ENOSPC is dropped by the repair like any
 # other line, leaving 0 bytes -- without this, every cycle until the 120-cycle re-check would scan
-# the whole OUI file, take the lock and rewrite the empty cache for nothing).
-file_terminated() { [ ! -s "$1" ] || [ "$(tail -c 1 "$1" 2>/dev/null | wc -l | tr -d ' ')" = "1" ]; }
+# the whole OUI file, take the lock and rewrite the empty cache for nothing). One process: a command substitution drops
+# the trailing newline, so the last byte of a terminated file comes back as nothing.
+file_terminated() { [ ! -s "$1" ] || { [ -r "$1" ] && [ -z "$(tail -c 1 "$1" 2>/dev/null)" ]; }; }
 cache_terminated() { file_terminated "$OUI_CACHE"; }
 cache_fix_unterminated() {
     cache_terminated && return 0
@@ -871,9 +1054,27 @@ cache_repair() {   # cheap lock-free check first; only a damaged cache takes the
 # lines whose prefix is not in the cache yet are added (the other instance may have scanned the
 # same prefixes meanwhile), so parallel instances never duplicate entries. The awk reads the
 # cache completely (BEGIN) before its first line of output, and stdout is one small append.
+# Whatever keeps the lines out of the cache costs a full scan of the OUI file in every later cycle (the prefixes are "new" again each
+# time), so a merge that does not happen says why, once per episode; a successful one ends the episode and logs the growth.
+vendor_dropped() {   # $1 = why
+    [ "$VENDOR_DROP_LOGGED" = "1" ] || log "vendor cache: merge skipped ($1); the OUI file is scanned again next cycle"
+    VENDOR_DROP_LOGGED=1
+}
+# The merge program, shared by the append and by the check after it. SC_CACHE = the cache, SC_TERM = 1 when the temp file ends with a newline
+# (its last line is committed only then), SC_CHECK = 1: print how many of the lines are NOT in the cache yet instead of printing them.
+# shellcheck disable=SC2016  # awk program text, deliberately not expanded
+AWK_CAPPEND='
+        function wf(l){ return (index(l,"\t")==7 && substr(l,1,6) ~ /^[0-9A-F]+$/ && index(substr(l,8),"\t")==0) }
+        function emit(l,   p){ if(!wf(l)) return; p=substr(l,1,6); if(p in seen) return; seen[p]=1; if(chk) miss++; else print l }
+        BEGIN{ c=ENVIRON["SC_CACHE"]; chk=(ENVIRON["SC_CHECK"]=="1")
+            while((getline l < c)>0){ if(wf(l)) seen[substr(l,1,6)]=1 }
+            close(c); have=0 }
+        { if(have) emit(prev); prev=$0; have=1 }
+        END{ if(have && ENVIRON["SC_TERM"]=="1") emit(prev)
+            if(chk) print miss+0 }'
 cache_append() {
     cache_lock; lr=$?
-    [ "$lr" = "2" ] && return 0      # lock given up (live holder past the budget / backoff): next cycle
+    [ "$lr" = "2" ] && return 0      # lock given up (live holder past the budget / backoff): next cycle (cache_lock logged it)
     cache_fix_unterminated
     # A cache that is gone or empty (tmpfs cleaner, a header write cut short and then dropped by
     # the repair) gets its header back right here, under the lock; otherwise the header test below
@@ -882,22 +1083,25 @@ cache_append() {
     # Never append onto a cache whose last line is still unterminated (the fix above failed:
     # unwritable directory -- the lines would fuse), nor onto one that setup_vendor has meanwhile
     # restarted for another OUI file (our lines came from the old one).
-    if ! cache_terminated || [ "$(head -n 1 "$OUI_CACHE" 2>/dev/null)" != "$OUI_HDR" ]; then
-        cache_unlock; return 0
-    fi
+    if ! cache_terminated; then vendor_dropped "the last line of $OUI_CACHE is cut off and cannot be repaired"; cache_unlock; return 0; fi
+    if [ "$(head -n 1 "$OUI_CACHE" 2>/dev/null)" != "$OUI_HDR" ]; then vendor_dropped "the header of $OUI_CACHE names another OUI file"; cache_unlock; return 0; fi
+    cn0=$(wc -l < "$OUI_CACHE" 2>/dev/null | tr -d ' ')
     nt=0; file_terminated "$1" && nt=1
     # The temp file's LAST line is merged only if the file ends with a newline (SC_TERM): a line
     # cut short by ENOSPC on /tmp or a killed awk would otherwise be persisted as a well-formed,
     # wrong vendor -- for good. Lines are therefore committed one behind.
     # shellcheck disable=SC2094  # awk finishes reading the cache in BEGIN before its first print
-    clean_ctrl < "$1" | SC_CACHE="$OUI_CACHE" SC_TERM="$nt" awk '
-        function wf(l){ return (index(l,"\t")==7 && substr(l,1,6) ~ /^[0-9A-F]+$/ && index(substr(l,8),"\t")==0) }
-        function emit(l,   p){ if(!wf(l)) return; p=substr(l,1,6); if(p in seen) return; seen[p]=1; print l }
-        BEGIN{ c=ENVIRON["SC_CACHE"]
-            while((getline l < c)>0){ if(wf(l)) seen[substr(l,1,6)]=1 }
-            close(c); have=0 }
-        { if(have) emit(prev); prev=$0; have=1 }
-        END{ if(have && ENVIRON["SC_TERM"]=="1") emit(prev) }' >> "$OUI_CACHE"
+    clean_ctrl < "$1" | SC_CACHE="$OUI_CACHE" SC_TERM="$nt" awk "$AWK_CAPPEND" >> "$OUI_CACHE"
+    cn1=$(wc -l < "$OUI_CACHE" 2>/dev/null | tr -d ' ')
+    if [ "${cn1:-0}" -gt "${cn0:-0}" ] 2>/dev/null; then
+        VENDOR_DROP_LOGGED=0; log "vendor cache: $((cn1 - cn0)) new prefix(es), $cn1 lines"
+    else
+        # Nothing was added. Either the lines were in the cache already (the other instance, a crond --once next to the daemon, gathered the same
+        # new prefixes and merged first: nothing is lost, the OUI file is not scanned again) or they could not be written.
+        cm=$(clean_ctrl < "$1" | SC_CACHE="$OUI_CACHE" SC_TERM="$nt" SC_CHECK=1 awk "$AWK_CAPPEND")
+        if [ "${cm:-1}" = 0 ]; then VENDOR_DROP_LOGGED=0
+        else vendor_dropped "nothing was added to $OUI_CACHE (no write access, or no room)"; fi
+    fi
     cache_unlock
 }
 
@@ -915,6 +1119,11 @@ sweep_stale_cache_files() {
         p=${f##*.new.}; p=${p##*.fix.}; p=${p%%.*}
         holder_alive "$p" || rm -f "$f" 2>/dev/null
     done
+    for f in "$CAPDIR"/oui-index.new.*; do       # an index build that died with its collector
+        [ -e "$f" ] || continue
+        p=${f##*.new.}; p=${p%%.*}
+        holder_alive "$p" || rm -rf "$f" 2>/dev/null
+    done
     rm -rf "$CAPDIR"/oui-cache.txt.lock.stale.* 2>/dev/null   # a lock breaker holds one for milliseconds
     lkd="$CAPDIR/oui-cache.txt.lock"
     if [ -d "$lkd" ]; then
@@ -924,6 +1133,18 @@ sweep_stale_cache_files() {
             rm -rf "$lkd" 2>/dev/null
         fi
     fi
+}
+
+# A cycle cut short by a power cut or kill -9 leaves its starchorus.json.tmp.<pid>[.c|.v] behind (cleanup() never ran; a
+# zero-byte one was found on the device after a crash). At daemon start every such file whose pid is no live collector
+# run is removed; a --once may be mid-cycle right now, so the files of a live run of this script stay.
+sweep_stale_tmp() {
+    for f in "$OUTFILE".tmp.*; do
+        [ -e "$f" ] || continue
+        p=${f##*.tmp.}; p=${p%%.*}
+        case "$p" in ''|*[!0-9]*) continue ;; esac
+        holder_alive "$p" || rm -f "$f" 2>/dev/null
+    done
 }
 
 # stdin = emitter JSON, stdout = same JSON plus optional vendor/randomized. One awk process.
@@ -940,10 +1161,10 @@ add_vendor() {
         # the temp name carries OUR pid: the daemon's start-up sweep removes only files of dead pids
         newf=$(mktemp "$OUI_CACHE.new.$$.XXXXXX" 2>/dev/null) || newf="$OUI_CACHE.new.$$.0"
         if printf '' > "$newf" 2>/dev/null; then VENDOR_NEWF=$newf; else newf=""; fi
-        cache_repair
-        cache_terminated && term=1      # tells the loader whether the cache's last line is whole
+        if cache_terminated; then term=1      # tells the loader whether the cache's last line is whole
+        else cache_repair; cache_terminated && term=1; fi
     fi
-    SC_CACHE="$OUI_CACHE" SC_OUI="$OUI_PATH" SC_NEWF="$newf" SC_TERM="$term" awk "$AWK_JSON_HELPERS$AWK_VENDOR"
+    SC_CACHE="$OUI_CACHE" SC_OUI="$OUI_PATH" SC_IDX="$OUI_IDX" SC_HDR="$OUI_HDR" SC_NEWF="$newf" SC_TERM="$term" awk "$AWK_JSON_HELPERS$AWK_VENDOR"
     arc=$?
     # Merge only after a clean pass: with rc != 0 (ENOSPC on /tmp, awk killed) the temp file may
     # hold a cut-off line -- and run_cycle discards that JSON anyway.
@@ -1172,8 +1393,9 @@ parse_tcpdump_text() {
 #     no `bssid`/`channel`/`time` column; channel is derived from freq.
 #   * legacy schema: table `aps` with a text privacy column, colon'd bssid and a channel.
 # `encryption` is libwifi's encryption_info uint64 bitmask; awk's doubles lose bits above 2^53, so it
-# is split IN SQL into small ints. The live DB is held by the AP-service daemon (journal_mode=MEMORY, so normally no
-# -wal/-shm): it is COPIED before querying to avoid any lock contention.
+# is split IN SQL into small ints. The live DB is held by the AP-service daemon (journal_mode `delete`, measured on the
+# device: a -journal beside it while a write is in flight, no -wal/-shm): it is COPIED before querying, so that a long read never holds a lock the
+# engine's commits wait for (recon_workcopy).
 # libwifi encryption_info layout, PINNED to libwifi (github.com/libwifi/libwifi) commit c38dbc8d7d7836759300a9512d80a3d2d3e41a4b
 # (2026-01-23, "Bump version to 0.0.11"), file src/libwifi/core/misc/security.h. uint64 bit -> meaning:
 #   1 WEP · 2 WPA · 3 WPA2 · 4 WPA3 (class bits; libwifi ALSO sets bit 4 for OWE)
@@ -1187,122 +1409,155 @@ parse_tcpdump_text() {
 #   54..58 auth scheme    : 54 OPEN · 55 SHARED-KEY · 56 FAST-BSS · 57 SAE · 58 VENDOR
 # (Bit 38 is genuinely skipped in that header: PSK_SHA256 is bit 39.) The four SQL splits ENC_GRP/ENC_PW/ENC_AKM/ENC_AUTH shift and mask
 # these ranges; the awk name tables index them from 0 within each range.
-recondb_query() {   # $1 = db path, $2 = sql: read-only, tab-separated, no header
-    sqlite3 -readonly -noheader -separator "$RECON_TAB" "$1" "$2" 2>/dev/null
+# One sqlite3 process per cycle. $1 = db path, stdin = the SQL (statements ended by `;`). A statement the firmware's schema cannot
+# prepare (a column or table it lacks) prints its error on stderr (dropped here) and the NEXT statement still runs: without -bail the
+# CLI carries on after an error, which is how the schema-family alternatives below can sit in one batch.
+# RQ_BAIL=-bail (the security lookup of the pineap source) stops at the first error, so that a batch which ends in a marker row of its own
+# proves that the statements before it ran.
+recondb_query() {
+    # shellcheck disable=SC2086  # RQ_BAIL is one option or nothing
+    sqlite3 -readonly -noheader $RQ_BAIL -separator "$RECON_TAB" "$1" 2>/dev/null
 }
-recondb_first() {   # $1 = db path, $2... = alternative queries (schema families): the first non-empty result
-    rf_db=$1; shift
-    for rf_q in "$@"; do
-        rf_out=$(recondb_query "$rf_db" "$rf_q") && [ -n "$rf_out" ] && { printf '%s\n' "$rf_out"; return 0; }
-    done
-    return 1
+# Add one alternative to the batch RQ: a marker row naming it, then the statement. The marker is `#STARCHORUS_<GROUP><n>#`; recondb_pick
+# keeps, per GROUP, the first alternative that produced rows (what the old one-process-per-query code did with recondb_first).
+rq_add() {   # $1 = GROUP+n, $2 = the statement without its `;`
+    RQ="$RQ
+SELECT '#STARCHORUS_$1#';
+$2;"
+}
+# stdin = the batch output (control bytes already removed); stdout = per GROUP the rows of its first non-empty alternative, under the
+# marker the final awk reads: APS -> #STARCHORUS_APS#, CLI -> CLIENTS, PRB -> PROBES, RESP, plus HOP, HASTIME and WMIN for the shell. Streams: the
+# first row of an alternative claims its group, rows of the other alternatives of that group are dropped. A marker is a whole line of its own;
+# no row can start like one (the first column of every query is a MAC, a frequency or a number).
+recondb_pick() {
+    awk '
+        BEGIN { OUT["APS"]="APS"; OUT["CLI"]="CLIENTS"; OUT["PRB"]="PROBES"; OUT["RESP"]="RESP"; OUT["HOP"]="HOP"; OUT["HASTIME"]="HASTIME"; OUT["WMIN"]="WMIN" }
+        /^#STARCHORUS_[A-Z]+[0-9]*#$/ { sec=substr($0, 13, length($0) - 13); grp=sec; sub(/[0-9]+$/, "", grp); next }
+        /^[ \t]*$/ { next }
+        grp == "" || !(grp in OUT) { next }
+        { if (!(grp in owner)) { owner[grp]=sec; printf "#STARCHORUS_%s#\n", OUT[grp] }
+          if (owner[grp] == sec) print }'
+}
+# stdin = recondb_pick output; stdout = the rows of section $1 (HOP, HASTIME, WMIN)
+recondb_section() {
+    awk -v s="#STARCHORUS_$1#" '$0 == s { m=1; next } /^#STARCHORUS_[A-Z]+#$/ { m=0 } m'
 }
 
-build_from_recondb() {
-    db=$(find_recon_db) || return 1
-    have sqlite3 || return 1
+# recon.db is found once and remembered (the bounded `find` for a non-standard place is not repeated every cycle). Sets RDB_PATH.
+recon_db_path() {
+    if [ -n "$RDB_PATH" ] && [ "$RDB_KEY" = "$RECON_DB" ] && [ -r "$RDB_PATH" ]; then return 0; fi
+    RDB_PATH=$(find_recon_db) || { RDB_PATH=""; return 1; }
+    RDB_KEY=$RECON_DB; HAS_TIME=""      # another file: its schema is learnt afresh
+}
 
-    # Copy-before-query: never lock the live DB the Recon engine is writing to.
-    mkdir -p "$CAPDIR" 2>/dev/null
-    qdb="$CAPDIR/recon_copy.db"
-    if cp "$db" "$qdb" 2>/dev/null; then
-        [ -r "$db-wal" ] && cp "$db-wal" "$qdb-wal" 2>/dev/null
-        [ -r "$db-shm" ] && cp "$db-shm" "$qdb-shm" 2>/dev/null
+# Size and modification time of files WITHOUT reading them: one `ls -lnL --full-time` (BusyBox and GNU; the device has no `stat`). The line carries
+# both, down to the nanosecond where the system keeps one, which is all a fingerprint needs. `wc -c` on the 3.5 MB recon.db costs 0.6 s of the
+# device's CPU, a cycle's worth in a quarter of the time. Sets FL = the lines of the files that exist, "" where `ls` cannot (BSD/macOS: no --full-time).
+file_ls() {   # $@ = files
+    FL=$(ls -lnL --full-time "$@" 2>/dev/null)
+    case $FL in -*) ;; *) FL="" ;; esac
+}
+# Size of a file in bytes, by file_ls, else `wc -c`. Sets FSZ ("" = unknown).
+file_size() {   # $1 = file
+    file_ls "$1"; FSZ=""
+    # shellcheck disable=SC2086  # the word splitting is the point (globbing off: the name is the last word)
+    if [ -n "$FL" ]; then set -f; set -- $FL; set +f; FSZ=$5
+    else FSZ=$({ wc -c < "$1"; } 2>/dev/null | tr -d ' '); fi   # braces: the shell's own "cannot open" too
+    case $FSZ in ''|*[!0-9]*) FSZ="" ;; esac
+}
+
+# What recon.db looks like now: size and modification time of the file and of a -journal / -wal beside it, one line each. The device's journal_mode is
+# `delete`: a -journal beside the database means a write is in flight. Taken ONCE per cycle (run_cycle; build_from_recondb takes it itself when the
+# pineap source falls back to it), BEFORE the copy, so that any later write shows in the next sample. Two samples are equal iff size and mtime of all
+# three files are. Sets RS_RAW (the sample, "" = unknown), RS_SZ (size of recon.db, for the copy's room test) and RS_NEW (RS_RAW if the next cycle
+# may skip on it: not with a -journal there, and not when the file changed less than 2 s ago, as the next write inside the same mtime second
+# would go unseen). Fallbacks where `ls` has no --full-time: stat (GNU, BSD), then wc + date.
+recon_sample() {   # $1 = now (Unix seconds)
+    rs_now=$1; RS_RAW=""; RS_SZ=0; RS_NEW=""
+    recon_db_path || return 1
+    rs_db=$RDB_PATH
+    file_ls "$rs_db" "$rs_db-journal" "$rs_db-wal"
+    rs_f=$FL
+    if [ -z "$rs_f" ]; then
+        rs_f=$(stat -L -c '%s %Y %n' "$rs_db" "$rs_db-journal" "$rs_db-wal" 2>/dev/null)
+        [ -n "$rs_f" ] || rs_f=$(stat -L -f '%z %m %N' "$rs_db" "$rs_db-journal" "$rs_db-wal" 2>/dev/null)
+        if [ -z "$rs_f" ]; then
+            for rs_x in "$rs_db" "$rs_db-journal" "$rs_db-wal"; do
+                [ -e "$rs_x" ] || continue
+                rs_f="$rs_f${rs_f:+$NL}$(wc -c < "$rs_x" 2>/dev/null | tr -d ' ') $(file_mtime "$rs_x") $rs_x"
+            done
+        fi
+        rs_l=${rs_f%%"$NL"*}; RS_SZ=${rs_l%% *}
     else
-        qdb="$db"   # fall back to reading the live DB read-only
+        rs_l=${rs_f%%"$NL"*}; set -f
+        # shellcheck disable=SC2086  # as in file_size
+        set -- $rs_l; set +f; RS_SZ=$5
     fi
-
-    # Class bits -> small mask (WEP 2 / WPA 4 / WPA2 8 / WPA3 16; the SAE auth bit 57 counts as WPA3).
-    # Text encryption values pass straight through.
-    ENC="CASE WHEN typeof(encryption)='integer' THEN ((encryption & 30) | (CASE WHEN ((encryption>>57)&1)=1 THEN 16 ELSE 0 END)) ELSE encryption END"
-    # The rest as four small non-negative ints (each < 2^22, exact in awk): group cipher bits 5..17, pairwise
-    # 18..31, AKM 32..53, auth scheme 54..58 (table above). Text encryption values give '' and keep the class label.
-    ENC_GRP="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>5)&8191) ELSE '' END"
-    ENC_PW="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>18)&16383) ELSE '' END"
-    ENC_AKM="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>32)&4194303) ELSE '' END"
-    ENC_AUTH="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>54)&31) ELSE '' END"
-    ENC5="($ENC_GRP), ($ENC_PW), ($ENC_AKM), ($ENC_AUTH)"
-    # SSID as text with any tab/newline replaced by a space, so no SSID can break the TAB field split.
-    SSD="replace(replace(CAST(ssid AS TEXT),char(9),' '),char(10),' ')"
-
-    # Live-presence window (opt-in): with STARCHORUS_MAX_AGE>0 only observations from the last N seconds
-    # count, so devices that have left drop off the map. `time` is Unix seconds; the cutoff comes from
-    # the LOCAL clock (same UTC epoch as the recon engine's). AGE = predicate for single-table `ssid`
-    # queries, AGE_S = the same for the wifi_device JOIN (where a bare `time` is ambiguous). Empty (no
-    # filter) when the window is off or unusable.
-    AGE=""; AGE_S=""
-    if [ "$MAX_AGE" -gt 0 ] 2>/dev/null; then
-        now=$(date +%s 2>/dev/null)
-        if [ -n "$now" ] && [ "$now" -gt "$MAX_AGE" ] 2>/dev/null; then
-            cut=$((now - MAX_AGE))
-            AGE="AND time > $cut"
-            AGE_S="AND s.time > $cut"
-        fi
+    case $rs_l in *" $rs_db") ;; *) return 1 ;; esac      # the database's own line comes first (a sample without it is no sample)
+    case $RS_SZ in ''|*[!0-9]*) RS_SZ=0; return 1 ;; esac
+    RS_RAW=$rs_f; RS_NEW=$rs_f
+    case $RS_NEW in *"$rs_db-journal"|*"$rs_db-journal$NL"*) RS_NEW="" ;; esac
+    if [ -n "$RS_NEW" ]; then
+        rs_m=$(date -r "$rs_db" +%s 2>/dev/null)
+        case $rs_m in ''|*[!0-9]*) rs_m=$(file_mtime "$rs_db") ;; esac
+        case $rs_m in ''|*[!0-9]*) RS_NEW="" ;; *) { [ "${rs_now:-0}" -gt 0 ] 2>/dev/null && [ $((rs_now - rs_m)) -ge 2 ]; } || RS_NEW="" ;; esac
     fi
+    return 0
+}
 
-    # --- access points. 13 tab-separated cols: mac, ssid, freq, band, channel, signal, encryption,
-    # hidden, last_seen ('' if unknown), then the four ENC5 splits. last_seen = MAX(time) per BSSID.
-    # CAUTION (verified with sqlite3): the ssid/encryption/hidden/freq values are SQLite "bare columns"
-    # and come from the MAX(signal) row ONLY while the query has exactly ONE aggregate. A second
-    # MAX(time) in the same SELECT makes them arbitrary, so MAX(time) lives in a derived table joined on
-    # bssid; the plain query (no `time` column) is the next fallback.
-    # the legacy `aps` table differs across builds (signal vs rssi, encryption vs privacy); try each combo.
-    APSSD="replace(replace(ssid,char(9),' '),char(10),' ')"
-    rows=$(recondb_first "$qdb" \
-        "SELECT s.bssid, $SSD, IFNULL(s.freq,''), '', IFNULL(s.channel,''), MAX(s.signal), ($ENC), IFNULL(s.hidden,0), IFNULL(t.last,''), $ENC5 FROM ssid s JOIN (SELECT bssid, MAX(time) AS last FROM ssid WHERE bssid IS NOT NULL AND bssid<>'' AND type IN (5,8) $AGE GROUP BY bssid) t ON t.bssid=s.bssid WHERE s.type IN (5,8) $AGE_S GROUP BY s.bssid" \
-        "SELECT bssid, $SSD, IFNULL(freq,''), '', IFNULL(channel,''), MAX(signal), ($ENC), IFNULL(hidden,0), '', $ENC5 FROM ssid WHERE bssid IS NOT NULL AND bssid<>'' AND type IN (5,8) $AGE GROUP BY bssid" \
-        "SELECT apmac, $SSD, IFNULL(freq,''), IFNULL(band,''), '', MAX(signal), ($ENC), IFNULL(hidden,0), '', $ENC5 FROM ssid WHERE apmac IS NOT NULL AND apmac<>'' AND type IN (5,8) $AGE GROUP BY apmac" \
-        "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), signal, encryption, 0, '', '', '', '', '' FROM aps" \
-        "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), signal, privacy, 0, '', '', '', '', '' FROM aps" \
-        "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), rssi, encryption, 0, '', '', '', '', '' FROM aps" \
-        "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), rssi, privacy, 0, '', '', '', '', '' FROM aps")
-    [ -n "$rows" ] || return 1
+# Is there room in directory $1 for a copy of $2 bytes? Needs the copy, half as much again for the temporary files sqlite makes for
+# GROUP BY, and 2 MB over. Unknown (no df, odd output) counts as yes: the cp itself is then the test.
+ram_room() {
+    rr_need=$(( ($2 + 1023) / 1024 ))
+    rr_need=$(( rr_need + rr_need / 2 + 2048 ))
+    rr_av=$(df -Pk "$1" 2>/dev/null | { read -r _; read -r _ _ _ rr_a _; printf '%s' "$rr_a"; })
+    case $rr_av in ''|*[!0-9]*) return 0 ;; esac
+    [ "$rr_av" -ge "$rr_need" ]
+}
 
-    # --- unassociated stations: probe-request senders (type=4), best-effort. 3 cols: mac, signal,
-    # last_seen ('' if unknown). Only the GROUP BY key is a bare column here, so two aggregates are safe.
-    clirows=$(recondb_first "$qdb" \
-        "SELECT w.mac, MAX(s.signal), IFNULL(MAX(s.time),'') FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' $AGE_S GROUP BY w.mac" \
-        "SELECT w.mac, MAX(s.signal), '' FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' $AGE_S GROUP BY w.mac" \
-        "SELECT stamac, MAX(signal), '' FROM ssid WHERE type=4 AND stamac IS NOT NULL AND stamac<>'' $AGE GROUP BY stamac")
-
-    # --- probed SSIDs (optional "probes"): the network a station's probe request names -- received,
-    # never sent. 2 cols: mac, ssid; one row per distinct pair, sorted (deterministic output).
-    # Wildcard probes (empty SSID) skipped.
-    prbrows=$(recondb_first "$qdb" \
-        "SELECT w.mac, $SSD FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' AND s.ssid IS NOT NULL AND CAST(s.ssid AS TEXT)<>'' $AGE_S GROUP BY w.mac, 2 ORDER BY w.mac, 2" \
-        "SELECT stamac, $SSD FROM ssid WHERE type=4 AND stamac IS NOT NULL AND stamac<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY stamac, 2 ORDER BY stamac, 2")
-
-    # --- hop awareness (STARCHORUS_HOPINFO / STARCHORUS_SURVEY, default off): channels[] = per frequency the last
-    # time anything was heard there (recon.db `time`; whether that is a first-seen or an upsert time is
-    # an OPEN device question) and, with the survey flag, the driver's own busy percentage and noise
-    # floor (`iw ... survey dump` is a read-only netlink dump). No channels[] => the front-end never
-    # treats a BSSID's absence as "gone" or "stale".
-    chj=""
-    if [ "$HOPINFO" = "1" ] || [ "$SURVEY" = "1" ]; then
-        chrows=""
-        if [ "$HOPINFO" = "1" ]; then
-            hop=$(recondb_query "$qdb" "SELECT freq, MAX(time) FROM ssid WHERE freq IS NOT NULL AND freq>0 AND time IS NOT NULL AND time>0 GROUP BY freq ORDER BY freq")
-            [ -z "$hop" ] || chrows=$(printf '%s\n' "$hop" | awk -F"$RECON_TAB" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {printf "H\t%s\t%s\n", $1, $2}')
-        fi
-        if [ "$SURVEY" = "1" ]; then
-            sif=${STARCHORUS_SURVEY_IFACE:-$MONIF}
-            if [ -n "$sif" ] && have iw; then
-                sv=$(iw dev "$sif" survey dump 2>/dev/null | survey_rows)
-                [ -z "$sv" ] || chrows=$(printf '%s\n%s' "$chrows" "$sv")
-            fi
-        fi
-        chj=$(printf '%s\n' "$chrows" | channels_json)
+# Copy-before-query: never lock the live DB the recon engine writes to (its journal_mode is `delete`, so a long read would hold a
+# SHARED lock that stalls the engine's commits). The copy goes to RAM ($TMPDIR_RAM: /tmp is tmpfs on the device; CAPDIR is eMMC and a
+# 3.5 MB write every cycle is flash wear and IO wait), named for this process so a crond `--once` and the loop never share one. No room
+# there, or the copy failed: the old place, CAPDIR; and when that fails too, the live file, read-only. The -journal is NOT copied: a hot
+# journal beside a read-only copy cannot be rolled back, and the sig test keeps a half-written moment out of the skip logic.
+# $1 = recon.db, $2 = its size in bytes. Sets QDB (what to query) and QDB_RAM (1 = recon_workdone removes it).
+recon_workcopy() {
+    QDB_RAM=0; QDB=$1
+    cw_sz=${2:-0}; case $cw_sz in *[!0-9]*) cw_sz=0 ;; esac
+    cw_dst="$TMPDIR_RAM/starchorus-recon-$$.db"
+    if [ -d "$TMPDIR_RAM" ] && [ -w "$TMPDIR_RAM" ] && ram_room "$TMPDIR_RAM" "$cw_sz" && cp "$1" "$cw_dst" 2>/dev/null; then
+        QDB=$cw_dst; QDB_RAM=1
+        if [ -r "$1-wal" ]; then cp "$1-wal" "$cw_dst-wal" 2>/dev/null; fi
+        if [ -r "$1-shm" ]; then cp "$1-shm" "$cw_dst-shm" 2>/dev/null; fi
+        # the copy that older versions left on flash is dead weight now (3.5 MB of eMMC)
+        rm -f "$CAPDIR/recon_copy.db" "$CAPDIR/recon_copy.db-wal" "$CAPDIR/recon_copy.db-shm" 2>/dev/null
+        return 0
     fi
+    rm -f "$cw_dst" "$cw_dst-wal" "$cw_dst-shm" 2>/dev/null     # a copy cut short by a full tmpfs
+    mkdir -p "$CAPDIR" 2>/dev/null
+    if cp "$1" "$CAPDIR/recon_copy.db" 2>/dev/null; then
+        QDB="$CAPDIR/recon_copy.db"
+        if [ -r "$1-wal" ]; then cp "$1-wal" "$QDB-wal" 2>/dev/null; fi
+        if [ -r "$1-shm" ]; then cp "$1-shm" "$QDB-shm" 2>/dev/null; fi
+    fi   # else QDB stays the live file
+}
+recon_workdone() {   # the RAM copy is not needed between cycles: free it
+    if [ "$QDB_RAM" = 1 ]; then rm -f "$QDB" "$QDB-wal" "$QDB-shm" 2>/dev/null; fi
+    QDB_RAM=0
+}
+# Daemon start-up: RAM copies left by a collector that died hard (kill -9, power loss; the name carries its pid). A live collector's is kept.
+sweep_stale_workcopies() {
+    for f in "$TMPDIR_RAM"/starchorus-recon-*.db "$TMPDIR_RAM"/starchorus-recon-*.db-wal "$TMPDIR_RAM"/starchorus-recon-*.db-shm; do
+        [ -e "$f" ] || continue
+        p=${f##*/starchorus-recon-}; p=${p%%.*}
+        holder_alive "$p" || rm -f "$f" 2>/dev/null
+    done
+}
 
-    # --- multi-SSID responders: how many DIFFERENT SSIDs one BSSID answered probes with (type=5). A
-    # count only, no SSID list; emitted as ap.responded_ssids when >= 2. Both column families.
-    resprows=$(recondb_first "$qdb" \
-        "SELECT bssid, COUNT(DISTINCT CAST(ssid AS TEXT)) FROM ssid WHERE type=5 AND bssid IS NOT NULL AND bssid<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY bssid HAVING COUNT(DISTINCT CAST(ssid AS TEXT))>1" \
-        "SELECT apmac, COUNT(DISTINCT CAST(ssid AS TEXT)) FROM ssid WHERE type=5 AND apmac IS NOT NULL AND apmac<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY apmac HAVING COUNT(DISTINCT CAST(ssid AS TEXT))>1")
-
-    printf '#STARCHORUS_APS#\n%s\n#STARCHORUS_CLIENTS#\n%s\n#STARCHORUS_PROBES#\n%s\n#STARCHORUS_RESP#\n%s\n' "$rows" "$clirows" "$prbrows" "$resprows" | clean_ctrl | \
-      SC_CH="$chj" awk -v ts="$1" -v center="$CENTER_LABEL" -v src="recon-db" -v FSU="$RECON_TAB" \
-      "$AWK_JSON_HELPERS"'
+# ---- encryption_info -> security label, akm / cipher / auth fields. One awk library for every source that has the bitmask
+# (the recon.db path and the pineap path's security lookup). Needs AWK_JSON_HELPERS; call sec_init() in BEGIN.
+# shellcheck disable=SC2016  # awk program text, deliberately not expanded
+AWK_SEC='
         # encryption -> security label. Numeric = the ENC class mask (WEP 2 / WPA 4 / WPA2 8 / WPA3 16).
         # Text = libwifi string ("WPA2", "WPA3", "OWE", ...) or legacy enum.
         function sec_of(e,   p,u){
@@ -1324,42 +1579,84 @@ build_from_recondb() {
             if(u ~ /WPA/)  return "WPA"
             if(u ~ /WEP/)  return "WEP"
             return e }
-        # libwifi bit tables (see the comment above build_from_recondb); v = one of the small SQL-split ints, i = bit in that int.
-        function bit(v,i){ return (v ~ /^[0-9]+$/) ? (int(v/P2[i])%2) : 0 }
-        function names(v,tbl,n,   i,o){ o=""
-            for(i=0;i<n;i++) if(bit(v,i) && tbl[i+1]!="-" && tbl[i+1]!="reserved") o=o (o!=""?", ":"") "\"" tbl[i+1] "\""
+        # libwifi bit tables (see the comment above build_from_recondb). A value is one of the small SQL-split ints, or empty (a text encryption):
+        # sec_of2() makes them numbers (0 for empty); names() and first() take the raw column and walk its bits only up to the highest one that is
+        # set, which for a usual network is a handful of steps, not the whole table.
+        function names(v,tbl,n,   i,o,b){ o=""
+            if(v !~ /^[0-9]+$/) return ""
+            v=v+0
+            for(i=1;v>0 && i<=n;i++){ b=v%2; v=(v-b)/2
+                if(b && tbl[i]!="-" && tbl[i]!="reserved") o=o (o!=""?", ":"") "\"" tbl[i] "\"" }
             return o }
-        function first(v,tbl,n,   i){ for(i=0;i<n;i++) if(bit(v,i) && tbl[i+1]!="-" && tbl[i+1]!="reserved") return tbl[i+1]
+        function first(v,tbl,n,   i,b){
+            if(v !~ /^[0-9]+$/) return ""
+            v=v+0
+            for(i=1;v>0 && i<=n;i++){ b=v%2; v=(v-b)/2; if(b && tbl[i]!="-" && tbl[i]!="reserved") return tbl[i] }
             return "" }
         # security label from the class bits PLUS the AKM/cipher/auth detail. OWE first: libwifi sets the WPA3 class bit for OWE, so the
         # class alone calls an OWE network "WPA3". 802.1X AKMs -> "...-Enterprise". TKIP as the only pairwise cipher (or, without a
         # pairwise field, as the only group cipher) marks the label "(TKIP)". No AKM/auth field (text encryption) -> the class label.
-        function sec_of2(e,grp,pw,akm,auth,   base,owe,sae,psk,ent,i,tk,aead){
+        # The AKM bits: owe 19; sae 9, 10 (and auth scheme bit 3); psk 2, 4, 7, 20, 21; 802.1X 1, 3, 5, 12-18 (12 and 13 are the WPA3 ones).
+        # TKIP is bit 2 of the pairwise ints (bit 1 of the group int); the AEAD ciphers are pairwise bits 4, 8, 9, 10 (group 3, 7, 8, 9).
+        function sec_of2(e,grp,pw,akm,auth,   base,owe,sae,psk,ent,ent3,i,b,x,tk,aead){
             base=sec_of(e)
             if(akm !~ /^[0-9]+$/ && auth !~ /^[0-9]+$/) return base
-            owe=bit(akm,19); sae=(bit(akm,9)||bit(akm,10)||bit(auth,3))
-            psk=(bit(akm,2)||bit(akm,4)||bit(akm,7)||bit(akm,20)||bit(akm,21))
-            ent=(bit(akm,1)||bit(akm,3)||bit(akm,5)); for(i=12;i<=18;i++) if(bit(akm,i)) ent=1
+            akm=(akm ~ /^[0-9]+$/) ? akm+0 : 0; auth=(auth ~ /^[0-9]+$/) ? auth+0 : 0; grp=(grp ~ /^[0-9]+$/) ? grp+0 : 0; pw=(pw ~ /^[0-9]+$/) ? pw+0 : 0
+            owe=0; sae=int(auth/8)%2; psk=0; ent=0; ent3=0
+            x=akm
+            for(i=0;x>0;i++){ b=x%2; x=(x-b)/2
+                if(!b) continue
+                if(i==19) owe=1
+                else if(i==9 || i==10) sae=1
+                else if(i==2 || i==4 || i==7 || i==20 || i==21) psk=1
+                else if(i==1 || i==3 || i==5 || (i>=12 && i<=18)){ ent=1; if(i==12 || i==13) ent3=1 } }
             if(owe && !psk && !sae && !ent) return "OWE"
-            if(ent){ if(bit(akm,12)||bit(akm,13)||sae) return "WPA3-Enterprise"; if(base=="WPA") return "WPA-Enterprise"; return "WPA2-Enterprise" }
-            if(pw ~ /^[0-9]+$/ && pw+0>0){ tk=bit(pw,2); aead=(bit(pw,4)||bit(pw,8)||bit(pw,9)||bit(pw,10)) }
-            else { tk=bit(grp,1); aead=(bit(grp,3)||bit(grp,7)||bit(grp,8)||bit(grp,9)) }
+            if(ent){ if(ent3 || sae) return "WPA3-Enterprise"; if(base=="WPA") return "WPA-Enterprise"; return "WPA2-Enterprise" }
+            if(pw>0){ tk=int(pw/4)%2; aead=(int(pw/16)%2 || int(pw/256)%2 || int(pw/512)%2 || int(pw/1024)%2) }
+            else { tk=int(grp/2)%2; aead=(int(grp/8)%2 || int(grp/128)%2 || int(grp/256)%2 || int(grp/512)%2) }
             if(tk && !aead && base ~ /WPA/) return base " (TKIP)"
             return base }
-        BEGIN{ FS=FSU; mode=""; nap=0; nun=0
-            P2[0]=1; for(i=1;i<=31;i++) P2[i]=P2[i-1]*2
+        function sec_init(){
             split("reserved 1x psk 1x-ft psk-ft 1x-sha256 - psk-sha256 tdls sae sae-ft ap-peer 1x-suiteb-sha256 1x-suiteb-sha384 1x-ft-sha384 fils-sha256 fils-sha384 fils-sha256-ft fils-sha384-ft owe psk-sha384-ft psk-sha384", AKMN, " ")
             split("wep40 tkip reserved ccmp128 wep104 bip-cmac128 notallowed gcmp128 gcmp256 ccmp256 bip-gmac128 bip-gmac256 bip-cmac256", CGN, " ")
             split("group wep40 tkip reserved ccmp128 wep104 bip-cmac128 notallowed gcmp128 gcmp256 ccmp256 bip-gmac128 bip-gmac256 bip-cmac256", CPN, " ")
             split("open shared-key fast-bss sae vendor", AUTHN, " ") }
-        /^#STARCHORUS_APS#$/     { mode="ap";  next }
-        /^#STARCHORUS_CLIENTS#$/ { mode="cli"; next }
-        /^#STARCHORUS_PROBES#$/  { mode="prb"; next }
-        /^#STARCHORUS_RESP#$/    { mode="resp"; next }
+        # the optional AP fields (", \"akm\": [...]", ", \"cipher\": {...}", ", \"auth\": [...]") from the four SQL-split ints
+        function sec_extra(egrp,epw,eakm,eauth,   sx,t1,t2,t3,cg,cj){
+            sx=""; t1=names(eakm,AKMN,22); t2=names(eauth,AUTHN,5); cg=first(egrp,CGN,13); t3=names(epw,CPN,14)
+            if(t1!="") sx=sx ", \"akm\": [" t1 "]"
+            if(cg!="" || t3!=""){ cj=""; if(cg!="") cj="\"group\": \"" cg "\""; if(t3!="") cj=cj (cj!=""?", ":"") "\"pairwise\": [" t3 "]"; sx=sx ", \"cipher\": {" cj "}" }
+            if(t2!="") sx=sx ", \"auth\": [" t2 "]"
+            return sx }
+'
+
+# The SQL that turns the libwifi bitmask into the pieces the awk library reads (sets ENC, ENC_GRP, ENC_PW, ENC_AKM, ENC_AUTH, ENC5).
+recon_enc_sql() {
+    # Class bits -> small mask (WEP 2 / WPA 4 / WPA2 8 / WPA3 16; the SAE auth bit 57 counts as WPA3).
+    # Text encryption values pass straight through.
+    ENC="CASE WHEN typeof(encryption)='integer' THEN ((encryption & 30) | (CASE WHEN ((encryption>>57)&1)=1 THEN 16 ELSE 0 END)) ELSE encryption END"
+    # The rest as four small non-negative ints (each < 2^22, exact in awk): group cipher bits 5..17, pairwise
+    # 18..31, AKM 32..53, auth scheme 54..58 (table above). Text encryption values give '' and keep the class label.
+    ENC_GRP="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>5)&8191) ELSE '' END"
+    ENC_PW="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>18)&16383) ELSE '' END"
+    ENC_AKM="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>32)&4194303) ELSE '' END"
+    ENC_AUTH="CASE WHEN typeof(encryption)='integer' THEN ((encryption>>54)&31) ELSE '' END"
+    ENC5="($ENC_GRP), ($ENC_PW), ($ENC_AKM), ($ENC_AUTH)"
+}
+
+# awk body of the recon.db document: stdin = recondb_pick output (APS, CLIENTS, PROBES, RESP sections), SC_CH = the channels[] text or "". Needs
+# AWK_JSON_HELPERS and AWK_SEC prepended.
+# shellcheck disable=SC2016  # awk program text, deliberately not expanded
+AWK_RECONDB='
+        BEGIN{ FS=FSU; mode=""; nap=0; nun=0; sec_init()
+            MK["#STARCHORUS_APS#"]="ap"; MK["#STARCHORUS_CLIENTS#"]="cli"; MK["#STARCHORUS_PROBES#"]="prb"; MK["#STARCHORUS_RESP#"]="resp"
+            MK["#STARCHORUS_HOP#"]="skip"; MK["#STARCHORUS_HASTIME#"]="skip" }      # skip: rows the shell read itself (recondb_section)
+        ($0 in MK)          { mode=MK[$0]; next }
         /^[ \t]*$/          { next }
         mode=="prb" {
-            m=macfmt($1); ss=$2
-            if($1=="" || ss=="" || (m SUBSEP ss) in pseen || pn[m]>=8) next
+            if($1!=pk){ pk=$1; pm=macfmt(pk) }      # the rows come sorted by station: one macfmt per station, not per row
+            m=pm; ss=$2
+            if(pk=="" || ss=="" || pn[m]>=8 || (m SUBSEP ss) in pseen) next
             pseen[m SUBSEP ss]=1; pn[m]++
             pr[m]=pr[m] (pr[m]!=""?", ":"") "\"" jesc(ss) "\""
             next
@@ -1377,11 +1674,7 @@ build_from_recondb() {
             if(hid+0==1) ssid=""    # hidden network -> empty SSID (front-end convention)
             ap_mac[nap]=macfmt(mac); ap_ssid[nap]=ssid; ap_ch[nap]=c
             ap_band[nap]=b; ap_freq[nap]=f; ap_sig[nap]=sig; ap_sec[nap]=sec_of2(enc,egrp,epw,eakm,eauth)
-            sx=""; t1=names(eakm,AKMN,22); t2=names(eauth,AUTHN,5); cg=first(egrp,CGN,13); t3=names(epw,CPN,14)
-            if(t1!="") sx=sx ", \"akm\": [" t1 "]"
-            if(cg!="" || t3!=""){ cj=""; if(cg!="") cj="\"group\": \"" cg "\""; if(t3!="") cj=cj (cj!=""?", ":"") "\"pairwise\": [" t3 "]"; sx=sx ", \"cipher\": {" cj "}" }
-            if(t2!="") sx=sx ", \"auth\": [" t2 "]"
-            ap_sx[nap]=sx
+            ap_sx[nap]=sec_extra(egrp,epw,eakm,eauth)
             ap_last[nap]=(last ~ /^[0-9]+$/ && last+0>0) ? last+0 : ""
             nap++
         }
@@ -1410,8 +1703,337 @@ build_from_recondb() {
                 printf "%s%s\n", cl_json(jesc(un_mac[i]), numval(un_sig[i]), extra), (i<nun-1?",":"")
             }
             printf "  ]\n}\n"
-        }'
+        }
+'
+
+build_from_recondb() {
+    recon_db_path || return 1
+    db=$RDB_PATH
+    have sqlite3 || return 1
+
+    # What recon.db looks like now (RS_RAW / RS_NEW / RS_SZ) is sampled BEFORE the copy, so that any later write shows in the next sample; run_cycle has
+    # taken it already (once per cycle: the skip test uses it too), the pineap source's fallback takes it here.
+    if [ "$RS_TAKEN" = 1 ]; then RS_TAKEN=0; else recon_sample "$1"; fi
+
+    recon_workcopy "$db" "$RS_SZ"
+    qdb=$QDB
+
+    recon_enc_sql
+    # SSID as text with any tab/newline replaced by a space, so no SSID can break the TAB field split.
+    SSD="replace(replace(CAST(ssid AS TEXT),char(9),' '),char(10),' ')"
+
+    # Live-presence window (opt-in): with STARCHORUS_MAX_AGE>0 only observations from the last N seconds
+    # count, so devices that have left drop off the map. `time` is Unix seconds; the cutoff comes from
+    # the LOCAL clock (same UTC epoch as the recon engine's). AGE = predicate for single-table `ssid`
+    # queries, AGE_S = the same for the wifi_device JOIN (where a bare `time` is ambiguous). Empty (no
+    # filter) when the window is off or unusable.
+    AGE=""; AGE_S=""
+    if [ "$MAX_AGE" -gt 0 ] 2>/dev/null; then
+        now=$(date +%s 2>/dev/null)
+        if [ -n "$now" ] && [ "$now" -gt "$MAX_AGE" ] 2>/dev/null; then
+            cut=$((now - MAX_AGE))
+            AGE="AND time > $cut"
+            AGE_S="AND s.time > $cut"
+        fi
+    fi
+
+    # --- access points. 13 tab-separated cols: mac, ssid, freq, band, channel, signal, encryption,
+    # hidden, last_seen ('' if unknown), then the four ENC5 splits. last_seen = MAX(time) per BSSID.
+    # CAUTION (verified with sqlite3): the ssid/encryption/hidden/freq values are SQLite "bare columns"
+    # and come from the MAX(signal) row ONLY while the query has exactly ONE aggregate. A second
+    # MAX(time) in the same SELECT makes them arbitrary, so MAX(time) lives in a derived table joined on
+    # bssid; the plain query (no `time` column) is the next fallback.
+    # the legacy `aps` table differs across builds (signal vs rssi, encryption vs privacy); try each combo.
+    APSSD="replace(replace(ssid,char(9),' '),char(10),' ')"
+    # Everything below goes into ONE batch (RQ) for ONE sqlite3 process; recondb_pick keeps the first non-empty alternative per group. On a
+    # firmware whose ssid table has a `time` column (HAS_TIME=1, learned from the first batch) the no-`time` alternatives are left out: they
+    # would run the same scan a second time.
+    RQ="PRAGMA mmap_size=134217728;"      # (its one output row, before the first marker, is dropped by recondb_pick; no mmap support: nothing happens)
+    rq_add HASTIME "SELECT COUNT(*) FROM pragma_table_info('ssid') WHERE name='time'"
+    rq_add APS1 "SELECT s.bssid, $SSD, IFNULL(s.freq,''), '', IFNULL(s.channel,''), MAX(s.signal), ($ENC), IFNULL(s.hidden,0), IFNULL(t.last,''), $ENC5 FROM ssid s JOIN (SELECT bssid, MAX(time) AS last FROM ssid WHERE bssid IS NOT NULL AND bssid<>'' AND type IN (5,8) $AGE GROUP BY bssid) t ON t.bssid=s.bssid WHERE s.type IN (5,8) $AGE_S GROUP BY s.bssid"
+    [ "$HAS_TIME" = 1 ] || rq_add APS2 "SELECT bssid, $SSD, IFNULL(freq,''), '', IFNULL(channel,''), MAX(signal), ($ENC), IFNULL(hidden,0), '', $ENC5 FROM ssid WHERE bssid IS NOT NULL AND bssid<>'' AND type IN (5,8) $AGE GROUP BY bssid"
+    rq_add APS3 "SELECT apmac, $SSD, IFNULL(freq,''), IFNULL(band,''), '', MAX(signal), ($ENC), IFNULL(hidden,0), '', $ENC5 FROM ssid WHERE apmac IS NOT NULL AND apmac<>'' AND type IN (5,8) $AGE GROUP BY apmac"
+    rq_add APS4 "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), signal, encryption, 0, '', '', '', '', '' FROM aps"
+    rq_add APS5 "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), signal, privacy, 0, '', '', '', '', '' FROM aps"
+    rq_add APS6 "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), rssi, encryption, 0, '', '', '', '', '' FROM aps"
+    rq_add APS7 "SELECT bssid, $APSSD, '', '', IFNULL(channel,''), rssi, privacy, 0, '', '', '', '', '' FROM aps"
+
+    # --- unassociated stations: probe-request senders (type=4), best-effort. 3 cols: mac, signal,
+    # last_seen ('' if unknown). Only the GROUP BY key is a bare column here, so two aggregates are safe.
+    rq_add CLI1 "SELECT w.mac, MAX(s.signal), IFNULL(MAX(s.time),'') FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' $AGE_S GROUP BY w.mac"
+    [ "$HAS_TIME" = 1 ] || rq_add CLI2 "SELECT w.mac, MAX(s.signal), '' FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' $AGE_S GROUP BY w.mac"
+    rq_add CLI3 "SELECT stamac, MAX(signal), '' FROM ssid WHERE type=4 AND stamac IS NOT NULL AND stamac<>'' $AGE GROUP BY stamac"
+
+    # --- probed SSIDs (optional "probes"): the network a station's probe request names -- received,
+    # never sent. 2 cols: mac, ssid; one row per distinct pair, sorted (deterministic output).
+    # Wildcard probes (empty SSID) skipped.
+    rq_add PRB1 "SELECT w.mac, $SSD FROM ssid s JOIN wifi_device w ON s.wifi_device=w.hash WHERE s.type=4 AND w.mac IS NOT NULL AND w.mac<>'' AND s.ssid IS NOT NULL AND CAST(s.ssid AS TEXT)<>'' $AGE_S GROUP BY w.mac, 2 ORDER BY w.mac, 2"
+    rq_add PRB2 "SELECT stamac, $SSD FROM ssid WHERE type=4 AND stamac IS NOT NULL AND stamac<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY stamac, 2 ORDER BY stamac, 2"
+
+    if [ "$HOPINFO" = "1" ]; then
+        rq_add HOP "SELECT freq, MAX(time) FROM ssid WHERE freq IS NOT NULL AND freq>0 AND time IS NOT NULL AND time>0 GROUP BY freq ORDER BY freq"
+    fi
+
+    # --- multi-SSID responders: how many DIFFERENT SSIDs one BSSID answered probes with (type=5). A
+    # count only, no SSID list; emitted as ap.responded_ssids when >= 2. Both column families.
+    rq_add RESP1 "SELECT bssid, COUNT(DISTINCT CAST(ssid AS TEXT)) FROM ssid WHERE type=5 AND bssid IS NOT NULL AND bssid<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY bssid HAVING COUNT(DISTINCT CAST(ssid AS TEXT))>1"
+    rq_add RESP2 "SELECT apmac, COUNT(DISTINCT CAST(ssid AS TEXT)) FROM ssid WHERE type=5 AND apmac IS NOT NULL AND apmac<>'' AND ssid IS NOT NULL AND CAST(ssid AS TEXT)<>'' $AGE GROUP BY apmac HAVING COUNT(DISTINCT CAST(ssid AS TEXT))>1"
+
+    # --- the oldest row the window counts (STARCHORUS_MAX_AGE): the clock of the skip test. Rows leave the window one at a time, long before the
+    # entry they belong to does (an AP's strong old beacon, a station's old probe), and the document changes when they do. Nothing to ask without a
+    # window, and none where `time` does not exist (the statement then fails and the skip test never skips).
+    RS_WMIN=""
+    [ -z "$AGE" ] || rq_add WMIN "SELECT MIN(time) FROM ssid WHERE type IN (4,5,8) $AGE"
+
+    # --- the one sqlite3 process of this cycle
+    pick=$(printf '%s\n' "$RQ" | recondb_query "$qdb" | clean_ctrl | recondb_pick)
+    recon_workdone
+    if [ -n "$AGE" ]; then
+        RS_WMIN=$(printf '%s\n' "$pick" | recondb_section WMIN)
+        case $RS_WMIN in ''|*[!0-9]*) RS_WMIN="" ;; esac
+    fi
+    if [ -z "$HAS_TIME" ]; then
+        case $(printf '%s\n' "$pick" | recondb_section HASTIME) in 0) HAS_TIME=0 ;; [1-9]*) HAS_TIME=1 ;; esac
+    fi
+    case $pick in
+        "#STARCHORUS_APS#"*|*"$NL#STARCHORUS_APS#"*) ;;
+        *) HAS_TIME=""; return 1 ;;      # no access point: nothing to publish; learn the schema afresh next cycle
+    esac
+
+    # --- hop awareness (STARCHORUS_HOPINFO / STARCHORUS_SURVEY, default off): channels[] = per frequency the last
+    # time anything was heard there (recon.db `time`; whether that is a first-seen or an upsert time is
+    # an OPEN device question) and, with the survey flag, the driver's own busy percentage and noise
+    # floor (`iw ... survey dump` is a read-only netlink dump). No channels[] => the front-end never
+    # treats a BSSID's absence as "gone" or "stale". (The recon.db rows came in the batch above.)
+    chj=""
+    if [ "$HOPINFO" = "1" ] || [ "$SURVEY" = "1" ]; then
+        chrows=""
+        if [ "$HOPINFO" = "1" ]; then
+            hop=$(printf '%s\n' "$pick" | recondb_section HOP)
+            [ -z "$hop" ] || chrows=$(printf '%s\n' "$hop" | awk -F"$RECON_TAB" '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {printf "H\t%s\t%s\n", $1, $2}')
+        fi
+        if [ "$SURVEY" = "1" ]; then
+            sif=${STARCHORUS_SURVEY_IFACE:-$MONIF}
+            if [ -n "$sif" ] && have iw; then
+                sv=$(iw dev "$sif" survey dump 2>/dev/null | survey_rows)
+                [ -z "$sv" ] || chrows=$(printf '%s\n%s' "$chrows" "$sv")
+            fi
+        fi
+        chj=$(printf '%s\n' "$chrows" | channels_json)
+    fi
+
+    # the extras of the center object (what add_center would insert) go in here when run_cycle asks: one pass less over the document
+    bx=""; if [ "$CX_EMBED" = 1 ]; then bx=$(center_extra); CENTER_DONE=1; fi
+    printf '%s\n' "$pick" | \
+      SC_CH="$chj" SC_CX="$bx" awk -v ts="$1" -v center="$CENTER_LABEL" -v src="recon-db" -v FSU="$RECON_TAB" "$AWK_JSON_HELPERS$AWK_SEC$AWK_RECONDB"
     return 0
+}
+
+# --------------------------------------------------------------------------- JSON: the AP service's own recon lists (opt-in)
+# PINEAP. STARCHORUS_SOURCE=pineap asks the device's AP service for what its recon already holds, with READ-ONLY commands (apcli_ro:
+# `RECON DEVICES format=json sort=time sortdir=desc limit=400`, or with STARCHORUS_PINEAP_CALLS=full `RECON APS format=json` and `RECON DEVICES
+# format=json`), instead of copying recon.db and querying it. The transmit counters of every wireless interface stay unchanged (V-3, and a run
+# of the recent form). It is a different VIEW, not the same data, and not a cheaper one: the calls cost 0.3 s of CPU (V-3), but the awk below
+# walks the answer at about 22 ms per device on the device (9 s for the 400 of `recent`, 46 s for the 2,100 of `full`), against 2 s of CPU for a
+# cycle of the database path (docs/device-notes.md §6a). The lists are the CURRENT recon session only (the database is cumulative),
+# there is no encryption field and no station -> AP link in them. So:
+#   * APs   : RECON APS. ssid = the strongest (then newest) beacon or probe-response record; a hidden beacon gives "". channel, freq, rssi from
+#             the record / the device; last_seen = `time`; responded_ssids from the probe-response records (2 or more distinct).
+#   * stations: the RECON DEVICES entries that are not APs (not in RECON APS and no beacon record). rssi, last_seen = `time`; probes[] = the SSIDs
+#             of their probe records (distinct, sorted, at most 8).
+#   * security: not in the AP service's lists. Taken per BSSID from recon.db, rarely: a small cache in $TMPDIR_RAM (starchorus-sec.txt) is read
+#             every cycle; ONE query (copy + one sqlite3, the same read-only path as above) runs when a BSSID is not in the cache (at most every
+#             60 s) or when the cache holds BSSIDs the database did not know (at most every 10 min). Without a database: "Unknown".
+#   * STARCHORUS_MAX_AGE applies to `time` of both lists.
+# The JSON is parsed in awk (the device's jq is slow): sed puts every JSON string on a line of its own (any character, escaped quotes and
+# backslashes, \uXXXX), so awk only walks the short structural chunks between them. SSIDs are carried over with their JSON escapes; \n and \t
+# become a space, other control characters (\r, \b, \f, \u0000-\u001f, \u007f) are dropped, as the database path does; \uXXXX above U+007F stays an escape.
+json_tokens() {   # stdin: JSON; stdout: one token per line (a string on a line of its own). The newline in the replacement is the portable (POSIX) form.
+    sed -E 's/"([^"\\]|\\.)*"/\
+&\
+/g'
+}
+# shellcheck disable=SC2016  # awk program text, deliberately not expanded
+AWK_PINEAP='
+    function cleanstr(r,   i,n,c,d,o,h){ if(index(r,"\\")==0 && index(r,"\t")==0) return r       # (nearly every SSID: nothing to do)
+        o=""; n=length(r); i=1
+        while(i<=n){ c=substr(r,i,1)
+            if(c=="\\"){ d=substr(r,i+1,1)
+                if(d=="n" || d=="t"){ o=o " "; i+=2 }
+                else if(d=="r" || d=="b" || d=="f"){ i+=2 }
+                else if(d=="\"" || d=="\\"){ o=o c d; i+=2 }
+                else if(d=="/"){ o=o "/"; i+=2 }
+                else if(d=="u"){ h=substr(r,i+2,4)
+                    if(h ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]$/){
+                        if(!(h ~ /^00[01]/ || toupper(h)=="007F")) o=o "\\u" h
+                        i+=6 }
+                    else i+=2 }
+                else i+=2 }
+            else { if(c=="\t") c=" "; o=o c; i++ } }
+        return o }
+    function ri(v){ v=v+0; return int(v + (v<0 ? -0.5 : 0.5)) }
+    function isnum(v){ return v ~ /^-?[0-9]+(\.[0-9]+)?([eE][-+]?[0-9]+)?$/ }
+    function push(c){ depth++; kind[depth]=(c=="{" ? "o" : "a"); expkey[depth]=(c=="{"); key[depth]=""
+        if(depth==1 && !root[which]) root[which]=(c=="[") ? 1 : -1
+        if(depth==2 && kind[2]=="o") dev_begin()
+        if(depth==4 && kind[4]=="o") rec_begin() }
+    function pop(){ if(depth==4 && kind[4]=="o") rec_end()
+        if(depth==2 && kind[2]=="o") dev_end()
+        if(depth==1 && root[which]==1) closed[which]=1
+        if(depth>0) depth-- }
+    function lit_end(){ if(lit!=""){ onval(lit); lit="" } }
+    function tok_str(b){ if(depth>0 && kind[depth]=="o" && expkey[depth]) key[depth]=b; else onval(b) }
+    function onval(v,   f){
+        if(depth==2 && kind[2]=="o"){ f=key[2]
+            if(f=="mac") dmac=v; else if(f=="freq") dfreq=v; else if(f=="signal") dsig=v; else if(f=="time") dtime=v }
+        else if(depth==4 && kind[4]=="o"){ f=key[4]
+            if(f=="ssid") rssid=cleanstr(v); else if(f=="channel") rch=v; else if(f=="freq") rfreq=v; else if(f=="signal") rsig=v
+            else if(f=="time") rtime=v; else if(f=="hidden") rhid=(v=="true") } }
+    function dev_begin(   k){ dmac=""; dfreq=""; dsig=""; dtime=""; hascand=0; hasbeacon=0; nresp=0; np=0
+        for(k in rseen) delete rseen[k]
+        for(k in pseen) delete pseen[k] }
+    function rec_begin(){ rssid=""; rch=""; rfreq=""; rsig=""; rtime=""; rhid=0 }
+    function rec_end(   t,s,tm){ t=key[2]; s=isnum(rsig) ? rsig+0 : -1000; tm=isnum(rtime) ? rtime+0 : 0
+        if(t=="beacon" || t=="response"){
+            if(t=="beacon") hasbeacon=1
+            if(!hascand || s>bsig || (s==bsig && tm>btime)){ hascand=1; bsig=s; btime=tm; bssid=rssid; bch=rch; bfreq=rfreq; bhid=(t=="beacon" && rhid) }
+            if(t=="response" && rssid!="" && !(rssid in rseen)){ rseen[rssid]=1; nresp++ } }
+        else if(t=="probe" && rssid!="" && !(rssid in pseen)){ pseen[rssid]=1; p8add(rssid) } }
+    # the 8 smallest distinct probed SSIDs of the device, sorted: a station that names thousands of networks costs 8 steps per SSID, not a sort
+    function p8add(s,   j){ if(np<8) j=++np; else if(s<plist[8]) j=8; else return
+        while(j>1 && plist[j-1]>s){ plist[j]=plist[j-1]; j-- }
+        plist[j]=s }
+    function dev_end(   m,f,ch,i,pr){
+        m=macfmt(dmac); if(!ismac(m)) return
+        if(cut+0>0 && !(isnum(dtime) && dtime+0>cut+0)) return
+        if(which==2 && (m in isap)) return
+        if(which==1 || hasbeacon){
+            isap[m]=1
+            f=(isnum(dfreq) && dfreq+0>0) ? ri(dfreq) : ((hascand && isnum(bfreq) && bfreq+0>0) ? ri(bfreq) : "")
+            ch=(hascand && isnum(bch) && bch+0>0) ? ri(bch) : (f!="" ? ch_from_freq(f) : "")
+            ap_mac[nap]=m; ap_ssid[nap]=(hascand && !bhid) ? bssid : ""; ap_f[nap]=f; ap_ch[nap]=ch
+            ap_sig[nap]=isnum(dsig) ? ri(dsig) : (hascand && bsig>-1000 ? ri(bsig) : "")
+            ap_last[nap]=(isnum(dtime) && dtime+0>0) ? ri(dtime) : ""
+            ap_resp[nap]=(nresp>=2) ? nresp : 0
+            nap++ }
+        else {
+            pr=""
+            for(i=1;i<=np;i++) pr=pr (i>1 ? ", " : "") "\"" plist[i] "\""
+            st_mac[nst]=m; st_sig[nst]=isnum(dsig) ? ri(dsig) : ""; st_last[nst]=(isnum(dtime) && dtime+0>0) ? ri(dtime) : ""; st_pr[nst]=pr
+            nst++ } }
+    # idx[0..n-1] = the indexes of arr[0..n-1] in ascending order, ties by index. A heap sort: n log n (the lists have as many entries as the air
+    # has devices, thousands in a crowd), where the insertion sort this replaces took n squared steps, 90 microseconds each on the device.
+    function sift(r,e,idx,   c,v){ v=idx[r]
+        while((c=2*r+1)<=e){ if(c<e && skey[idx[c]]<skey[idx[c+1]]) c++
+            if(skey[v]<skey[idx[c]]){ idx[r]=idx[c]; r=c } else break }
+        idx[r]=v }
+    function sortidx(arr,n,idx,   i,t){ for(i=0;i<n;i++){ idx[i]=i; skey[i]=arr[i] "|" sprintf("%09d", i) }
+        for(i=int((n-2)/2);i>=0;i--) sift(i,n-1,idx)
+        for(i=n-1;i>0;i--){ t=idx[0]; idx[0]=idx[i]; idx[i]=t; sift(0,i-1,idx) } }
+    BEGIN{ depth=0; which=1; nap=0; nst=0; sf=ENVIRON["SC_SEC"]; uf=ENVIRON["SC_UNK"]; nf=ENVIRON["SC_NEG"]; af=ENVIRON["SC_ALL"]
+        if(sf!=""){ while((getline l < sf)>0){ n=split(l, q, "\t"); if(n>=2 && ismac(q[1])){ seen[q[1]]=1; slab[q[1]]=q[2]; sext[q[1]]=(n>=3 ? q[3] : "") } } close(sf) } }
+    /^#STARCHORUS_DEVICES#$/ { lit_end(); which=2; depth=0; next }
+    { line=$0; if(line=="") next
+      if(substr(line,1,1)=="\"" && length(line)>=2){ lit_end(); tok_str(substr(line,2,length(line)-2)); next }
+      n=length(line)
+      for(i=1;i<=n;i++){ c=substr(line,i,1)
+          if(c==" " || c=="\t" || c=="\r") lit_end()
+          else if(c=="{" || c=="["){ lit_end(); push(c) }
+          else if(c=="}" || c=="]"){ lit_end(); pop() }
+          else if(c==":"){ lit_end(); if(depth>0) expkey[depth]=0 }
+          else if(c==","){ lit_end(); if(depth>0 && kind[depth]=="o") expkey[depth]=1 }
+          else lit=lit c }
+      lit_end() }
+    END{
+        if(closed[need+0]!=1) exit 3       # the list the document stands on (RECON APS; in "recent" mode the one RECON DEVICES) gave no complete JSON array: no document
+        doc_head()
+        sortidx(ap_mac, nap, ai)
+        printf "  \"aps\": [\n"
+        for(k=0;k<nap;k++){ i=ai[k]; m=ap_mac[i]
+            if(af!="") print m > af
+            if(m in seen){ sec=(slab[m]!="" ? slab[m] : "Unknown"); sx=sext[m]; if(slab[m]=="" && nf!="") print m > nf }
+            else { sec="Unknown"; sx=""; if(uf!="") print m > uf }
+            extra=(ap_last[i]!="") ? ", \"last_seen\": " ap_last[i] : ""
+            extra=extra sx
+            if(ap_resp[i]>0) extra=extra ", \"responded_ssids\": " ap_resp[i]
+            b=(ap_f[i]!="") ? band_from_freq(ap_f[i]) : ""
+            if(b=="" && ap_ch[i]!="") b=band_from_ch(ap_ch[i])
+            printf "%s%s\n", ap_json(jesc(m), ap_ssid[i], (ap_ch[i]!="" ? ap_ch[i] : "null"), b, (ap_f[i]!="" ? ap_f[i] : "null"),
+                numval(ap_sig[i] ""), sec, extra, ""), (k<nap-1 ? "," : "") }
+        printf "  ],\n  \"unassociated\": [\n"
+        sortidx(st_mac, nst, si)
+        for(k=0;k<nst;k++){ i=si[k]
+            extra=(st_last[i]!="") ? ", \"last_seen\": " st_last[i] : ""
+            if(st_pr[i]!="") extra=extra ", \"probes\": [" st_pr[i] "]"
+            printf "%s%s\n", cl_json(jesc(st_mac[i]), numval(st_sig[i] ""), extra), (k<nst-1 ? "," : "") }
+        printf "  ]\n}\n"
+        if(af!="") close(af); if(uf!="") close(uf); if(nf!="") close(nf) }
+'
+
+# The pineap document: both lists in, one document out. $1 = now. A failed RECON APS (no complete JSON array) is no document (return 1); a failed
+# RECON DEVICES only means no stations.
+pineap_doc() {
+    { printf '%s\n' "$PA" | clean_ctrl | json_tokens; printf '#STARCHORUS_DEVICES#\n'; printf '%s\n' "$PD" | clean_ctrl | json_tokens; } | \
+      SC_SEC="$PSEC" SC_UNK="$PUNK" SC_NEG="$PNEG" SC_ALL="$PALL" awk -v ts="$1" -v center="$CENTER_LABEL" -v src="pineap" -v cut="$PCUT" -v need="$PNEED" "$AWK_JSON_HELPERS$AWK_PINEAP"
+}
+# One query for the security of the APs in file $1 (lower-case MACs, one per line), written as the cache $PSEC: "mac<TAB>label<TAB>extra", and an
+# empty label for a BSSID the database does not know (so it is not asked for again before the next 10-minute retry). The same read-only copy
+# and batch as the database path; the bitmask is decoded by the same awk library.
+pineap_secrefresh() {
+    PSEC_T=$2
+    recon_db_path && have sqlite3 || return 0
+    recon_enc_sql
+    pl=$(awk -v q="'" '{ m=toupper($0); gsub(/:/, "", m); if (m ~ /^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]$/) printf "%s%s%s%s", (n++ ? "," : ""), q, m, q }' "$1")
+    [ -n "$pl" ] || return 0
+    file_size "$RDB_PATH"
+    recon_workcopy "$RDB_PATH" "$FSZ"
+    # -bail: the first error ends the batch, so the closing marker row comes out only when the query ran to the end. An answer without it (a torn
+    # copy, a locked file, a missing table) is not "the database does not know these": the cache stays as it was.
+    ps_rows=$(printf '%s;\nSELECT %s;\n' "SELECT bssid, ($ENC), $ENC5, MAX(signal) FROM ssid WHERE type IN (5,8) AND bssid IN ($pl) GROUP BY bssid" "'#STARCHORUS_SECEND#'" \
+        | { RQ_BAIL=-bail; recondb_query "$QDB"; } | clean_ctrl)
+    recon_workdone
+    case $NL$ps_rows$NL in
+        *"$NL#STARCHORUS_SECEND#$NL"*) PSEC_FAIL=0 ;;
+        *) [ "$PSEC_FAIL" = 1 ] || log "pineap: the security lookup in recon.db gave no answer; the labels already known stay (next try in a minute)"
+           PSEC_FAIL=1; return 0 ;;
+    esac
+    { printf '%s\n' "$ps_rows"; } | SC_ALL="$1" awk -v FSU="$RECON_TAB" "$AWK_JSON_HELPERS$AWK_SEC"'
+        BEGIN{ FS=FSU; sec_init(); while((getline l < ENVIRON["SC_ALL"])>0) want[l]=1 }
+        NF>=6 { m=macfmt($1); if(!ismac(m)) next; delete want[m]; printf "%s\t%s\t%s\n", m, sec_of2($2,$3,$4,$5,$6), sec_extra($3,$4,$5,$6) }
+        END{ for(m in want) printf "%s\t\t\n", m }' > "$PSEC.new.$$" 2>/dev/null && mv -f "$PSEC.new.$$" "$PSEC"
+    rm -f "$PSEC.new.$$" 2>/dev/null
+}
+build_from_apcli() {
+    apcli_ro present || return 1
+    if [ "$PINEAP_CALLS" = recent ]; then
+        # one call: the newest 400 devices carry the APs (beacon records) and the stations (probe records); no RECON APS
+        PA='[]'; PD=$(apcli_ro recon_devices_recent 2>/dev/null); PNEED=2
+    else
+        PA=$(apcli_ro recon_aps 2>/dev/null)
+        [ -n "$PA" ] || return 1           # nothing at all (hung, killed by the timeout): do not wait for a second call
+        PD=$(apcli_ro recon_devices 2>/dev/null); PNEED=1
+    fi
+    PSEC="$TMPDIR_RAM/starchorus-sec.txt"; PUNK="$TMPDIR_RAM/starchorus-pineap-$$.unk"; PNEG="$TMPDIR_RAM/starchorus-pineap-$$.neg"; PALL="$TMPDIR_RAM/starchorus-pineap-$$.all"
+    PCUT=0
+    if [ "$MAX_AGE" -gt 0 ] 2>/dev/null && [ "$1" -gt "$MAX_AGE" ] 2>/dev/null; then PCUT=$(($1 - MAX_AGE)); fi
+    if [ ! -d "$TMPDIR_RAM" ] || [ ! -w "$TMPDIR_RAM" ]; then PUNK=""; PNEG=""; PALL=""; fi      # no RAM directory: no side files, no lookups
+    rm -f "$PUNK" "$PNEG" "$PALL" 2>/dev/null
+    pdoc=$(pineap_doc "$1"); prc=$?
+    if [ "$prc" = 0 ] && [ -n "$PALL" ]; then
+        # unknown BSSIDs (none in the cache yet): ask at most every 60 s; BSSIDs the database did not know: retry every 10 min
+        # (a clock set back, the device has no battery clock, must not hold the lookups off until it has caught up: that is "due")
+        [ "$1" -ge "$PSEC_T" ] 2>/dev/null || PSEC_T=0
+        if { [ -s "$PUNK" ] && [ $(($1 - PSEC_T)) -ge 60 ]; } || { [ -s "$PNEG" ] && [ $(($1 - PSEC_T)) -ge 600 ]; }; then
+            pineap_secrefresh "$PALL" "$1"
+            rm -f "$PUNK" "$PNEG" 2>/dev/null
+            pdoc=$(pineap_doc "$1"); prc=$?
+        fi
+    fi
+    rm -f "$PUNK" "$PNEG" "$PALL" 2>/dev/null
+    [ "$prc" = 0 ] || return 1
+    # an answer without a single AP is no answer (the AP service was just restarted, RECON NEW): run_cycle falls back to recon.db for it
+    case $pdoc in *'"bssid": "'*) ;; *) return 2 ;; esac
+    printf '%s\n' "$pdoc"
 }
 
 # --------------------------------------------------------------------------- JSON: iw scan (ACTIVE!)
@@ -1459,58 +2081,68 @@ build_from_iwscan() {
 # --------------------------------------------------------------------------- spec §14.6: the AP-service CLI allowlist
 # The ONLY functions in which an AP-service CLI command may be written (tools/passivity-check.sh lists them in SEC6_FUNCS and greps every
 # other line of the collector, both starchorus-display.sh, payload.sh and library/** for `_pineap`, PINEAPPLE_, WIGLE_, DEAUTH, SSID_POOL,
-# GPS_GET). Three LITERAL command lines, no eval, no variable command name. Nothing calls apcli_ro yet: `recon_aps`/`recon_clients`
-# wait for a per-command device verification, `monitor` is the read side of the homing meter. rc 0 = ran, 2 = refused, 3 = flag off.
+# GPS_GET). Three LITERAL command lines (two commands, one of them also in a bounded form), no eval, no command name from a variable, no
+# argument taken from outside (the lines only carry the optional prefix `timeout 10`). `recon_aps` and `recon_devices` are the two read-only
+# lists the opt-in source STARCHORUS_SOURCE=pineap reads (verified on the device, docs/device-notes.md V-3: they leave the transmit counters of
+# every wireless interface unchanged); there is no `RECON CLIENTS` command on the device, the stations are in `RECON DEVICES`.
+# `recon_devices_recent` is the same list newest first and cut at 400 entries (the arguments are the CLI's own, from its help; checked on the
+# device in a 130 s run of the source on 14 Oct 2026, the counters unchanged). `present` runs no command at all: it only asks whether the CLI
+# exists. The former `monitor` id (listening to one BSSID, never verified on the device and called by nothing) has left the allowlist.
+# rc 0 = ran, 1 = nothing to run (present), 2 = refused, 3 = flag off.
 apcli_ro() {
     [ "$APCLI_RO" = "1" ] || return 3
+    # the list calls get 10 s (they take well under one on the device): a hung AP service must not hang the cycle. A `timeout`
+    # is on the device (docs/device-notes.md §2); without one the call is made as it is.
+    ap_to=""; have timeout && ap_to="timeout 10"
+    # shellcheck disable=SC2086  # ap_to is "timeout 10" or empty
     case "$1" in
-        recon_aps)     [ $# -eq 1 ] || return 2; _pineap RECON APS format=json ;;
-        recon_clients) [ $# -eq 1 ] || return 2; _pineap RECON CLIENTS format=json ;;
-        monitor)
-            [ $# -eq 2 ] || return 2
-            pb=$2
-            printf '%s' "$pb" | grep -Eq '^[0-9a-f]{2}(:[0-9a-f]{2}){5}$' || return 2
-            case $(printf '%s' "$pb" | cut -c2) in [13579bdf]) return 2 ;; esac       # group/multicast address (low bit of octet 1)
-            [ -r "$OUTFILE" ] || return 2
-            grep -q "\"bssid\": \"$pb\"" "$OUTFILE" || return 2                      # must be an AP of the current document ...
-            ! grep -q "\"mac\": \"$pb\"" "$OUTFILE" || return 2                       # ... never a station
-            ! grep -q "\"own_bssids\": \[[^]]*\"$pb\"" "$OUTFILE" || return 2         # ... and never one of our own transmitters
-            ! own_bssids | grep -qx "$pb" || return 2
-            _pineap MONITOR "$pb" any rate=200 timeout=120 ;;
+        present)       [ $# -eq 1 ] || return 2; command -v _pineap >/dev/null 2>&1 ;;
+        recon_aps)     [ $# -eq 1 ] || return 2; $ap_to _pineap RECON APS format=json ;;
+        recon_devices) [ $# -eq 1 ] || return 2; $ap_to _pineap RECON DEVICES format=json ;;
+        recon_devices_recent) [ $# -eq 1 ] || return 2; $ap_to _pineap RECON DEVICES format=json sort=time sortdir=desc limit=400 ;;
         *) return 2 ;;
     esac
 }
-# selftest support: an executable `_pineap` stub in directory $1 that appends its argv to file $2 (one line per call).
+# selftest support: an executable `_pineap` stub in directory $1 that appends its argv to file $2 (one line per call). With $3 and $4 it also
+# prints those files for `RECON APS format=json` and `RECON DEVICES format=json` (fixture JSON); any other argument line prints nothing.
 apcli_stub() {
-    mkdir -p "$1" && printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "$2" > "$1/_pineap" && chmod +x "$1/_pineap"
+    mkdir -p "$1" || return 1
+    {
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\n' "$2"
+        if [ "$3" = hang ]; then printf 'exec sleep 40\n'   # a command line that never answers (the timeout test)
+        elif [ -n "$3" ]; then printf 'case "$*" in\n"RECON APS format=json") cat "%s" ;;\n"RECON DEVICES format=json"*) cat "%s" ;;\nesac\n' "$3" "$4"; fi
+    } > "$1/_pineap" && chmod +x "$1/_pineap"
 }
-# The allowlist selftest ($1 = workspace): stub first in PATH; allowed ids produce exactly the expected line, everything else exits
-# non-zero WITHOUT reaching the stub; a monitor request needs an AP of the current document that is unicast, not a station, not ours.
+# The allowlist selftest ($1 = workspace): stub first in PATH; the three allowed ids produce exactly their literal lines, everything
+# else exits non-zero WITHOUT reaching the stub -- the former `monitor` id with any BSSID included.
 apcli_selftest() {
     pt="$1"; plog="$pt/apcli.log"; : > "$plog"
     apcli_stub "$pt/bin" "$plog"
-    p_path=$PATH; p_out=$OUTFILE; p_flag=$APCLI_RO; p_own=$OWN
-    PATH="$pt/bin:$PATH"; OUTFILE="$pt/apcli-doc.json"; APCLI_RO=1; OWN=0
-    printf '{\n  "aps": [\n    {"bssid": "aa:bb:cc:00:00:01", "ssid": "x"},\n    {"bssid": "aa:bb:cc:00:00:03", "ssid": "y"},\n    {"bssid": "03:bb:cc:00:00:05", "ssid": "z"}\n  ],\n  "center": {"label": "x", "own_bssids": ["aa:bb:cc:00:00:03"]},\n  "unassociated": [\n    {"mac": "aa:bb:cc:00:00:02", "rssi": -60}\n  ]\n}\n' > "$OUTFILE"
-    apcli_ro recon_aps; apcli_ro recon_clients; apcli_ro monitor aa:bb:cc:00:00:01
+    p_path=$PATH; p_flag=$APCLI_RO
+    PATH="$pt/bin:$PATH"; APCLI_RO=1
+    apcli_ro recon_aps; apcli_ro recon_devices; apcli_ro recon_devices_recent
     pl=$(cat "$plog")
     if [ "$pl" = "RECON APS format=json
-RECON CLIENTS format=json
-MONITOR aa:bb:cc:00:00:01 any rate=200 timeout=120" ]; then st_pass "apcli_ro: the three allowed ids run exactly their literal command lines"; else st_fail "apcli_ro allowed ids: [$pl]"; fi
+RECON DEVICES format=json
+RECON DEVICES format=json sort=time sortdir=desc limit=400" ]; then st_pass "apcli_ro: the three allowed ids (recon_aps, recon_devices, recon_devices_recent) run exactly their literal command lines"; else st_fail "apcli_ro allowed ids: [$pl]"; fi
     n0=$(wc -l < "$plog" | tr -d ' '); bad=""
-    for rid in DEAUTH deauth "RECON STOP" "RECON NEW" SSID_POOL_ADD WIGLE_UPLOAD GPS_GET "" monitor aa:bb:cc:00:00:01; do
+    for rid in DEAUTH deauth "RECON STOP" "RECON NEW" "RECON CLIENTS" recon_clients SSID_POOL_ADD WIGLE_UPLOAD GPS_GET "" monitor MONITOR aa:bb:cc:00:00:01; do
         apcli_ro "$rid" >/dev/null 2>&1 && bad="$bad [$rid]"
     done
     apcli_ro recon_aps extra >/dev/null 2>&1 && bad="$bad [recon_aps extra]"
-    for pm in ff:ff:ff:ff:ff:ff 01:00:5e:00:00:01 03:bb:cc:00:00:05 aa:bb:cc:00:00:02 aa:bb:cc:00:00:03 aa:bb:cc:00:00:99 AA:BB:CC:00:00:01 "aa:bb:cc:00:00:01;reboot" 'aa:bb:cc:00:00:01 --x' ""; do
+    apcli_ro recon_devices extra >/dev/null 2>&1 && bad="$bad [recon_devices extra]"
+    apcli_ro recon_devices "aa:bb:cc:00:00:01;reboot" >/dev/null 2>&1 && bad="$bad [recon_devices injection]"
+    apcli_ro recon_devices_recent limit=9999 >/dev/null 2>&1 && bad="$bad [recon_devices_recent arg]"
+    apcli_ro present extra >/dev/null 2>&1 && bad="$bad [present extra]"
+    for pm in aa:bb:cc:00:00:01 ff:ff:ff:ff:ff:ff 01:00:5e:00:00:01 "aa:bb:cc:00:00:01;reboot" 'aa:bb:cc:00:00:01 --x' ""; do
         apcli_ro monitor "$pm" >/dev/null 2>&1 && bad="$bad [monitor $pm]"
     done
     n1=$(wc -l < "$plog" | tr -d ' ')
-    if [ -z "$bad" ] && [ "$n0" = "$n1" ]; then st_pass "apcli_ro: refuses DEAUTH/RECON STOP|NEW/SSID_POOL/WIGLE/GPS ids, broadcast, multicast, a station, our own BSSID, a non-AP, injection — no stub call"; else st_fail "apcli_ro refusals:$bad (stub calls $n0 -> $n1)"; fi
+    if [ -z "$bad" ] && [ "$n0" = "$n1" ]; then st_pass "apcli_ro: refuses DEAUTH/RECON STOP|NEW|CLIENTS/SSID_POOL/WIGLE/GPS ids, monitor with any BSSID, extra arguments, injection — no stub call"; else st_fail "apcli_ro refusals:$bad (stub calls $n0 -> $n1)"; fi
     APCLI_RO=0; apcli_ro recon_aps >/dev/null 2>&1; rc=$?
     n2=$(wc -l < "$plog" | tr -d ' ')
     if [ "$rc" = "3" ] && [ "$n2" = "$n1" ]; then st_pass "apcli_ro: flag off (STARCHORUS_APCLI_RO=0) -> rc 3, no call"; else st_fail "apcli_ro flag off (rc $rc, calls $n1 -> $n2)"; fi
-    PATH=$p_path; OUTFILE=$p_out; APCLI_RO=$p_flag; OWN=$p_own
+    PATH=$p_path; APCLI_RO=$p_flag
 }
 
 # --------------------------------------------------------------------------- survey rows, channels[], center extras
@@ -1571,8 +2203,11 @@ center_extra() {
 # into existing lines, so anything else (e.g. a pass that died half-way yet returned 0) is dropped and the
 # document stays as it was (return 1).
 post_keep() {
+    # The line counts are compared as numbers and UNQUOTED: the word splitting takes off the blanks a BSD `wc` pads them with (a
+    # padded number is a bad number to BusyBox's `[`), and no `tr` process is needed for it. An empty count is a failed `[`, so no.
+    # shellcheck disable=SC2046
     if [ "$3" = "0" ] && [ -s "$1.$2" ] \
-       && [ "$(wc -l < "$1" | tr -d ' ')" = "$(wc -l < "$1.$2" | tr -d ' ')" ] && [ "$(tail -n 1 "$1.$2")" = "}" ]; then
+       && [ $(wc -l < "$1" 2>/dev/null) -eq $(wc -l < "$1.$2" 2>/dev/null) ] 2>/dev/null && [ "$(tail -n 1 "$1.$2")" = "}" ]; then
         mv -f "$1.$2" "$1"; return 0
     fi
     rm -f "$1.$2" 2>/dev/null; return 1
@@ -1606,6 +2241,7 @@ add_homing() {
 }
 # One cycle's homing step on the file $1 (the finished document): keeps the peak, inserts the field, drops the result if the shape changed.
 apply_homing() {
+    if homing_off; then HOMING_PEAK=""; HOMING_POLLS=0; return 0; fi      # no target at all: not a single process for it
     ht=$(homing_target); [ -n "$ht" ] || { HOMING_PEAK=""; HOMING_POLLS=0; return 0; }
     if own_bssids | grep -qx "$ht"; then return 0; fi
     hd=$(homing_dbm "$ht" < "$1"); [ -n "$hd" ] || return 0
@@ -1622,11 +2258,57 @@ write_empty() {
         "$ts" "$CENTER_LABEL" "$(center_extra)" "$reason"
 }
 
+# --------------------------------------------------------------------------- recon.db: a cycle with nothing new
+# The recon engine keeps recon.db open and writes whenever it hears something, so on a busy night the file changes every cycle and this
+# never fires; in a quiet room it saves the whole copy, the queries, the awk passes and the vendor pass (about 3 s of the device's CPU).
+# A skipped cycle still publishes: the document is the same bytes with a new "generated". The page counts a new `generated` as a capture and
+# calls a feed that stands still for 6 polls Stale, and the freshness tiers are measured from `generated`, so leaving it alone would make a
+# healthy, quiet collector look dead. The document it publishes is the one of this process's last full pass, kept in its memory (RS_DOCV): what
+# $OUTFILE holds at that moment (another collector's --once with other settings, an empty document after a failed cycle) is not trusted, and
+# is replaced. What may NOT be skipped: the file changed (size, mtime, journal, wal), a row could have left the STARCHORUS_MAX_AGE window
+# (the oldest row the last full pass counted is the clock for that), a homing target, the survey or the own-device fields are on (they are read
+# every cycle), a setting changed, the clock went backwards, or SKIP_MAX skips in a row have passed.
+rs_cfg() {   # RS_CFGNOW = what the document depends on besides recon.db: a changed setting is a rebuild
+    RS_CFGNOW="$MAX_AGE|$INTERVAL|$VENDOR|$HOPINFO|$OUTFILE|$RECON_DB|$OUI_PATH|$CENTER_LABEL"
+}
+homing_off() { [ -z "$HOMING_BSSID" ] && [ ! -e "$OUTDIR/homing.target" ]; }   # no target, no file: no process needed to know
+recon_unchanged() {   # $1 = now, RS_RAW = this cycle's sample. 0 = the document of the last full pass still stands
+    [ "$SKIP_UNCHANGED" = 1 ] && [ -n "$RS_SIG" ] && [ "${1:-0}" -gt 0 ] 2>/dev/null || return 1
+    [ "$RS_SKIPS" -lt "$SKIP_MAX" ] && [ -n "$RS_DOCV" ] && [ "$SURVEY" != 1 ] && [ "$OWN" != 1 ] || return 1
+    [ "$1" -ge "$RS_TS" ] 2>/dev/null || return 1
+    rs_cfg; [ "$RS_CFGNOW" = "$RS_CFG" ] || return 1
+    homing_off || return 1
+    [ -n "$RS_RAW" ] && [ "$RS_RAW" = "$RS_SIG" ] || return 1      # this cycle's sample (recon_sample) is the one of the last full pass
+    if [ "$MAX_AGE" -gt 0 ] 2>/dev/null; then
+        # the build keeps the rows with `time > now - MAX_AGE`: it stands while the oldest row it counted still does (none known: no skip)
+        [ -n "$RS_MIN" ] && [ "$RS_MIN" -gt $(($1 - MAX_AGE)) ] 2>/dev/null || return 1
+    fi
+    return 0
+}
+# Keep the document $1 of a full pass for refresh_generated. In a variable, not in a file: a file in /tmp would outlive a collector that is killed
+# (the loop only hears a TERM after its sleep). 0 = kept; 1 = not (unreadable): the next cycle is a full pass.
+rs_keepdoc() {
+    RS_DOCV=$(cat "$1" 2>/dev/null); RS_DOCN=$(wc -l < "$1" 2>/dev/null)
+    [ -n "$RS_DOCV" ] && [ -n "$RS_DOCN" ] && return 0
+    RS_DOCV=""; return 1
+}
+# RS_DOCV with a new "generated" and nothing else, published over $OUTFILE. Same line count and closing brace or it is dropped (return 1).
+refresh_generated() {   # $1 = now
+    rg_t="$OUTFILE.gen$$"
+    printf '%s\n' "$RS_DOCV" | sed "s/^  \"generated\": [0-9][0-9]*,\$/  \"generated\": $1,/" > "$rg_t" 2>/dev/null
+    # The line counts as in post_keep (compared as numbers, unquoted).
+    # shellcheck disable=SC2046,SC2086
+    if grep -q "^  \"generated\": $1,\$" "$rg_t" 2>/dev/null \
+       && [ $RS_DOCN -eq $(wc -l < "$rg_t" 2>/dev/null) ] 2>/dev/null && [ "$(tail -n 1 "$rg_t")" = "}" ] \
+       && mv -f "$rg_t" "$OUTFILE" 2>/dev/null; then return 0; fi
+    rm -f "$rg_t" 2>/dev/null; return 1
+}
+
 # --------------------------------------------------------------------------- one cycle
 run_cycle() {
     ts=$(date +%s 2>/dev/null); [ -n "$ts" ] || ts=0
     tmp="$OUTFILE.tmp.$$"
-    ok=1
+    ok=1; CENTER_DONE=0
     case "$RESOLVED" in
         capture)
             if [ "$CAP_METHOD" = "airodump" ]; then
@@ -1635,7 +2317,20 @@ run_cycle() {
                 build_from_tcpdump "$ts" > "$tmp" 2>/dev/null || ok=0
             fi
             ;;
-        recondb) build_from_recondb "$ts" > "$tmp" 2>/dev/null || ok=0 ;;
+        recondb)
+            recon_sample "$ts"; RS_TAKEN=1      # the one look at recon.db's files this cycle: the skip test and the build use it
+            if recon_unchanged "$ts" && refresh_generated "$ts"; then RS_SKIPS=$((RS_SKIPS + 1)); RS_TAKEN=0; return 0; fi
+            RS_SIG=""
+            CX_EMBED=1; build_from_recondb "$ts" > "$tmp" 2>/dev/null || ok=0; CX_EMBED=0 ;;
+        pineap)
+            build_from_apcli "$ts" > "$tmp" 2>/dev/null; prc=$?
+            if [ "$prc" = 0 ]; then PN_FELL=0
+            else
+                # no usable answer (failed, hung past the timeout, or no AP at all): recon.db for THIS cycle, said once per episode
+                [ "$PN_FELL" = 1 ] || log "pineap: no usable answer from the AP service (rc $prc); using recon.db until it answers again"
+                PN_FELL=1
+                CX_EMBED=1; build_from_recondb "$ts" > "$tmp" 2>/dev/null || ok=0; CX_EMBED=0
+            fi ;;
         iwscan)  build_from_iwscan  "$ts" > "$tmp" 2>/dev/null || ok=0 ;;
         *)       ok=0 ;;
     esac
@@ -1644,7 +2339,7 @@ run_cycle() {
     # randomized enrichment (skipped entirely with STARCHORUS_VENDOR=0; "defer": its new cache lines are
     # merged only AFTER the JSON is published, below).
     if [ "$ok" = "1" ] && [ -s "$tmp" ]; then
-        add_center < "$tmp" > "$tmp.c" 2>/dev/null; post_keep "$tmp" c $?
+        if [ "$CENTER_DONE" != 1 ]; then add_center < "$tmp" > "$tmp.c" 2>/dev/null; post_keep "$tmp" c $?; fi
         apply_homing "$tmp"
         if [ "$VENDOR" = "1" ]; then
             add_vendor defer < "$tmp" > "$tmp.v" 2>/dev/null; post_keep "$tmp" v $? || vendor_merge discard
@@ -1652,10 +2347,19 @@ run_cycle() {
     fi
     # Guard: never publish an empty/failed temp over a good file; publish an explicit
     # empty document instead so the front-end always has valid JSON.
+    rs_good=0; if [ "$ok" = 1 ] && [ -s "$tmp" ]; then rs_good=1; fi
     if [ "$ok" != "1" ] || [ ! -s "$tmp" ]; then
         write_empty "$ts" "no data this cycle (source=$RESOLVED)" > "$tmp"
     fi
+    # remember this pass for the skip test of the next cycle: its document (a skipped cycle publishes that one) and the state it stands on.
+    # Not a document with a homing reading (it must be rebuilt without it once the target goes), nor with the survey or the own-device fields.
+    rs_kept=0
+    if [ "$rs_good" = 1 ] && [ "$RESOLVED" = recondb ] && [ -n "$RS_NEW" ] && [ "$SKIP_UNCHANGED" = 1 ] && [ "$SURVEY" != 1 ] && [ "$OWN" != 1 ] \
+       && homing_off && rs_keepdoc "$tmp"; then rs_kept=1; fi
     mv -f "$tmp" "$OUTFILE"    # atomic replace
+    if [ "$rs_kept" = 1 ]; then
+        rs_cfg; RS_SIG=$RS_NEW; RS_TS=$ts; RS_SKIPS=0; RS_CFG=$RS_CFGNOW; RS_MIN=$RS_WMIN
+    fi
     vendor_merge               # cache write AFTER publication: a lock wait costs the cache, not the view
 }
 
@@ -1943,6 +2647,332 @@ SQL
         check "legacy: LegacyNet WPA2"    "$out" '"security": "WPA2"'
         check "legacy: channel->band 2.4" "$out" '"band": "2.4GHz"'
         check "legacy: OPN->Open"         "$out" '"security": "Open"'
+
+        # ---- 3b) recon.db: the RAM work copy, ONE sqlite3 process per cycle in every schema family, and a cycle with nothing new.
+        #      A logging stub `sqlite3` in front of PATH counts the calls and keeps the SQL it was given (stdin); `df` and `date` are stubbed
+        #      where the test needs a full tmpfs or a clock it can move.
+        rsq=$(command -v sqlite3); rpt="$tdir/rq"; mkdir -p "$rpt/bin" "$rpt/ram"
+        cat > "$rpt/bin/sqlite3" <<'SHIM'
+#!/bin/sh
+printf '%s\n' "$*" >> "$SHIM_LOG"
+tee -a "$SHIM_SQL" | "$SHIM_REAL" "$@"
+SHIM
+        chmod +x "$rpt/bin/sqlite3"
+        r_path=$PATH; r_res=$RESOLVED; r_db=$RECON_DB; r_of=$OUTFILE; r_ven=$VENDOR; r_age=$MAX_AGE; r_tmp=$TMPDIR_RAM; r_od=$OUTDIR; r_int=$INTERVAL
+        PATH="$rpt/bin:$PATH"; export SHIM_REAL="$rsq" SHIM_LOG="$rpt/calls" SHIM_SQL="$rpt/sql"
+        : > "$SHIM_LOG"; : > "$SHIM_SQL"
+        TMPDIR_RAM="$rpt/ram"; RECON_DB="$rdb"; HAS_TIME=""; RDB_PATH=""
+        calls() { wc -l < "$SHIM_LOG" | tr -d ' '; }
+        rm -f "$CAPDIR/recon_copy.db"
+        build_from_recondb 1710000000 > "$rpt/o1.json" 2>/dev/null
+        if json_ok < "$rpt/o1.json" && grep -q '"ssid": "OpenGuest"' "$rpt/o1.json" && [ "$(calls)" = 1 ]; then st_pass "recon batch: one sqlite3 process for the whole cycle (running schema)"; else st_fail "recon batch: running schema (calls $(calls))"; fi
+        if grep -q "$rpt/ram/starchorus-recon-" "$SHIM_LOG" && [ ! -e "$CAPDIR/recon_copy.db" ] && [ -z "$(ls "$rpt/ram")" ]; then st_pass "recon copy: made in the RAM directory, nothing in CAPDIR, removed after the queries"; else st_fail "recon copy: $(cat "$SHIM_LOG") / $(ls "$rpt/ram" "$CAPDIR")"; fi
+        if [ "$HAS_TIME" = 1 ] && [ "$(grep -c "STARCHORUS_APS2#" "$SHIM_SQL")" = 1 ]; then st_pass "recon batch: the first batch asks the no-time alternatives too and learns that ssid has a time column"; else st_fail "recon batch: HAS_TIME=$HAS_TIME"; fi
+        build_from_recondb 1710000000 > "$rpt/o2.json" 2>/dev/null
+        if [ "$(calls)" = 2 ] && [ "$(grep -c "STARCHORUS_APS2#" "$SHIM_SQL")" = 1 ] && [ "$(grep -c "STARCHORUS_CLI2#" "$SHIM_SQL")" = 1 ] && cmp -s "$rpt/o1.json" "$rpt/o2.json"; then st_pass "recon batch: once learnt, the duplicate no-time scans are left out; the document is the same"; else st_fail "recon batch: second batch (calls $(calls))"; fi
+        # a statement the firmware cannot prepare (apmac family: no bssid column; legacy: no ssid table) must not stop the later ones, and still one process
+        for rfam in "$pdb:OpenAir" "$mdb:LegacyNet" "$sdb:Sec-OWE"; do
+            : > "$SHIM_LOG"; RECON_DB=${rfam%%:*}
+            build_from_recondb 1710000000 > "$rpt/of.json" 2>/dev/null
+            if [ "$(calls)" = 1 ] && grep -q "\"ssid\": \"${rfam##*:}\"" "$rpt/of.json"; then st_pass "recon batch: ${rfam##*:} found in ONE process although other alternatives fail"; else st_fail "recon batch: ${rfam##*:} (calls $(calls))"; fi
+        done
+        # a ssid table without a time column: the no-time alternatives answer, no last_seen, HAS_TIME=0
+        ndb="$tdir/recon_notime.db"
+        sqlite3 "$ndb" >/dev/null 2>&1 <<'SQL'
+CREATE TABLE ssid(hash INT PRIMARY KEY, wifi_device INT, scan INT, type INT, bssid TEXT, ssid BLOB, hidden INT, signal INT, freq INT, channel INT, encryption INT);
+CREATE TABLE wifi_device(hash INT PRIMARY KEY, scan INT, mac TEXT, time INT, signal INT, freq INT, packets INT);
+INSERT INTO ssid VALUES (1,0,1,8,'C0C0C0000001','NoTimeAP',0,-50,2437,6,8);
+INSERT INTO ssid VALUES (2,401,1,4,'FFFFFFFFFFFF','Wanted',0,-60,0,0,0);
+INSERT INTO wifi_device VALUES (401,1,'C0C0C0000009',0,-60,0,1);
+SQL
+        : > "$SHIM_LOG"; RECON_DB="$ndb"
+        build_from_recondb 1710000000 > "$rpt/on.json" 2>/dev/null
+        if [ "$(calls)" = 1 ] && [ "$HAS_TIME" = 0 ] && grep -q '"ssid": "NoTimeAP"' "$rpt/on.json" && grep -q '"mac": "c0:c0:c0:00:00:09"' "$rpt/on.json" && ! grep -q last_seen "$rpt/on.json" && grep -q '"probes": \["Wanted"\]' "$rpt/on.json"; then st_pass "recon batch: a ssid table without a time column is answered by the no-time alternatives (no last_seen)"; else st_fail "recon batch: no-time schema (calls $(calls), HAS_TIME=$HAS_TIME)"; fi
+        # the hop query joins the same batch
+        : > "$SHIM_LOG"; RECON_DB="$hdb"; HOPINFO=1
+        build_from_recondb 1710000000 > "$rpt/oh.json" 2>/dev/null; HOPINFO=0
+        if [ "$(calls)" = 1 ] && grep -q '"channels": \[{"freq": 2412, "last_heard": 1709999995}' "$rpt/oh.json"; then st_pass "recon batch: HOPINFO adds its query to the same single process"; else st_fail "recon batch: hop (calls $(calls))"; fi
+        # recondb_pick: the first alternative with rows wins, later ones are dropped; an SSID that looks like a marker is data, not a section
+        pk=$(printf '%s\n' '#STARCHORUS_APS1#' '#STARCHORUS_APS2#' 'a1	one' 'a2	two' '#STARCHORUS_APS3#' 'a3	three' '#STARCHORUS_CLI1#' 'c1	-50	77' '#STARCHORUS_PRB1#' 'p1	#STARCHORUS_APS#' '#STARCHORUS_HASTIME#' '1' | recondb_pick)
+        if [ "$pk" = "#STARCHORUS_APS#
+a1	one
+a2	two
+#STARCHORUS_CLIENTS#
+c1	-50	77
+#STARCHORUS_PROBES#
+p1	#STARCHORUS_APS#
+#STARCHORUS_HASTIME#
+1" ]; then st_pass "recondb_pick: first non-empty alternative per group, marker-like data stays data"; else st_fail "recondb_pick: [$pk]"; fi
+        # a full tmpfs: the copy goes to CAPDIR as it did before, and the cycle still works
+        printf '#!/bin/sh\nprintf "Filesystem 1024-blocks Used Available Capacity Mounted on\\ntmpfs 1000 999 1 99%% /tmp\\n"\n' > "$rpt/bin/df"; chmod +x "$rpt/bin/df"
+        : > "$SHIM_LOG"; RECON_DB="$rdb"
+        build_from_recondb 1710000000 > "$rpt/ot.json" 2>/dev/null
+        if [ "$(calls)" = 1 ] && [ -s "$CAPDIR/recon_copy.db" ] && [ -z "$(ls "$rpt/ram")" ] && grep -q "$CAPDIR/recon_copy.db" "$SHIM_LOG" && json_ok < "$rpt/ot.json"; then st_pass "recon copy: no room in the RAM directory -> the old place (CAPDIR), cycle intact"; else st_fail "recon copy: full tmpfs ($(cat "$SHIM_LOG"))"; fi
+        rm -f "$rpt/bin/df" "$CAPDIR/recon_copy.db"
+        TMPDIR_RAM="$rpt/no-such-dir"; : > "$SHIM_LOG"
+        build_from_recondb 1710000000 > "$rpt/ot.json" 2>/dev/null
+        if [ -s "$CAPDIR/recon_copy.db" ] && json_ok < "$rpt/ot.json"; then st_pass "recon copy: no RAM directory at all -> the old place (CAPDIR)"; else st_fail "recon copy: missing RAM directory"; fi
+        rm -f "$CAPDIR/recon_copy.db"; TMPDIR_RAM="$rpt/ram"
+        # stale RAM copies of dead collectors are swept, a live one's is kept
+        : > "$rpt/ram/starchorus-recon-999999.db"; : > "$rpt/ram/starchorus-recon-$$.db"
+        sweep_stale_workcopies
+        if [ ! -e "$rpt/ram/starchorus-recon-999999.db" ] && [ -e "$rpt/ram/starchorus-recon-$$.db" ]; then st_pass "sweep: a dead collector's RAM copy removed, a live one's kept"; else st_fail "sweep: RAM copies ($(ls "$rpt/ram"))"; fi
+        rm -f "$rpt/ram"/starchorus-recon-*
+
+        # ---- 3c) a cycle with nothing new: only "generated" moves. A fake clock (FAKE_NOW) drives run_cycle; the database mtime is real and old.
+        FAKE_NOW=0
+        date() { if [ "$1" = "+%s" ]; then printf '%s\n' "$FAKE_NOW"; else command date "$@"; fi; }
+        n0=$(command date +%s); kdb="$tdir/recon_skip.db"
+        sqlite3 "$kdb" >/dev/null 2>&1 <<SQL
+CREATE TABLE ssid(hash INT PRIMARY KEY, wifi_device INT, scan INT, type INT, bssid TEXT, ssid BLOB,
+                  hidden INT, time INT, signal INT, freq INT, channel INT, encryption INT);
+CREATE TABLE wifi_device(hash INT PRIMARY KEY, scan INT, mac TEXT, time INT, signal INT, freq INT, packets INT);
+INSERT INTO ssid VALUES (1,0,1,8,'D0D0D0000001','OldAP',0,$((n0 + 50)),-50,2437,6,8);
+INSERT INTO ssid VALUES (2,0,1,8,'D0D0D0000002','NewerAP',0,$((n0 + 80)),-60,2437,6,8);
+INSERT INTO ssid VALUES (3,501,1,4,'FFFFFFFFFFFF','Q',0,$((n0 + 80)),-70,0,0,0);
+INSERT INTO wifi_device VALUES (501,1,'D1D1D1000001',$((n0 + 80)),-70,0,1);
+SQL
+        RESOLVED=recondb; RECON_DB="$kdb"; OUTFILE="$rpt/skip.json"; OUTDIR="$rpt"; VENDOR=0; MAX_AGE=300; INTERVAL=30; HOMING_BSSID=""; OWN=0
+        HAS_TIME=""; RDB_PATH=""; RS_SIG=""; RS_SKIPS=0; SKIP_MAX=20; SKIP_UNCHANGED=1; rm -f "$OUTFILE" "$rpt/homing.target" "$kdb-journal"
+        cyc() { FAKE_NOW=$1; : > "$SHIM_LOG"; run_cycle >/dev/null 2>&1; }
+        cyc $((n0 + 100)); c1=$(calls)
+        grep -v '"generated"' "$OUTFILE" > "$rpt/s1.body"
+        if [ "$c1" = 1 ] && grep -q '"generated": '$((n0 + 100))',' "$OUTFILE" && grep -q OldAP "$OUTFILE" && [ -n "$RS_SIG" ]; then st_pass "skip: the first cycle is a full pass and records recon.db's state"; else st_fail "skip: first cycle (calls $c1, sig [$RS_SIG])"; fi
+        cyc $((n0 + 130)); c2=$(calls)
+        grep -v '"generated"' "$OUTFILE" > "$rpt/s2.body"
+        if [ "$c2" = 0 ] && grep -q '"generated": '$((n0 + 130))',' "$OUTFILE" && cmp -s "$rpt/s1.body" "$rpt/s2.body" && json_ok < "$OUTFILE" && [ "$RS_SKIPS" = 1 ]; then st_pass "skip: nothing changed -> no sqlite3, no copy; the file is the same but for a new generated"; else st_fail "skip: second cycle (calls $c2, skips $RS_SKIPS)"; fi
+        cyc $((n0 + 340)); c3=$(calls)
+        if [ "$c3" = 0 ] && grep -q OldAP "$OUTFILE"; then st_pass "skip: just before the oldest entry leaves the window the cycle is still skipped"; else st_fail "skip: before the cut-off (calls $c3)"; fi
+        cyc $((n0 + 350)); c4=$(calls)
+        if [ "$c4" = 1 ] && ! grep -q OldAP "$OUTFILE" && grep -q NewerAP "$OUTFILE" && json_ok < "$OUTFILE"; then st_pass "skip: the entry that ages out of STARCHORUS_MAX_AGE forces a full pass and disappears"; else st_fail "skip: ageing (calls $c4)"; fi
+        cyc $((n0 + 360)); c5=$(calls)
+        if [ "$c5" = 0 ]; then st_pass "skip: after the ageing pass the next quiet cycle is skipped again"; else st_fail "skip: after ageing (calls $c5)"; fi
+        i=0; while [ "$i" -lt 150 ]; do printf "INSERT INTO ssid VALUES (%s,0,1,8,'D2D2D2%06d','Grown%s',0,%s,-80,2437,6,8);\n" $((100 + i)) "$i" "$i" $((n0 + 90)); i=$((i + 1)); done | "$rsq" "$kdb" >/dev/null 2>&1
+        cyc $((n0 + 370)); c6=$(calls)
+        if [ "$c6" = 1 ] && grep -q Grown149 "$OUTFILE"; then st_pass "skip: recon.db changed (size) -> full pass, the new entries are in"; else st_fail "skip: changed db (calls $c6)"; fi
+        MAX_AGE=2000; cyc $((n0 + 380)); c7=$(calls); cyc $((n0 + 390)); c8=$(calls)
+        if [ "$c7" = 1 ] && [ "$c8" = 0 ]; then st_pass "skip: a changed setting (STARCHORUS_MAX_AGE) is a full pass, the cycle after it is skipped again"; else st_fail "skip: settings change (calls $c7/$c8)"; fi
+        MAX_AGE=0; cyc $((n0 + 410)); cyc $((n0 + 420)); c9=$(calls)
+        if [ "$c9" = 0 ] && [ "$RS_SKIPS" -ge 1 ]; then st_pass "skip: without a window (MAX_AGE=0) nothing can age out, an unchanged database is skipped"; else st_fail "skip: MAX_AGE=0 (calls $c9)"; fi
+        SKIP_MAX=2; RS_SIG=""; cyc $((n0 + 430)); d1=$(calls); cyc $((n0 + 440)); d2=$(calls); cyc $((n0 + 450)); d3=$(calls); cyc $((n0 + 460)); d4=$(calls); SKIP_MAX=20
+        if [ "$d1/$d2/$d3/$d4" = 1/0/0/1 ]; then st_pass "skip: at most SKIP_MAX cycles in a row, then a full pass anyway"; else st_fail "skip: SKIP_MAX (calls $d1/$d2/$d3/$d4, want 1/0/0/1)"; fi
+        cyc $((n0 + 470)); cyc $((n0 + 480)); HOMING_BSSID="d0:d0:d0:00:00:02"; cyc $((n0 + 490)); c12=$(calls)
+        if [ "$c12" = 1 ]; then st_pass "skip: a homing target is read every cycle -> never skipped"; else st_fail "skip: homing (calls $c12)"; fi
+        HOMING_BSSID=""; cyc $((n0 + 500)); c13=$(calls); cyc $((n0 + 510)); c14=$(calls)
+        if [ "$c13" = 1 ] && [ "$c14" = 0 ] && ! grep -q '"homing"' "$OUTFILE"; then st_pass "skip: the target removed -> one full pass without the homing field, then skipping resumes"; else st_fail "skip: homing removed (calls $c13/$c14)"; fi
+        : > "$kdb-journal"; cyc $((n0 + 520)); cyc $((n0 + 530)); c15=$(calls)
+        rm -f "$kdb-journal"
+        if [ "$c15" = 1 ]; then st_pass "skip: a -journal beside recon.db (a write in flight) is never recorded, never skipped"; else st_fail "skip: journal (calls $c15)"; fi
+        SKIP_UNCHANGED=0; cyc $((n0 + 540)); cyc $((n0 + 550)); c16=$(calls); SKIP_UNCHANGED=1
+        if [ "$c16" = 1 ]; then st_pass "skip: STARCHORUS_SKIP_UNCHANGED=0 -> every cycle is a full pass"; else st_fail "skip: flag off (calls $c16)"; fi
+        cyc $((n0 + 560)); cyc $((n0 + 570)); cyc $((n0 + 100)); c17=$(calls)
+        if [ "$c17" = 1 ]; then st_pass "skip: a clock set back -> full pass"; else st_fail "skip: clock back (calls $c17)"; fi
+        # One ROW leaves the window while its entry stays: an AP with a strong old beacon and a weak new one, a station with an old and a new probe
+        # (window 300 s). The oldest row the full pass counted is the clock, not the entry's last_seen; the document must change when the old rows go.
+        wdb="$tdir/recon_rows.db"
+        sqlite3 "$wdb" >/dev/null 2>&1 <<SQL
+CREATE TABLE ssid(hash INT PRIMARY KEY, wifi_device INT, scan INT, type INT, bssid TEXT, ssid BLOB,
+                  hidden INT, time INT, signal INT, freq INT, channel INT, encryption INT);
+CREATE TABLE wifi_device(hash INT PRIMARY KEY, scan INT, mac TEXT, time INT, signal INT, freq INT, packets INT);
+INSERT INTO ssid VALUES (11,0,1,8,'E0E0E0000001','StrongOld',0,$((n0 + 50)),-30,2437,6,8);
+INSERT INTO ssid VALUES (12,0,1,8,'E0E0E0000001','WeakNew',0,$((n0 + 200)),-80,2437,6,8);
+INSERT INTO ssid VALUES (13,601,1,4,'FFFFFFFFFFFF','OldProbe',0,$((n0 + 50)),-70,0,0,0);
+INSERT INTO ssid VALUES (14,601,1,4,'FFFFFFFFFFFF','NewProbe',0,$((n0 + 200)),-70,0,0,0);
+INSERT INTO wifi_device VALUES (601,1,'E1E1E1000001',$((n0 + 200)),-70,0,1);
+SQL
+        RECON_DB="$wdb"; HAS_TIME=""; RDB_PATH=""; RS_SIG=""; MAX_AGE=300; SKIP_UNCHANGED=1
+        cyc $((n0 + 300)); w1=$(calls); wd1=$(cat "$OUTFILE")
+        cyc $((n0 + 340)); w2=$(calls)
+        cyc $((n0 + 360)); w3=$(calls); wd3=$(cat "$OUTFILE")
+        if [ "$w1" = 1 ] && [ "$w2" = 0 ] && printf '%s\n' "$wd1" | grep -q '"ssid": "StrongOld".*"rssi": -30' && printf '%s\n' "$wd1" | grep -q '"probes": \["NewProbe", "OldProbe"\]'; then
+            st_pass "skip: while the oldest row of the window is still in it, the cycle is skipped"; else st_fail "skip: rows before the cut-off (calls $w1/$w2)"; fi
+        if [ "$w3" = 1 ] && printf '%s\n' "$wd3" | grep -q '"ssid": "WeakNew".*"rssi": -80' && printf '%s\n' "$wd3" | grep -q '"probes": \["NewProbe"\]' && ! printf '%s\n' "$wd3" | grep -q 'StrongOld\|OldProbe'; then
+            st_pass "skip: an old row leaves the window while its entry stays -> full pass (strongest beacon, ssid and probes follow the rows that are left)"
+        else st_fail "skip: a row left the window (calls $w3)"; fi
+        # what $OUTFILE holds is not trusted: another writer's document (a --once with other settings, a failed cycle's empty one) is replaced, not re-stamped
+        cyc $((n0 + 390)); write_empty 1 "another cycle failed" > "$OUTFILE"
+        cyc $((n0 + 420)); w4=$(calls)
+        if [ "$w4" = 0 ] && grep -q '"source": "recon-db"' "$OUTFILE" && grep -q '"ssid": "WeakNew"' "$OUTFILE" && grep -q '"generated": '$((n0 + 420))',' "$OUTFILE" && json_ok < "$OUTFILE"; then
+            st_pass "skip: a document someone else put in $OUTFILE is replaced by this process's own (no rebuild needed), not re-stamped"
+        else st_fail "skip: foreign document (calls $w4)"; fi
+        rm -f "$OUTFILE"; cyc $((n0 + 450)); w5=$(calls)
+        if [ "$w5" = 0 ] && [ -s "$OUTFILE" ] && json_ok < "$OUTFILE"; then st_pass "skip: a missing $OUTFILE is written again from the kept document"; else st_fail "skip: file gone (calls $w5)"; fi
+        # the document is kept in the process, not in a file: no RAM directory is needed for the skip, and none is left behind
+        RS_SIG=""; TMPDIR_RAM="$rpt/no-such-dir"; cyc $((n0 + 480)); cyc $((n0 + 510)); w6=$(calls); TMPDIR_RAM="$rpt/ram"
+        if [ "$w6" = 1 ] && [ -z "$(ls "$rpt/ram")" ]; then st_pass "skip: the kept document needs no file (a missing RAM directory changes nothing, nothing is left in the RAM directory)"; else st_fail "skip: no RAM directory (calls $w6, [$(ls "$rpt/ram")])"; fi
+        RECON_DB="$kdb"; HAS_TIME=""; RDB_PATH=""; RS_SIG=""; MAX_AGE=0
+        # The sample reads nothing and is taken once per cycle. A counting `ls` in front of PATH (it logs, then runs the real one) sees one
+        # --full-time call in a full pass and one in a skipped cycle; nothing else in the cycle runs `ls`.
+        SHIM_REAL_LS=$(command -v ls); SHIM_LS="$rpt/lscalls"; export SHIM_REAL_LS SHIM_LS
+        # shellcheck disable=SC2016  # the stand-in script text is written out literally
+        printf '#!/bin/sh\necho x >> "$SHIM_LS"\nexec "$SHIM_REAL_LS" "$@"\n' > "$rpt/bin/ls"; chmod +x "$rpt/bin/ls"
+        RS_SIG=""; : > "$SHIM_LS"; cyc $((n0 + 600)); l1=$(wc -l < "$SHIM_LS" | tr -d ' '); c18=$(calls)
+        : > "$SHIM_LS"; cyc $((n0 + 630)); l2=$(wc -l < "$SHIM_LS" | tr -d ' '); c19=$(calls)
+        rm -f "$rpt/bin/ls"
+        if [ "$l1/$c18" = 1/1 ] && [ "$l2/$c19" = 1/0 ]; then st_pass "skip: recon.db's files are looked at once per cycle (one ls, in a full pass and in a skipped cycle alike), nothing is read"; else st_fail "skip: sample per cycle (ls $l1/$l2, sqlite3 $c18/$c19, want 1/1 and 1/0)"; fi
+        # Without `ls --full-time` and without `stat` (the device has neither stat nor, on other systems, the long option): wc + date, the same decisions,
+        # the -journal included. (A failing stand-in for each, in front of PATH.)
+        printf '#!/bin/sh\nexit 1\n' > "$rpt/bin/ls"; cp "$rpt/bin/ls" "$rpt/bin/stat"; chmod +x "$rpt/bin/ls" "$rpt/bin/stat"
+        RS_SIG=""; cyc $((n0 + 700)); cyc $((n0 + 730)); f1=$(calls); fsz=$RS_SZ
+        : > "$kdb-journal"; cyc $((n0 + 760)); cyc $((n0 + 790)); f2=$(calls); rm -f "$kdb-journal"
+        cyc $((n0 + 820)); cyc $((n0 + 850)); f3=$(calls)
+        rm -f "$rpt/bin/ls" "$rpt/bin/stat"
+        if [ "$f1/$f2/$f3" = 0/1/0 ] && [ "$fsz" = "$(wc -c < "$kdb" | tr -d ' ')" ]; then st_pass "skip: with neither ls --full-time nor stat the wc + date fallback decides alike (skipped, a -journal makes it a full pass, skipped again)"; else st_fail "skip: wc fallback (calls $f1/$f2/$f3, want 0/1/0; size $fsz)"; fi
+        # file_size: the byte count of wc -c, from ls; a name with blanks and a glob character is one name
+        printf 'abcdefg' > "$rpt/a b*c"; file_size "$rpt/a b*c"; fs1=$FSZ; file_size "$rpt/no such file"; fs2=$FSZ
+        if [ "$fs1" = 7 ] && [ -z "$fs2" ]; then st_pass "file_size: bytes from ls (a name with a blank and a star), nothing for a missing file"; else st_fail "file_size: [$fs1] [$fs2]"; fi
+        unset SHIM_REAL_LS SHIM_LS
+
+        # ---- 3d) the opt-in source `pineap`: a stub of the AP service command line prints fixture JSON (placeholders only). The parser must carry
+        #      SSIDs with any character, pick the strongest beacon/response record, keep stations apart from APs, apply the window, take the
+        #      security from recon.db rarely (one sqlite3 process per lookup) and never run a command that is not one of the two listed.
+        ppt="$tdir/pn"; mkdir -p "$ppt/ram"; pt0=1710000000
+        pl_of() { printf '%s\n' "$1" | grep -- "$2" | head -1; }
+        printf '[{"mac": "AA:BB:CC:00:00:01", "freq": 2437, "signal": -48, "packets": 9, "time": %s, "beacon": {"1111": {"ssid": "HomeNet", "ssidlen": 7, "channel": 6, "freq": 2437, "signal": -50, "count": 10, "time": %s, "hidden": false}, "2222": {"ssid": "Guest", "ssidlen": 5, "channel": 6, "freq": 2437, "signal": -40, "count": 3, "time": %s, "hidden": false}}, "response": {"3333": {"ssid": "RespA", "ssidlen": 5, "channel": 6, "freq": 2437, "signal": -60, "count": 1, "time": %s}, "3334": {"ssid": "RespB", "ssidlen": 5, "channel": 6, "freq": 2437, "signal": -61, "count": 1, "time": %s}}}, {"mac": "AA:BB:CC:00:00:02", "freq": 5180, "signal": -70, "packets": 2, "time": %s, "beacon": {"4444": {"ssid": "", "ssidlen": 0, "channel": 36, "freq": 5180, "signal": -70, "count": 4, "time": %s, "hidden": true}}}, {"time": %s, "signal": -66.5, "freq": 5955, "packets": 1, "mac": "02:bb:cc:00:00:03", "beacon": {"5555": {"count": 2, "time": %s, "signal": -66.5, "freq": 5955, "channel": 1, "ssidlen": 30, "ssid": "Caf\\u00e9 \\"Q\\" \\\\ x\\ty\\u0001z\\n", "hidden": false}}}, {"mac": "AA:BB:CC:00:00:04", "freq": 2412, "signal": -80, "packets": 1, "time": %s, "beacon": {"6666": {"ssid": "Gone", "ssidlen": 4, "channel": 1, "freq": 2412, "signal": -80, "count": 1, "time": %s, "hidden": false}}}]\n' \
+            $((pt0 - 10)) $((pt0 - 10)) $((pt0 - 12)) $((pt0 - 20)) $((pt0 - 22)) $((pt0 - 30)) $((pt0 - 30)) $((pt0 - 40)) $((pt0 - 40)) $((pt0 - 7200)) $((pt0 - 7200)) > "$ppt/aps.json"
+        { printf '[\n'
+          cat "$ppt/aps.json" | sed -e '1s/^\[//' -e '$s/\]$//' | sed -e 's/$/,/'
+          printf '  {"mac": "10:22:33:44:55:66", "freq": 2412, "signal": -55, "packets": 5, "time": %s,\n    "probe": {"9001": {"ssid": "FreeWifi", "ssidlen": 8, "channel": 1, "freq": 2412, "signal": -55, "count": 2, "time": %s},\n      "9002": {"ssid": "", "ssidlen": 0, "channel": 1, "freq": 2412, "signal": -55, "count": 1, "time": %s},\n      "9003": {"ssid": "Home\\"Net", "ssidlen": 8, "channel": 1, "freq": 2412, "signal": -55, "count": 1, "time": %s}}},\n' $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 6))
+          printf '  {"mac": "9A:88:77:66:55:44", "freq": 2437, "signal": -80, "packets": 1, "time": %s, "probe": {' $((pt0 - 8))
+          i=1; while [ "$i" -le 10 ]; do printf '%s"%s": {"ssid": "P%02d", "ssidlen": 3, "channel": 6, "freq": 2437, "signal": -80, "count": 1, "time": %s}' "$([ "$i" -gt 1 ] && printf ', ')" $((8000 + i)) $((11 - i)) $((pt0 - 8)); i=$((i + 1)); done
+          printf '}},\n  {"mac": "10:22:33:44:55:77", "freq": 2412, "signal": -90, "packets": 1, "time": %s, "probe": {"9100": {"ssid": "Old", "ssidlen": 3, "channel": 1, "freq": 2412, "signal": -90, "count": 1, "time": %s}}},\n  {"mac": "not-a-mac", "time": %s}\n]\n' $((pt0 - 7200)) $((pt0 - 7200)) $((pt0 - 1))
+        } > "$ppt/dev.json"
+        apcli_stub "$ppt/bin" "$ppt/log" "$ppt/aps.json" "$ppt/dev.json"
+        p_path2=$PATH; p_flag2=$APCLI_RO; p_tmp2=$TMPDIR_RAM; p_db2=$RECON_DB; p_age2=$MAX_AGE; p_calls2=$PINEAP_CALLS
+        # unless the environment says otherwise the source makes the ONE bounded call (every device of the AP service's session would be parsed otherwise)
+        if [ "$PINEAP_CALLS" = recent ] || [ -n "${STARCHORUS_PINEAP_CALLS:-}" ]; then st_pass "pineap: the default is the one bounded call (recent)"; else st_fail "pineap: default calls $PINEAP_CALLS"; fi
+        PINEAP_CALLS=full      # the fixtures below are written for the two full lists; "recent" is tested on its own further down
+        PATH="$ppt/bin:$PATH"; APCLI_RO=1; TMPDIR_RAM="$ppt/ram"; RECON_DB="$tdir/none-such.db"; RDB_PATH=""; MAX_AGE=0; PSEC_T=0; rm -f "$ppt/ram/starchorus-sec.txt"
+        : > "$ppt/log"
+        # pnb BINDIR TS: one cycle's document into $pn (no command substitution around the build: its state, PSEC_T, must survive)
+        : > "$ppt/e.log"
+        pnb() { PATH="$1:$p_path2"; build_from_apcli "$2" > "$ppt/o.json" 2>>"$ppt/e.log"; pnrc=$?; PATH=$p_path2; pn=$(cat "$ppt/o.json"); }
+        pnb "$ppt/bin" $pt0
+        if [ "$pnrc" = 0 ] && printf '%s\n' "$pn" | json_ok; then st_pass "pineap: valid JSON from RECON APS + RECON DEVICES fixtures"; else st_fail "pineap: document (rc $pnrc)"; fi
+        if [ "$(cat "$ppt/log")" = "RECON APS format=json
+RECON DEVICES format=json" ]; then st_pass "pineap: exactly the two read-only list commands were run, once each"; else st_fail "pineap: commands [$(cat "$ppt/log")]"; fi
+        check   "pineap: source label"                     "$pn" '"source": "pineap"'
+        checkf  "pineap: strongest beacon record names the AP, hidden=false kept, last_seen = time" "$(pl_of "$pn" 'aa:bb:cc:00:00:01')" '"ssid": "Guest", "channel": 6, "band": "2.4GHz", "freq": 2437, "rssi": -48, "security": "Unknown", "last_seen": 1709999990, "responded_ssids": 2'
+        checkf  "pineap: hidden beacon -> empty SSID, 5 GHz from freq" "$(pl_of "$pn" 'aa:bb:cc:00:00:02')" '"ssid": "", "channel": 36, "band": "5GHz", "freq": 5180, "rssi": -70'
+        checkf  "pineap: escapes kept (unicode escape, quote, backslash), tab -> space, control escapes dropped, float signal rounded, 6 GHz" "$(pl_of "$pn" '02:bb:cc:00:00:03')" '"ssid": "Caf\u00e9 \"Q\" \\ x yz ", "channel": 1, "band": "6GHz", "freq": 5955, "rssi": -67'
+        checkf  "pineap: a station keeps its probed SSIDs (distinct, sorted, wildcard dropped, escaped quote kept)" "$(pl_of "$pn" '10:22:33:44:55:66')" '"rssi": -55, "last_seen": 1709999995, "probes": ["FreeWifi", "Home\"Net"]'
+        checkf  "pineap: at most 8 probed SSIDs, sorted" "$(pl_of "$pn" '9a:88:77:66:55:44')" '"probes": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08"]'
+        if [ "$(printf '%s\n' "$pn" | grep -c '"mac": "aa:bb:cc')" = 0 ] && ! printf '%s\n' "$pn" | grep -q 'not-a-mac'; then st_pass "pineap: APs are not listed as stations, an entry without a MAC is dropped"; else st_fail "pineap: AP/station split"; fi
+        pnl=$(printf '%s\n' "$pn" | grep -c '"bssid"'); pnc=$(printf '%s\n' "$pn" | grep -c '"mac"')
+        if [ "$pnl/$pnc" = 4/3 ]; then st_pass "pineap: 4 APs, 3 stations without a window"; else st_fail "pineap: counts $pnl/$pnc"; fi
+        # no AP carries an empty or a missing security: the page and the Overview both read a missing field as Open (an unresolved one is "Unknown")
+        if [ "$pnl" = "$(printf '%s\n' "$pn" | grep -c '"security": "[^"]')" ] && ! printf '%s\n' "$pn" | grep -q '"security": ""'; then st_pass "pineap: every AP carries a non-empty security (Unknown until recon.db names it, never empty or absent)"; else st_fail "pineap: security field missing or empty"; fi
+        MAX_AGE=3600; pnb "$ppt/bin" $pt0; MAX_AGE=0
+        pnl=$(printf '%s\n' "$pn" | grep -c '"bssid"'); pnc=$(printf '%s\n' "$pn" | grep -c '"mac"')
+        if [ "$pnl/$pnc" = 3/2 ] && ! printf '%s\n' "$pn" | grep -q 'Gone'; then st_pass "pineap: STARCHORUS_MAX_AGE applies to time (the AP and the station from 2 h ago are gone)"; else st_fail "pineap: window counts $pnl/$pnc"; fi
+        # the same lists, pretty-printed and with the key order reversed in one object: the tokeniser does not care about layout
+        sed -e 's/, "/,\
+ "/g' "$ppt/aps.json" > "$ppt/aps2.json"; apcli_stub "$ppt/bin2" "$ppt/log2" "$ppt/aps2.json" "$ppt/dev.json"
+        pnb "$ppt/bin2" $pt0; pn2=$pn
+        if [ "$(printf '%s\n' "$pn2" | grep -c '"bssid"')" = 4 ] && printf '%s\n' "$pn2" | json_ok; then st_pass "pineap: a differently laid-out list gives the same APs"; else st_fail "pineap: layout"; fi
+        # failures: no JSON array from RECON APS -> no document; a bad RECON DEVICES -> APs only
+        printf 'error: not running\n' > "$ppt/aps3.json"; apcli_stub "$ppt/bin3" "$ppt/log3" "$ppt/aps3.json" "$ppt/dev.json"
+        pnb "$ppt/bin3" $pt0
+        if [ "$pnrc" != 0 ]; then st_pass "pineap: no JSON from RECON APS -> no document (the cycle publishes the explicit empty one)"; else st_fail "pineap: garbage accepted"; fi
+        printf '%s\n' '[]' > "$ppt/aps4.json"; apcli_stub "$ppt/bin4" "$ppt/log4" "$ppt/aps4.json" "$ppt/aps3.json"
+        pnb "$ppt/bin4" $pt0; pn4=$pn
+        if [ "$pnrc" = 2 ] && [ -z "$pn4" ]; then st_pass "pineap: an empty AP list is no answer (rc 2: run_cycle falls back to recon.db)"; else st_fail "pineap: empty lists (rc $pnrc)"; fi
+        # "recent": one bounded RECON DEVICES, no RECON APS; the APs come from the beacon records, the document is the same
+        : > "$ppt/log"; PINEAP_CALLS=recent; pnb "$ppt/bin" $pt0; pnr=$pn; PINEAP_CALLS=full
+        if [ "$(cat "$ppt/log")" = "RECON DEVICES format=json sort=time sortdir=desc limit=400" ] && printf '%s\n' "$pnr" | json_ok \
+           && [ "$(printf '%s\n' "$pnr" | grep -c '"bssid"')" = 4 ] && [ "$(printf '%s\n' "$pnr" | grep -c '"mac"')" = 3 ]; then
+            st_pass "pineap recent: one bounded RECON DEVICES call, the same 4 APs and 3 stations without RECON APS"
+        else st_fail "pineap recent: [$(cat "$ppt/log")]"; fi
+        printf 'error\n' > "$ppt/dev9.json"; apcli_stub "$ppt/bin9" "$ppt/log9" "$ppt/aps.json" "$ppt/dev9.json"
+        PINEAP_CALLS=recent; pnb "$ppt/bin9" $pt0; PINEAP_CALLS=full
+        if [ "$pnrc" != 0 ]; then st_pass "pineap recent: no JSON array from the one call -> no document"; else st_fail "pineap recent: garbage accepted"; fi
+        # security from recon.db: ONE query for unknown BSSIDs, none while nothing is new, one retry for BSSIDs the database did not know
+        sqlite3 "$tdir/recon_pn.db" >/dev/null 2>&1 <<'SQL'
+CREATE TABLE ssid(hash INT PRIMARY KEY, wifi_device INT, scan INT, type INT, bssid TEXT, ssid BLOB,
+                  hidden INT, time INT, signal INT, freq INT, channel INT, encryption INT);
+INSERT INTO ssid VALUES (1,0,1,8,'AABBCC000001','Guest',0,0,-40,2437,6,17184063752);
+INSERT INTO ssid VALUES (2,0,1,8,'02BBCC000003','x',0,0,-66,5955,1,6597073961232);
+SQL
+        RECON_DB="$tdir/recon_pn.db"; RDB_PATH=""; PSEC_T=0; rm -f "$ppt/ram/starchorus-sec.txt"; : > "$SHIM_LOG"
+        pnb "$ppt/bin" $pt0; pc1=$(calls)
+        checkf  "pineap: security (and akm/cipher) of a known BSSID from recon.db"  "$(pl_of "$pn" 'aa:bb:cc:00:00:01')" '"security": "WPA2", "last_seen": 1709999990, "akm": ["psk"], "cipher": {"group": "ccmp128", "pairwise": ["ccmp128"]}, "responded_ssids": 2'
+        checkf  "pineap: SAE from recon.db is WPA3" "$(pl_of "$pn" '02:bb:cc:00:00:03')" '"security": "WPA3"'
+        checkf  "pineap: a BSSID the database does not know stays Unknown" "$(pl_of "$pn" 'aa:bb:cc:00:00:02')" '"security": "Unknown"'
+        pnb "$ppt/bin" $((pt0 + 30)); pc2=$(calls)
+        pnb "$ppt/bin" $((pt0 + 700)); pc3=$(calls)
+        if [ "$pc1" = 1 ] && [ "$pc2" = 1 ] && [ "$pc3" = 2 ]; then st_pass "pineap: one sqlite3 process for the first lookup, none while nothing is new, one retry after 10 minutes"; else st_fail "pineap: lookups $pc1/$pc2/$pc3 (want 1/1/2)"; fi
+        # an unknown BSSID appears: at most every 60 s
+        sed -e 's/AA:BB:CC:00:00:04/AA:BB:CC:00:00:09/g' "$ppt/aps.json" > "$ppt/aps5.json"; apcli_stub "$ppt/bin5" "$ppt/log5" "$ppt/aps5.json" "$ppt/dev.json"
+        c0=$(calls); pnb "$ppt/bin5" $((pt0 + 710)); c1=$(calls)
+        pnb "$ppt/bin5" $((pt0 + 780)); c2=$(calls)
+        if [ "$c1" = "$c0" ] && [ "$c2" -gt "$c1" ]; then st_pass "pineap: a new BSSID is looked up at most once a minute"; else st_fail "pineap: new BSSID lookups $c0/$c1/$c2"; fi
+        if grep -q -- '-readonly -noheader -bail ' "$SHIM_LOG"; then st_pass "pineap: the lookup runs sqlite3 read-only with -bail (its closing marker row proves the query ran to the end)"; else st_fail "pineap: lookup flags ($(tail -n 1 "$SHIM_LOG"))"; fi
+        # a lookup that fails (torn copy, locked file: a stand-in sqlite3 that prints nothing and exits 1) is no answer: the labels known so far stay, nothing turns into
+        # "the database does not know it", and the next lookup is not held off for 10 minutes
+        sed -e 's/AA:BB:CC:00:00:04/AA:BB:CC:00:00:0A/g' "$ppt/aps.json" > "$ppt/aps8.json"; apcli_stub "$ppt/bin8" "$ppt/log8" "$ppt/aps8.json" "$ppt/dev.json"
+        printf '#!/bin/sh\ncat > /dev/null\nexit 1\n' > "$ppt/bin8/sqlite3"; chmod +x "$ppt/bin8/sqlite3"
+        pnb "$ppt/bin8" $((pt0 + 860)); pn8=$pn
+        checkf  "pineap: a failed lookup keeps the label already known (WPA2 stays)" "$(pl_of "$pn8" 'aa:bb:cc:00:00:01')" '"security": "WPA2"'
+        checkf  "pineap: the new BSSID is Unknown until a lookup answers" "$(pl_of "$pn8" 'aa:bb:cc:00:00:0a')" '"security": "Unknown"'
+        pnb "$ppt/bin8" $((pt0 + 930)); pn8=$pn
+        checkf  "pineap: after a second failed lookup the old label is still there" "$(pl_of "$pn8" 'aa:bb:cc:00:00:01')" '"security": "WPA2"'
+        if [ "$PSEC_FAIL" = 1 ] && [ "$(grep -c 'security lookup in recon.db gave no answer' "$ppt/e.log")" = 1 ]; then st_pass "pineap: a failed lookup is remembered, and logged once per episode"; else st_fail "pineap: PSEC_FAIL=$PSEC_FAIL, log [$(cat "$ppt/e.log")]"; fi
+        # the database learns the new BSSID; the same command line, sqlite3 answering again: one lookup a minute later, the new label in, the old one kept
+        "$rsq" "$tdir/recon_pn.db" "INSERT INTO ssid VALUES (3,0,1,8,'AABBCC00000A','New',0,0,-40,2437,6,17184063752);" >/dev/null 2>&1
+        printf '#!/bin/sh\nexec "%s" "$@"\n' "$rsq" > "$ppt/bin8/sqlite3"
+        pnb "$ppt/bin8" $((pt0 + 1000))
+        checkf  "pineap: the lookup that answers resolves the new BSSID" "$(pl_of "$pn" 'aa:bb:cc:00:00:0a')" '"security": "WPA2"'
+        checkf  "pineap: ... and the old label is the same" "$(pl_of "$pn" 'aa:bb:cc:00:00:01')" '"security": "WPA2"'
+        if [ "$PSEC_FAIL" = 0 ]; then st_pass "pineap: a lookup that answers ends the failure episode"; else st_fail "pineap: PSEC_FAIL=$PSEC_FAIL after an answer"; fi
+        # a clock set back: the refresh timer (PSEC_T) lies in the future; a new BSSID is looked up anyway
+        sed -e 's/AA:BB:CC:00:00:04/AA:BB:CC:00:00:0B/g' "$ppt/aps.json" > "$ppt/aps10.json"; apcli_stub "$ppt/bin10" "$ppt/log10" "$ppt/aps10.json" "$ppt/dev.json"
+        PSEC_T=$((pt0 + 90000)); c0=$(calls); pnb "$ppt/bin10" $((pt0 + 1010)); c1=$(calls)
+        if [ "$c1" -gt "$c0" ] && [ "$PSEC_T" = $((pt0 + 1010)) ]; then st_pass "pineap: a clock set back does not hold the lookups off (it counts as due)"; else st_fail "pineap: clock back (lookups $c0 -> $c1, PSEC_T $PSEC_T)"; fi
+        # a crowd: 120 APs and 400 stations in scrambled order come out sorted by MAC, every one of them there
+        awk 'BEGIN{ n=401; printf "["
+            for(i=0;i<120;i++){ v=(i*53)%131; printf "%s{\"mac\": \"%s\", \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"beacon\": {\"%d\": {\"ssid\": \"Crowd%d\", \"channel\": 6, \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"hidden\": false}}}", (i?",":""), sprintf("02:aa:00:00:%02x:%02x", int(v/256), v%256), 40+i%40, '$pt0' - 5, i, i, 40+i%40, '$pt0' - 5 }
+            printf "]\n" }' > "$ppt/aps11.json"
+        awk 'BEGIN{ n=401; printf "["
+            for(i=0;i<n;i++){ v=(i*389)%n; printf "%s{\"mac\": \"%s\", \"freq\": 2412, \"signal\": -60, \"time\": %d, \"probe\": {\"%d\": {\"ssid\": \"Q%d\", \"channel\": 1, \"freq\": 2412, \"signal\": -60, \"time\": %d}}}", (i?",":""), sprintf("10:bb:00:00:%02x:%02x", int(v/256), v%256), '$pt0' - 5, i, i, '$pt0' - 5 }
+            printf "]\n" }' > "$ppt/dev11.json"
+        apcli_stub "$ppt/bin11" "$ppt/log11" "$ppt/aps11.json" "$ppt/dev11.json"
+        pnb "$ppt/bin11" $((pt0 + 1100))
+        pnl=$(printf '%s\n' "$pn" | grep -c '"bssid"'); pnc=$(printf '%s\n' "$pn" | grep -c '"mac"')
+        if [ "$pnl/$pnc" = 120/401 ] && printf '%s\n' "$pn" | sed -n 's/^ *{"bssid": "\([^"]*\)".*/\1/p' | sort -c 2>/dev/null \
+           && printf '%s\n' "$pn" | sed -n 's/^ *{"mac": "\([^"]*\)".*/\1/p' | sort -c 2>/dev/null && printf '%s\n' "$pn" | json_ok; then
+            st_pass "pineap: 120 APs and 401 stations in scrambled order are all there, each list sorted by MAC"
+        else st_fail "pineap: crowd ($pnl APs, $pnc stations, rc $pnrc)"; fi
+        # STARCHORUS_SOURCE=pineap is the opt-in for the two commands, and needs the command line to exist
+        # absent = a PATH with nothing in it (everything resolve_source needs is a shell builtin): the device has the real command line on PATH
+        mkdir -p "$ppt/nobin"
+        # shellcheck disable=SC2123  # PATH is replaced on purpose
+        PATH="$ppt/nobin"; r_src=$SOURCE; SOURCE=pineap; APCLI_RO=0; RESOLVED=x
+        resolve_source 2>/dev/null; rs1=$RESOLVED
+        PATH="$ppt/bin:$p_path2"; APCLI_RO=0; resolve_source 2>/dev/null; rs2=$RESOLVED; rf2=$APCLI_RO
+        SOURCE=$r_src
+        if [ "$rs1" = none ] && [ "$rs2" = pineap ] && [ "$rf2" = 1 ]; then st_pass "pineap: STARCHORUS_SOURCE=pineap needs the command line on the device, and switches on apcli_ro for itself"; else st_fail "pineap: resolve ($rs1/$rs2/$rf2)"; fi
+        # run_cycle publishes it with the usual post-passes
+        RESOLVED=pineap; OUTFILE="$rpt/pn.json"; OUTDIR="$rpt"; VENDOR=0; MAX_AGE=0; PSEC_T=0; PATH="$ppt/bin:$p_path2"; RECON_DB="$tdir/none-such.db"; RDB_PATH=""
+        run_cycle >/dev/null 2>&1
+        if json_ok < "$OUTFILE" && grep -q '"source": "pineap"' "$OUTFILE" && grep -q '"center": {"label": "This device", "max_age": 0, "interval"' "$OUTFILE"; then st_pass "pineap: run_cycle publishes it, center extras included"; else st_fail "pineap: run_cycle"; fi
+        # no usable answer (an empty list; a hung or failing command line): recon.db for that cycle, said once; then pineap again
+        RECON_DB="$tdir/recon_pn.db"; RDB_PATH=""; PN_FELL=0; PATH="$ppt/bin4:$p_path2"
+        run_cycle >/dev/null 2>"$ppt/err1"; run_cycle >/dev/null 2>"$ppt/err2"
+        if grep -q '"source": "recon-db"' "$OUTFILE" && json_ok < "$OUTFILE" && grep -q 'pineap: no usable answer' "$ppt/err1" && ! grep -q 'pineap: no usable answer' "$ppt/err2"; then st_pass "pineap: an empty answer -> recon.db for that cycle, logged once per episode"; else st_fail "pineap: fallback ($(cat "$ppt/err1" "$ppt/err2" | head -2))"; fi
+        PATH="$ppt/bin:$p_path2"; run_cycle >/dev/null 2>&1
+        if grep -q '"source": "pineap"' "$OUTFILE" && [ "$PN_FELL" = 0 ]; then st_pass "pineap: back on the AP service's lists as soon as it answers"; else st_fail "pineap: no return from the fallback"; fi
+        # a hung command line: a stand-in `timeout` (the device has a `timeout`) cuts the call off after the 10 s the collector asks for
+        apcli_stub "$ppt/bin6" "$ppt/hanglog" hang
+        # shellcheck disable=SC2016  # the stand-in script text is written out literally
+        printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nn=$1; shift; "$@" & p=$!; ( sleep "$n"; kill "$p" 2>/dev/null ) & w=$!; wait "$p"; rc=$?; kill "$w" 2>/dev/null; exit "$rc"\n' "$ppt/tolog" > "$ppt/bin6/timeout"
+        chmod +x "$ppt/bin6/timeout"; : > "$ppt/tolog"
+        PATH="$ppt/bin6:$p_path2"; PN_FELL=0; pt_a=$(command date +%s); run_cycle >/dev/null 2>&1; pt_b=$(command date +%s)
+        case $(head -n 1 "$ppt/tolog") in "10 "*"RECON APS format=json") pt_to=1 ;; *) pt_to=0 ;; esac
+        if [ $((pt_b - pt_a)) -lt 30 ] && [ "$pt_to" = 1 ] && grep -q '"source": "recon-db"' "$OUTFILE"; then st_pass "pineap: the list calls run under timeout 10; a hung command line is cut off and recon.db answers"; else st_fail "pineap: hang not cut off ($((pt_b - pt_a)) s, [$(head -n 1 "$ppt/tolog")])"; fi
+        PATH=$p_path2; APCLI_RO=$p_flag2; TMPDIR_RAM=$p_tmp2; RECON_DB=$p_db2; MAX_AGE=$p_age2; PSEC_T=0; RDB_PATH=""; PINEAP_CALLS=$p_calls2
+        unset -f date calls cyc
+        PATH=$r_path; RESOLVED=$r_res; RECON_DB=$r_db; OUTFILE=$r_of; VENDOR=$r_ven; MAX_AGE=$r_age; TMPDIR_RAM=$r_tmp; OUTDIR=$r_od; INTERVAL=$r_int
+        RS_SIG=""; RS_SKIPS=0; HAS_TIME=""; RDB_PATH=""; unset SHIM_REAL SHIM_LOG SHIM_SQL
     else
         log "  SKIP: recon.db tests (sqlite3 not installed here)"
     fi
@@ -2060,6 +3090,41 @@ TXT
     checkf  "vendor: cache header ties cache to file" "$ccache" "# oui=$tdir/oui-nmap.txt size="
     check   "vendor: cache positive entry"            "$ccache" "^A8BBCC${RECON_TAB}Acme Networks\$"
     check   "vendor: cache negative entry"            "$ccache" "^987654${RECON_TAB}\$"
+    # a merge says so: the growth of the cache is logged, and a merge that cannot happen is logged once with its reason (without that, a cache
+    # that stops growing -- and an OUI file scanned every cycle because of it -- is invisible)
+    vreset; VENDOR_DROP_LOGGED=0
+    vlog=$(printf '%s\n' "$base" | add_vendor 2>&1 >/dev/null)
+    check   "vendor: the merge logs the new prefixes and the cache size" "$vlog" 'vendor cache: [0-9]* new prefix(es), [0-9]* lines'
+    vreset; OUI_HDR_SAVE=$OUI_HDR; OUI_HDR="# oui=elsewhere size=1 mtime=1"
+    vlog=$(printf '%s\n' "$base" | add_vendor 2>&1 >/dev/null)
+    OUI_HDR=$OUI_HDR_SAVE
+    check   "vendor: a merge dropped because the cache header names another OUI file says so" "$vlog" 'merge skipped (the header of'
+    # two instances gather the same new prefixes before either has merged (the daemon and a crond --once): the second merge finds them in the cache. It says nothing
+    # about a failed write (they are there, the OUI file is not scanned again), and the episode flag is clear. A merge that really cannot write still says so.
+    printf '%s\n' "$base" > "$tdir/vdoc"
+    vreset; VENDOR_DROP_LOGGED=0
+    add_vendor defer < "$tdir/vdoc" >/dev/null 2>&1; vn1=$VENDOR_NEWF; VENDOR_NEWF=""
+    add_vendor defer < "$tdir/vdoc" >/dev/null 2>&1; vn2=$VENDOR_NEWF
+    VENDOR_NEWF=$vn1; vendor_merge 2>/dev/null
+    VENDOR_NEWF=$vn2; vendor_merge 2>"$tdir/vlog2"
+    vlog2=$(cat "$tdir/vlog2")
+    vc2=$(cat "$OUI_CACHE")
+    checkno "vendor: a merge whose lines another instance merged first claims no write failure" "$vlog2" 'merge skipped'
+    if [ "$VENDOR_DROP_LOGGED" = 0 ] && [ "$(printf '%s\n' "$vc2" | grep -c '^A8BBCC')" = 1 ] && printf '%s\n' "$vc2" | grep -q '^102233'; then
+        st_pass "vendor: ... the cache holds each prefix once and the drop flag stays clear"; else st_fail "vendor: second merge (flag $VENDOR_DROP_LOGGED, cache [$vc2])"; fi
+    vreset; VENDOR_DROP_LOGGED=0
+    add_vendor defer < "$tdir/vdoc" >/dev/null 2>&1
+    chmod a-w "$OUI_CACHE"
+    if [ ! -w "$OUI_CACHE" ]; then
+        vlog3=$(vendor_merge 2>&1 >/dev/null); VENDOR_NEWF=""
+        check "vendor: a merge that cannot write still says so" "$vlog3" 'merge skipped (nothing was added'
+    else rm -f "$VENDOR_NEWF"; VENDOR_NEWF=""; fi      # (root writes through the mode bits: nothing to test)
+    chmod u+w "$OUI_CACHE"; vreset; VENDOR_DROP_LOGGED=0
+    # the lock backoff is judged against a clock that may have been set back (the device has no battery clock)
+    LOCK_BUSY_UNTIL=$(( $(date +%s) + 30 )); cache_lock; lbr=$?; cache_unlock
+    LOCK_BUSY_UNTIL=$(( $(date +%s) + 99999 )); cache_lock; lbr2=$?; cache_unlock; LOCK_BUSY_UNTIL=0
+    if [ "$lbr" = 2 ] && [ "$lbr2" != 2 ]; then st_pass "vendor lock: a backoff of 30 s holds, one that lies days in the future (clock set back) is dropped"; else st_fail "vendor lock: backoff ($lbr/$lbr2)"; fi
+    vreset; vbase >/dev/null; VENDOR_DROP_LOGGED=0     # leave the cache as the checks below expect it: filled
     # 6b) cache reuse: OUI file gone, 2nd run must be served from the cache and not grow it
     n1=$(wc -l < "$OUI_CACHE" | tr -d ' ')
     OUI_PATH="$tdir/oui-gone.txt"
@@ -2145,6 +3210,7 @@ SQL
     printf '%s\n' '005056 VMware Inc' >> "$tdir/oui-nmap.txt"
     OUI_FILE="$tdir/oui-nmap.txt"; VENDOR=1; setup_vendor 2>/dev/null      # size changed -> fresh cache
     newcl=$(printf '%s\n' "$base" | sed 's/98:76:54:32:10:00/00:50:56:12:34:56/')
+    save_ix=$OUI_IDX; OUI_IDX=""        # (this one is about the pass over the OUI file; with an index the lookup does not need the file, see 6j)
     OUI_PATH="$tdir/oui-gone.txt"
     out=$(printf '%s\n' "$newcl" | add_vendor 2>/dev/null); jrc=$?
     if [ "$jrc" = "0" ] && printf '%s' "$out" | json_ok; then st_pass "cache: unreadable OUI file -> post-pass rc 0, valid JSON"; else st_fail "cache: unreadable OUI file rc=$jrc"; fi
@@ -2154,6 +3220,7 @@ SQL
     out=$(printf '%s\n' "$newcl" | add_vendor 2>/dev/null)
     check   "cache: file back -> vendor found (cache not poisoned)" "$out" '"mac": "00:50:56:12:34:56", "vendor": "VMware Inc"'
     check   "cache: file back -> positive entry cached"        "$(cat "$OUI_CACHE")" "^005056${RECON_TAB}VMware Inc\$"
+    OUI_IDX=$save_ix
     # (2) corrupt cache lines: an unterminated last line (crash mid-append) is dropped, a fused
     #     two-tab line and a lowercase prefix are ignored, and those prefixes are resolved again.
     vreset
@@ -2418,6 +3485,45 @@ SQL
     sweep_stale_cache_files 2>/dev/null
     if [ -d "$lk" ]; then st_pass "sweep: lock of a live collector kept"; else st_fail "sweep: removed a live collector's lock"; fi
     rm -rf "$lk"
+    #   m) pidfiles are believed only while their pid still runs what was started (a pid reused after a reboot): a pidfile
+    #      naming a foreign live process is dropped by --stop without a signal and reads "not running"; our own loop and
+    #      airodump (stand-ins whose command lines name this script and airodump) are seen and stopped. Every process here is
+    #      double-forked, so none of them lingers as a zombie of this shell.
+    mkdir -p "$tdir/own"
+    printf 'while :; do sleep 1; done\n' > "$tdir/own/$SELF_BASE"; printf 'while :; do sleep 1; done\n' > "$tdir/own/airodump-ng"
+    ( sleep 30 >/dev/null 2>&1 & echo $! > "$tdir/own/f.pid" )
+    ( sh "$tdir/own/$SELF_BASE" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/l.pid" )
+    ( sh "$tdir/own/airodump-ng" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/a.pid" )
+    fpid=$(cat "$tdir/own/f.pid"); opid=$(cat "$tdir/own/l.pid"); apid=$(cat "$tdir/own/a.pid")
+    pl_save=$LOOP_PIDFILE; pa_save=$AIRODUMP_PIDFILE; LOOP_PIDFILE="$tdir/own/loop.pid"; AIRODUMP_PIDFILE="$tdir/own/ad.pid"
+    printf '%s\n' "$fpid" > "$LOOP_PIDFILE"; printf '%s\n' "$fpid" > "$AIRODUMP_PIDFILE"
+    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" airodump 2>&1)
+    stopped=0
+    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump 2>/dev/null
+    if pid_alive "$fpid" && [ "$stopped" = 0 ] && [ ! -e "$LOOP_PIDFILE" ] && [ ! -e "$AIRODUMP_PIDFILE" ] \
+       && [ "$(printf '%s\n' "$sout" | grep -c 'not running$')" = 2 ]; then
+        st_pass "stop/status: a pidfile naming a foreign process (pid reuse) -> no signal, file dropped, 'not running'"
+    else st_fail "stop/status: foreign pid $fpid alive=$(pid_alive "$fpid" && echo yes || echo no) stopped=$stopped status=[$sout]"; fi
+    printf '%s\n' "$opid" > "$LOOP_PIDFILE"; printf '%s\n' "$apid" > "$AIRODUMP_PIDFILE"
+    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" airodump 2>&1)
+    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump 2>/dev/null
+    n=0; while { pid_alive "$opid" || pid_alive "$apid"; } && [ "$n" -lt 25 ]; do sleep 0.2 2>/dev/null || sleep 1; n=$((n + 1)); done
+    if ! pid_alive "$opid" && ! pid_alive "$apid" && [ "$stopped" = 1 ] \
+       && printf '%s\n' "$sout" | grep -q "loop RUNNING (pid $opid)" && printf '%s\n' "$sout" | grep -q "airodump RUNNING (pid $apid)"; then
+        st_pass "stop/status: our own loop and airodump are seen running and stopped"
+    else st_fail "stop/status: own loop $opid / airodump $apid: stopped=$stopped status=[$sout]"; fi
+    LOOP_PIDFILE=$pl_save; AIRODUMP_PIDFILE=$pa_save
+    #   n) the daemon's start-up sweep of temporary output files: those of a dead pid, or of a pid that now runs something
+    #      else (reused after a reboot), go; a live run's stay (a --once may be mid-cycle); a name without a pid is not ours
+    of_save=$OUTFILE; OUTFILE="$tdir/own/starchorus.json"
+    : > "$OUTFILE.tmp.$dpid"; : > "$OUTFILE.tmp.$dpid.v"; : > "$OUTFILE.tmp.$fpid"; : > "$OUTFILE.tmp.$$"; : > "$OUTFILE.tmp.$$.c"; : > "$OUTFILE.tmp.x"
+    sweep_stale_tmp
+    if [ ! -e "$OUTFILE.tmp.$dpid" ] && [ ! -e "$OUTFILE.tmp.$dpid.v" ] && [ ! -e "$OUTFILE.tmp.$fpid" ] \
+       && [ -e "$OUTFILE.tmp.$$" ] && [ -e "$OUTFILE.tmp.$$.c" ] && [ -e "$OUTFILE.tmp.x" ]; then
+        st_pass "sweep: starchorus.json.tmp.* of a dead or foreign pid removed, a live run's kept"
+    else st_fail "sweep: tmp files left: $(cd "$tdir/own" && printf '%s ' starchorus.json.tmp.*)"; fi
+    kill "$fpid" "$opid" "$apid" 2>/dev/null
+    rm -rf "$tdir/own"; OUTFILE=$of_save
     # (12) the loader must not trust a cut-off last cache line when cache_repair could not drop it
     #      (unwritable directory): the shell passes SC_TERM, the awk commits lines one behind
     vreset; printf 'A8BBCC\tAcme Net' >> "$OUI_CACHE"
@@ -2468,26 +3574,115 @@ SQL
     OUI_FILE="$tdir/oui-nmap.txt"; setup_vendor 2>/dev/null
     vreset          # cold: there will be lines to merge
     RESOLVED=capture; CAP_METHOD=airodump; OUTFILE="$tdir/starchorus.json"; rm -f "$OUTFILE"
-    sh -c 'sleep 8; exit 0' "$SELF_BASE" & lh=$!
+    #      The holder lives for the whole test (it is killed below) and the budget is 5 s: how long the cycle takes before it asks for the lock
+    #      (a second or two on the device's CPU) must not decide whether the holder is still there when the budget runs out. The publication is
+    #      judged against the end of the cycle, not against a clock: it came at least 3 s before the cycle ended, i.e. before the wait.
+    sh -c 'sleep 60; exit 0' "$SELF_BASE" & lh=$!
     mkdir "$lk" && printf '%s\n' "$lh" > "$lk/pid"
     save_budget=$LOCK_BUDGET; LOCK_BUDGET=50; LOCK_BUSY_UNTIL=0; LOCK_BUSY_LOGGED=0
     t0=$(date +%s)
     run_cycle 2>/dev/null &
     cpid=$!
-    pub=""; w=0
-    while [ "$w" -lt 20 ]; do
+    pub=""
+    while [ $(($(date +%s) - t0)) -lt 40 ]; do
         if grep -q '"vendor": "Acme Networks"' "$OUTFILE" 2>/dev/null && [ -d "$lk" ] && [ "$(cat "$lk/pid" 2>/dev/null)" = "$lh" ]; then pub=$(date +%s); break; fi
-        sleep 0.2 2>/dev/null || sleep 1; w=$((w+1))
+        sleep 0.2 2>/dev/null || sleep 1
     done
     wait "$cpid" 2>/dev/null; t1=$(date +%s)
-    if [ -n "$pub" ] && [ $((pub-t0)) -le 4 ]; then st_pass "run_cycle: JSON published while the cache lock was still held ($((pub-t0)) s)"; else st_fail "run_cycle: publication waited for the lock (published after ${pub:-never})"; fi
+    if [ -n "$pub" ] && [ $((t1-pub)) -ge 3 ]; then st_pass "run_cycle: JSON published while the cache lock was still held ($((t1-pub)) s before the cycle ended)"; else st_fail "run_cycle: publication waited for the lock (published at ${pub:-never}, cycle ended at $t1)"; fi
     if [ $((t1-t0)) -ge 4 ]; then st_pass "run_cycle: the merge itself waited for the lock ($((t1-t0)) s, budget 5)"; else st_fail "run_cycle: merge did not wait ($((t1-t0)) s)"; fi
-    if [ "$(grep -vc '^#' "$OUI_CACHE")" = "0" ]; then st_pass "run_cycle: nothing merged under a foreign live lock"; else st_fail "run_cycle: merged under a foreign live lock"; fi
+    if [ "$(grep -vc '^#' "$OUI_CACHE")" = "0" ]; then st_pass "run_cycle: nothing merged under a foreign live lock"; else st_fail "run_cycle: merged under a foreign live lock ($(grep -vc '^#' "$OUI_CACHE") lines, cycle $((t1-t0)) s, published after ${pub:+$((pub-t0))} s)"; fi
     if [ -z "$(ls "$OUI_CACHE".new.* 2>/dev/null)" ]; then st_pass "run_cycle: deferred temp file removed"; else st_fail "run_cycle: deferred temp file left"; fi
     LOCK_BUDGET=$save_budget; LOCK_BUSY_UNTIL=0; LOCK_BUSY_LOGGED=0
     kill "$lh" 2>/dev/null; wait "$lh" 2>/dev/null; rm -rf "$lk"
     run_cycle 2>/dev/null
     check "run_cycle: merged once the lock is free" "$(cat "$OUI_CACHE")" "^A8BBCC${RECON_TAB}Acme Networks\$"
+
+    # ---- 6j) the OUI index (the OUI file split by first octet, see oui_index): the same answers as a pass over the file, without the file
+    st_count() { set -- "$1"/*; if [ -e "$1" ]; then echo $#; else echo 0; fi; }      # entries in directory $1
+    ox="$tdir/oui-ix.txt"
+    { printf '# test file: every shape the parser accepts\n'
+      printf 'A8BBCC Acme Networks\nA8BBCC Duplicate Must Lose\na8bbcd lower case hex\nA8-BB-CE Dash Corp\nA8:BB:CF Colon Corp\nA8 BB D0 Space Corp\n'
+      printf 'A8BBD1\tTab Corp\r\n0055DA0 Skip MA-M\n70B3D5001 Skip MA-S\n102233 Client Corp\n'
+      printf 'A8-BB-D2   (hex)\t\tIEEE Hex Corp\nA8BBD2     (base 16)\t\tIEEE Hex Corp Again\n'
+      printf 'ZZ not a prefix\n\n00:50:56\tVMware\tVMware, Inc.\nA8BBD3 Acme "Q" \\ Corp\nA8-ZZ-CC junk\nA8\tno prefix\n'; } > "$ox"
+    oxd=$(printf '{\n  "generated": 1,\n  "aps": [\n'
+          for oxp in a8:bb:cc a8:bb:cd a8:bb:ce a8:bb:cf a8:bb:d0 a8:bb:d1 a8:bb:d2 a8:bb:d3 10:22:33 00:50:56 00:55:da 70:b3:d5 11:11:11; do
+              printf '    {"bssid": "%s:00:00:01", "ssid": "x"},\n' "$oxp"
+          done
+          printf '    {"bssid": "a8:bb:cc:00:00:02", "ssid": "y"}\n  ]\n}\n')
+    VENDOR_STATE=""; OUI_FILE="$ox"; setup_vendor 2>"$tdir/log6j"
+    if [ -n "$OUI_IDX" ] && oui_index_ok && [ "$(st_count "$OUI_IDX")" = "257" ]; then st_pass "index: built beside the cache, 256 buckets and hdr, hdr names the OUI file"; else st_fail "index: not built ($OUI_IDX)"; fi
+    check "index: the build is logged with the size of what it indexed" "$(cat "$tdir/log6j")" 'vendor index: 16 lines of'
+    check "index: the lookup line names it" "$(cat "$tdir/log6j")" 'vendor lookup: .* (index '
+    if [ "$(cat "$OUI_IDX"/?? | wc -l | tr -d ' ')" = "16" ] && [ "$(cat "$OUI_IDX/A8" | wc -l | tr -d ' ')" = "12" ] && grep -q "^A8BBCC Duplicate" "$OUI_IDX/A8"; then
+        st_pass "index: bucket A8 holds its lines as they stand in the file (duplicates kept, in file order); comments, blank and non-hex lines are not indexed"
+    else st_fail "index: bucket contents ($(cat "$OUI_IDX"/?? | wc -l | tr -d ' ') lines)"; fi
+    vreset; oxi=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxic=$(grep -v '^#' "$OUI_CACHE" | sort)
+    save_ix=$OUI_IDX; OUI_IDX=""; vreset; oxs=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxsc=$(grep -v '^#' "$OUI_CACHE" | sort); OUI_IDX=$save_ix
+    if [ "$oxi" = "$oxs" ] && [ "$oxic" = "$oxsc" ] && [ -n "$oxic" ]; then st_pass "index: the document and the cache lines are byte-identical to those of a pass over the OUI file"; else st_fail "index: differs from the pass over the file"; fi
+    jcheck "index:" "$oxi"
+    checkf "index: first line for a prefix wins, vendor escaped"   "$oxi" '"bssid": "a8:bb:cc:00:00:01", "vendor": "Acme Networks"'
+    checkf "index: lower-case hex line found"                      "$oxi" '"bssid": "a8:bb:cd:00:00:01", "vendor": "lower case hex"'
+    checkf "index: dash, colon and space forms"                    "$oxi" '"vendor": "Dash Corp"'
+    checkf "index: CRLF line"                                      "$oxi" '"vendor": "Tab Corp"'
+    checkf "index: (hex) line wins over the (base 16) line"        "$oxi" '"vendor": "IEEE Hex Corp"'
+    checkf "index: quote and backslash escaped"                    "$oxi" '"vendor": "Acme \"Q\" \\ Corp"'
+    checkf "index: last tab field of a manuf line"                 "$oxi" '"vendor": "VMware, Inc."'
+    checkno "index: MA-M / MA-S lines give no vendor"              "$(line_of "$oxi" '00:55:da:00:00:01')$(line_of "$oxi" '70:b3:d5:00:00:01')" '"vendor"'
+    check  "index: a prefix the file lacks is a negative entry"    "$oxic" "^111111${RECON_TAB}\$"
+    # an octet with many lines (here: more than 3) is split by its first two octets: one file per second octet, the lines that cannot be accepted dropped
+    save_max=$OUI_IDX_MAX; OUI_IDX_MAX=3; rm -rf "$CAPDIR/oui-index"; setup_vendor 2>/dev/null; OUI_IDX_MAX=$save_max
+    if [ -n "$OUI_IDX" ] && oui_index_ok && [ "$(st_count "$OUI_IDX")" = "512" ] && [ "$(sed -n 2p "$OUI_IDX/hdr")" = "A8" ] && [ ! -e "$OUI_IDX/A8" ] \
+       && [ "$(cat "$OUI_IDX/A8BB" | wc -l | tr -d ' ')" = "10" ] && [ "$(cat "$OUI_IDX"/[0-9A-F][0-9A-F]* | wc -l | tr -d ' ')" = "14" ]; then
+        st_pass "index: an octet with more than OUI_IDX_MAX lines is split by its first two octets (A8 -> A8BB with its 10 lines, the 2 unacceptable lines dropped), hdr names it"
+    else st_fail "index: split octet ($(st_count "$OUI_IDX") files, hdr [$(sed -n 2p "$OUI_IDX/hdr")])"; fi
+    vreset; oxh=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxhc=$(grep -v '^#' "$OUI_CACHE" | sort)
+    if [ "$oxh" = "$oxi" ] && [ "$oxhc" = "$oxic" ]; then st_pass "index: with a split octet the document and the cache lines are the same as from a pass over the OUI file"; else st_fail "index: split octet differs from the pass over the file"; fi
+    rm -f "$OUI_IDX/A8BB"
+    vreset; oxh=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxhc=$(grep -v '^#' "$OUI_CACHE" | sort)
+    if [ "$oxh" = "$oxi" ] && [ "$oxhc" = "$oxic" ] && ! oui_index_ok; then st_pass "index: a file of a split octet gone -> not ok, the OUI file is scanned, same answers"; else st_fail "index: split octet damaged"; fi
+    rm -rf "$CAPDIR/oui-index"; setup_vendor 2>/dev/null
+    # no OUI file, same answers: the stick is gone, the index (on flash, beside the cache) is not
+    mv "$ox" "$ox.away"; OUI_PATH="$ox"
+    vreset; oxg=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxgc=$(grep -v '^#' "$OUI_CACHE" | sort)
+    mv "$ox.away" "$ox"
+    if [ "$oxg" = "$oxi" ] && [ "$oxgc" = "$oxic" ]; then st_pass "index: with the OUI file gone the same document and the same cache lines (the index serves)"; else st_fail "index: OUI file gone"; fi
+    # a damaged index is no error: the awk scans the OUI file, and the answers stay the same
+    for ixd in "bucket:rm -f $OUI_IDX/A8" "hdr:printf '# oui=elsewhere size=1 mtime=1\\n' > $OUI_IDX/hdr" "nohdr:rm -f $OUI_IDX/hdr"; do
+        eval "${ixd#*:}"
+        vreset; oxd1=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); oxdc=$(grep -v '^#' "$OUI_CACHE" | sort)
+        if [ "$oxd1" = "$oxi" ] && [ "$oxdc" = "$oxic" ]; then st_pass "index: damaged (${ixd%%:*}) -> the OUI file is scanned, same answers"; else st_fail "index: damaged (${ixd%%:*}) gives other answers"; fi
+        setup_vendor 2>/dev/null
+        if oui_index_ok && [ "$(st_count "$OUI_IDX")" = "257" ]; then st_pass "index: damaged (${ixd%%:*}) -> rebuilt by the next setup_vendor"; else st_fail "index: not rebuilt after damage (${ixd%%:*})"; fi
+    done
+    # an unreadable OUI file with a damaged index and a new prefix: nothing is known, so no negative entry (as in 6h)
+    rm -f "$OUI_IDX/A8"; OUI_PATH="$tdir/oui-gone.txt"; vreset
+    printf '%s\n' "$oxd" | add_vendor >/dev/null 2>&1
+    checkno "index: damaged index and no OUI file -> no negative entry for a prefix that is in the file" "$(cat "$OUI_CACHE")" "^A8BBCC${RECON_TAB}\$"
+    OUI_PATH="$ox"; setup_vendor 2>/dev/null
+    # the OUI file changes (new size): a new index, with the new content
+    printf 'CCDDEE New Corp\n' >> "$ox"; setup_vendor 2>/dev/null
+    out=$(printf '    {"bssid": "cc:dd:ee:00:00:01", "ssid": "z"}\n' | add_vendor 2>/dev/null)
+    if oui_index_ok && printf '%s' "$out" | grep -q '"vendor": "New Corp"'; then st_pass "index: a changed OUI file gets a new index (and the cache restarts)"; else st_fail "index: changed OUI file"; fi
+    # two instances starting together (a daemon and a crond --once): one index, whole, no build directory or lock left
+    rm -rf "$CAPDIR/oui-index"
+    ( setup_vendor >/dev/null 2>&1 ) & ( setup_vendor >/dev/null 2>&1 ) & wait
+    if oui_index_ok && [ "$(st_count "$CAPDIR/oui-index")" = "257" ] && [ -z "$(ls -d "$CAPDIR"/oui-index.new.* "$OUI_CACHE".lock 2>/dev/null)" ]; then st_pass "index: two instances building at once leave one whole index, no build directory, no lock"; else st_fail "index: parallel build ($(echo "$CAPDIR"/*))"; fi
+    # start-up sweep: the build directory of a dead collector goes, that of a live one stays
+    sh -c 'exit 0' & dpid=$!; wait "$dpid" 2>/dev/null
+    mkdir "$CAPDIR/oui-index.new.$dpid.abc" "$CAPDIR/oui-index.new.$$.abc"
+    sweep_stale_cache_files 2>/dev/null
+    if [ ! -d "$CAPDIR/oui-index.new.$dpid.abc" ] && [ -d "$CAPDIR/oui-index.new.$$.abc" ]; then st_pass "sweep: an index build directory of a dead collector removed, a live collector's kept"; else st_fail "sweep: index build directories"; fi
+    rm -rf "$CAPDIR/oui-index.new.$$.abc"
+    # an index that cannot be built (here: no mktemp -d) is no error either: one warning, the lookups scan the file, the answers are the same
+    mkdir -p "$tdir/nomk"; printf '#!/bin/sh\nexit 1\n' > "$tdir/nomk/mktemp"; chmod +x "$tdir/nomk/mktemp"
+    rm -rf "$CAPDIR/oui-index"; VENDOR_STATE=""
+    ix_path=$PATH; PATH="$tdir/nomk:$PATH"; setup_vendor 2>"$tdir/log6j2"; vreset; oxm=$(printf '%s\n' "$oxd" | add_vendor 2>/dev/null); PATH=$ix_path
+    if [ -z "$OUI_IDX" ] && [ ! -d "$CAPDIR/oui-index" ] && [ "$oxm" = "$oxi" ]; then st_pass "index: cannot be built -> no index, the same document from the pass over the file"; else st_fail "index: build failure ($OUI_IDX)"; fi
+    check "index: ... and says so once" "$(cat "$tdir/log6j2")" 'warning: no OUI index'
+    rm -rf "$tdir/nomk"
+    OUI_FILE="$tdir/oui-nmap.txt"; VENDOR_STATE=""; setup_vendor 2>/dev/null
 
     # ---- 6k) a crond `--once` finishing while the daemon's cycle is still emitting (on the device
     #          the DB copy + queries take a second or more, so the overlap is routine): its EXIT
@@ -2724,6 +3919,8 @@ fi
 # other collector loop it replaces (one collector per device).
 kill_loops replace
 sweep_stale_cache_files
+sweep_stale_workcopies
+sweep_stale_tmp
 echo $$ > "$LOOP_PIDFILE"
 log "collecting every ${INTERVAL}s -> $OUTFILE (Ctrl-C or --stop to end; loop pid $$)"
 cyc=0
@@ -2755,7 +3952,7 @@ done
 #      the device: 0=Open (e.g. "OpenGuest"); bit3(=8)=WPA2 (majority); bit4(=16)=WPA3; bit3+bit4
 #      => WPA2/WPA3 transition; bit2(=4)=WPA; large 64-bit ints (AKM/cipher bits high up).
 #   4. TOOLS (present on the device): sqlite3, tcpdump, iw, iwinfo, jq, curl, wget,
-#      nc, crond, and coreutils `timeout` are pre-installed. airodump-ng and python3 are NOT.
+#      nc, crond and a `timeout` are pre-installed. airodump-ng and python3 are NOT.
 #      awk/grep are busybox (no `grep -P`, no gawk-only awk functions). So on the device the
 #      recon.db path works out of the box; the capture fallback is tcpdump (not airodump).
 #   5. OUTPUT DIR: defaults to /tmp/starchorus (volatile). For persistence use the loot convention on
@@ -2769,13 +3966,14 @@ done
 #   8. MANAGEMENT: SSH as root@<device> (tools/install.sh has the default address); mgmt_iface()
 #      knows the management addresses.
 #   9. MAC VENDOR (OUI) FILES, all already on the device, read-only, nothing fetched:
-#      /lib/hak5/oui.txt (the firmware's own, used by the device UI; FORMAT NOT YET VERIFIED ON DEVICE --
-#      run `head -5 /lib/hak5/oui.txt; wc -lc /lib/hak5/oui.txt` and note it here),
+#      /lib/hak5/oui.txt (the firmware's own, used by the device UI; checked on the device on 14 October 2026:
+#      1.26 MB, 38,959 lines, `00:00:00<TAB>NAME`; the parser takes it and the index was built from it),
 #      /usr/share/nmap/nmap-mac-prefixes (`AABBCC Vendor`, upstream also has 7/9-hex MA-M/MA-S
 #      lines which are skipped), /usr/share/macchanger/OUI.list (`AA BB CC VENDOR`, dated).
-#      Override with STARCHORUS_OUI_FILE=<path> (e.g. a newer file on a USB stick). Parser, cache and
-#      lock: see VENDOR LOOKUP. Expect the first cycle with many new prefixes to take a few seconds
-#      on the MIPS CPU (one full file scan), later cycles to be near-free.
+#      Override with STARCHORUS_OUI_FILE=<path> (e.g. a newer file on a USB stick). Parser, cache,
+#      index and lock: see VENDOR LOOKUP. Measured on the device (docs/device-notes.md §6a): the index
+#      of /lib/hak5/oui.txt takes about 8 s of CPU to build, once, when the daemon starts; a new prefix
+#      then costs 0.01 to 0.3 s instead of 14 s (a pass over the file).
 #      NOT covered by --selftest (timing races, documented rather than faked): a live holder
 #      grabbing a fresh lock in the microseconds between a breaker's check and its rename
 #      (cache_break gives it back), and setup_vendor's restart racing an in-flight merge (the
