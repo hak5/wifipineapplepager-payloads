@@ -1,0 +1,45 @@
+{
+  "watched_devices": {
+    "AA:BB:CC:DD:EE:FF": {
+      "mac": "AA:BB:CC:DD:EE:FF",
+      "label": "Nachbar Gerät",
+      "type": "static",
+      "first_seen": "2026-01-01 00:00:00",
+      "notes": "Nachbarsgerät - nur zuhause erwartet",
+      "known_locations": [
+        {
+          "name": "Zuhause",
+          "lat": 0.000000,
+          "lon": 0.000000,
+          "radius_m": 100
+        }
+      ],
+      "seen_locations": []
+    },
+    "BB:CC:DD:EE:FF:AA": {
+      "mac": "BB:CC:DD:EE:FF:AA",
+      "label": "Unbekanntes Gerät Hotel X",
+      "type": "static",
+      "first_seen": "2026-01-01 00:00:00",
+      "notes": "Im Hotel X gesehen - beobachten",
+      "known_locations": [
+        {
+          "name": "Hotel X",
+          "lat": 0.000000,
+          "lon": 0.000000,
+          "radius_m": 200
+        }
+      ],
+      "seen_locations": []
+    },
+    "CC:DD:EE:FF:AA:BB": {
+      "mac": "CC:DD:EE:FF:AA:BB",
+      "label": "Verdächtiges Gerät",
+      "type": "dynamic",
+      "first_seen": "2026-01-01 00:00:00",
+      "notes": "Mehrfach gesehen - auf Tracking prüfen",
+      "known_locations": [],
+      "seen_locations": []
+    }
+  }
+}
