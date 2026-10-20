@@ -1,0 +1,5 @@
+# Only the pure-Python dependencies used by the serial flashing API.
+# Install with --no-deps: full esptool extras require native builds on MIPS.
+esptool==4.8.1
+pyserial==3.5
+intelhex==2.3.0
