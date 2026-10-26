@@ -1,0 +1,8 @@
+# Level 2 - WiFi Signal
+# Wireless waves pattern
+0 0 0 0 0 0 c c 0 0 0 0 0 0
+0 0 0 0 c c c c c c 0 0 0 0
+0 0 c cL c c c c cL c c 0 0
+c c c c c c c c c c c c c c
+0 0 c c c c c c c c c c 0 0
+0 0 0 0 c cR c cR c 0 0 0 0
