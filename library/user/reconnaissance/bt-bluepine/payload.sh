@@ -229,6 +229,7 @@
 # ============================================
 # change actual sound setting for pager alerts?
 # implement sql lite db instead of current method?
+# check if node loses connection, warn if so for which one
 # ============================================
 # 
 
@@ -508,39 +509,39 @@ scan_btiface=$(PAYLOAD_GET_CONFIG bluepinesuite scan_btiface)
 gps_selport=$(PAYLOAD_GET_CONFIG bluepinesuite gps_selport)
 gps_selbaud=$(PAYLOAD_GET_CONFIG bluepinesuite gps_selbaud)
 
-[[ -z "$DATA_SCAN_SECONDS" ]] && DATA_SCAN_SECONDS=7
-[[ -z "$scan_btle" ]] && scan_btle="true"
-[[ -z "$scan_btclassic" ]] && scan_btclassic="true"
-[[ -z "$scan_infrepeat" ]] && scan_infrepeat=1
-[[ -z "$scan_mute" ]] && scan_mute="false"
-[[ -z "$scan_debug" ]] && scan_debug="false"
-[[ -z "$total_scans" ]] && total_scans=0
-[[ -z "$total_detected" ]] && total_detected=0
-[[ -z "$total_scan_min" ]] && total_scan_min=0
-[[ -z "$scan_privacy" ]] && scan_privacy=0
-[[ -z "$scan_friendly" ]] && scan_friendly=0
-[[ -z "$scan_stealth" ]] && scan_stealth=0
-[[ -z "$custom_oui" ]] && custom_oui=""
-[[ -z "$custom_name" ]] && custom_name=""
-[[ -z "$selnum_main" ]] && selnum_main=1
-[[ -z "$skip_ask_1st_scan" ]] && skip_ask_1st_scan=0
-[[ -z "$skip_ask_ringtones" ]] && skip_ask_ringtones=0
-[[ -z "$filter_multilocal" ]] && filter_multilocal=0
-[[ -z "$filter_randomall" ]] && filter_randomall=0
-[[ -z "$filter_localall" ]] && filter_localall=0
-[[ -z "$filter_multiall" ]] && filter_multiall=0
-[[ -z "$filter_emptyoui" ]] && filter_emptyoui=0
-[[ -z "$filter_airtag" ]] && filter_airtag=0
-[[ -z "$nodes_enabled" ]] && nodes_enabled=0
-[[ -z "$hotspot_enabled" ]] && hotspot_enabled=0
-[[ -z "$previousWiFi" ]] && previousWiFi=""
-[[ -z "$nodes_ssid" ]] && nodes_ssid="NeedleNetwork"
-[[ -z "$nodes_pw" ]] && nodes_pw="MyNeedleNetwork65432"
-[[ -z "$nodes_iface" ]] && nodes_iface="wlan0"
-[[ -z "$nodes_netw" ]] && nodes_netw="10.42.0.1"
-[[ -z "$scan_btiface" ]] && scan_btiface="hci0"
-[[ -z "$gps_selport" ]] && gps_selport="/dev/ttyAMA0"
-[[ -z "$gps_selbaud" ]] && gps_selbaud=9600
+[[ -z "$DATA_SCAN_SECONDS" || "$DATA_SCAN_SECONDS" == null ]] && DATA_SCAN_SECONDS=7
+[[ -z "$scan_btle" || "$scan_btle" == null ]] && scan_btle="true"
+[[ -z "$scan_btclassic" || "$scan_btclassic" == null ]] && scan_btclassic="true"
+[[ -z "$scan_infrepeat" || "$scan_infrepeat" == null ]] && scan_infrepeat=1
+[[ -z "$scan_mute" || "$scan_mute" == null ]] && scan_mute="false"
+[[ -z "$scan_debug" || "$scan_debug" == null ]] && scan_debug="false"
+[[ -z "$total_scans" || "$total_scans" == null ]] && total_scans=0
+[[ -z "$total_detected" || "$total_detected" == null ]] && total_detected=0
+[[ -z "$total_scan_min" || "$total_scan_min" == null ]] && total_scan_min=0
+[[ -z "$scan_privacy" || "$scan_privacy" == null ]] && scan_privacy=0
+[[ -z "$scan_friendly" || "$scan_friendly" == null ]] && scan_friendly=0
+[[ -z "$scan_stealth" || "$scan_stealth" == null ]] && scan_stealth=0
+[[ -z "$custom_oui" || "$custom_oui" == null ]] && custom_oui=""
+[[ -z "$custom_name" || "$custom_name" == null ]] && custom_name=""
+[[ -z "$selnum_main" || "$selnum_main" == null ]] && selnum_main=1
+[[ -z "$skip_ask_1st_scan" || "$skip_ask_1st_scan" == null ]] && skip_ask_1st_scan=0
+[[ -z "$skip_ask_ringtones" || "$skip_ask_ringtones" == null ]] && skip_ask_ringtones=0
+[[ -z "$filter_multilocal" || "$filter_multilocal" == null ]] && filter_multilocal=0
+[[ -z "$filter_randomall" || "$filter_randomall" == null ]] && filter_randomall=0
+[[ -z "$filter_localall" || "$filter_localall" == null ]] && filter_localall=0
+[[ -z "$filter_multiall" || "$filter_multiall" == null ]] && filter_multiall=0
+[[ -z "$filter_emptyoui" || "$filter_emptyoui" == null ]] && filter_emptyoui=0
+[[ -z "$filter_airtag" || "$filter_airtag" == null ]] && filter_airtag=0
+[[ -z "$nodes_enabled" || "$nodes_enabled" == null ]] && nodes_enabled=0
+[[ -z "$hotspot_enabled" || "$hotspot_enabled" == null ]] && hotspot_enabled=0
+[[ -z "$previousWiFi" || "$previousWiFi" == null ]] && previousWiFi=""
+[[ -z "$nodes_ssid" || "$nodes_ssid" == null ]] && nodes_ssid="NeedleNetwork"
+[[ -z "$nodes_pw" || "$nodes_pw" == null ]] && nodes_pw="MyNeedleNetwork65432"
+[[ -z "$nodes_iface" || "$nodes_iface" == null ]] && nodes_iface="wlan0"
+[[ -z "$nodes_netw" || "$nodes_netw" == null ]] && nodes_netw="10.42.0.1"
+[[ -z "$scan_btiface" || "$scan_btiface" == null ]] && scan_btiface="hci0"
+[[ -z "$gps_selport" || "$gps_selport" == null ]] && gps_selport="/dev/ttyAMA0"
+[[ -z "$gps_selbaud" || "$gps_selbaud" == null ]] && gps_selbaud=9600
 
 # check dependencies + ringtones
 check_dependencies
