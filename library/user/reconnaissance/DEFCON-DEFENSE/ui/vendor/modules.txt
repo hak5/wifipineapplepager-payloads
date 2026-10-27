@@ -1,0 +1,6 @@
+# golang.org/x/image v0.12.0
+## explicit; go 1.12
+golang.org/x/image/font
+golang.org/x/image/font/basicfont
+golang.org/x/image/font/inconsolata
+golang.org/x/image/math/fixed
