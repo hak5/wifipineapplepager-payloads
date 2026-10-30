@@ -39,7 +39,7 @@ frames, associate with any network or scan actively. It reads the recon database
 copy (`sqlite3 -readonly`), or receives in monitor mode. Two settings, both off by default, add to what
 it reads: 'Traffic' (channel activity from the AP service and the frame counts of stations) and
 'Bluetooth' (a scan of 5 s per refresh). Bluetooth: passive LE scan only; by the Bluetooth specification a
-passive scan sends no scan request, it listens for advertisements that devices broadcast anyway. It does not change the LED. An active scan exists in the collector only as
+passive scan sends no scan request, it listens for advertisements that devices broadcast anyway; on firmware 2.0 the Pager's own scanner holds the radio, and the layer reads the firmware's Bluetooth database instead, read-only from a copy, with the scanner left as the Pager set it. It does not change the LED. An active scan exists in the collector only as
 a last resort behind the environment variable
 `STARCHORUS_ALLOW_ACTIVE=1`; it is off by default, and no menu item or setting reaches it. The optional companion alert `alert-deauth.sh` only
 writes the times and addresses of the firmware's own deauth/disassoc alert to a file, when the firmware raises it; it listens to nothing and sends nothing.
@@ -57,7 +57,7 @@ named in the collector's LOG with its pid and working directory.
 | `index.html` | the page, one self-contained file; it fetches only `starchorus.json` and sends nothing |
 | `starchorus-display.sh` | the Overview on the Pager's display |
 | `starchorus-serve.sh` | netcat page server: what serves the page on a Pager without `uhttpd` and `python3` |
-| `alert-deauth.sh` | optional companion alert for the firmware's deauth/disassoc alert: appends one line of time and addresses to `alerts.log`; it is copied into the Pager's alert tree by hand (the project README says how), never by the payload |
+| `alert-deauth.sh` | optional companion alert for the firmware's deauth/disassoc alert: appends one line of time and addresses to `alerts.log`; the Settings row 'Alerts' puts it into the Pager's alert tree after a question, or you do by hand (the project README says how); the payload touches nothing else there |
 | `LICENSE` | GNU General Public License, version 3 |
 
 On its first run the payload copies the collector, the page, the Overview and the netcat server
@@ -67,13 +67,14 @@ into `/root/loot/starchorus` and runs them from there; `starchorus.json` and the
 To upgrade, stop Starchorus, replace this payload directory, delete
 `/root/loot/starchorus/starchorus-collect.sh` and start the payload again; it copies the new files and
 your settings are kept. When the payload opens
-it compares the installed collector and Overview with itself, by version and by their `# Contract:`
-number (the interface the three share). If you replace the payload directory but not the installed
+it compares the installed collector, Overview, netcat server and page with itself, by version and, for the scripts, by their `# Contract:`
+number (the interface they share). If you replace the payload directory but not the installed
 files, a dialogue ('Installed …, payload …' or 'Installed files differ from the payload.') says so
 and names the file to delete.
 
 ## Requirements
 
+- Firmware 1.0.8 or later for the payload's menus; adapted to firmware 2.0 from 0.2.6.2.
 - The Pager with its recon service running. The collector reads the service's database read-only.
 - `sqlite3` and `jq`, both present on the Pager.
 - A page server on the Pager: the payload uses `uhttpd` or `python3` where the Pager has them,
@@ -126,7 +127,7 @@ environment variable of the same meaning takes precedence over the file.
 | `vendor` | `on` | `on`, `off` | vendor names from the local OUI list |
 | `survey` | `off` | `on`, `off` | channel occupancy from the survey dump |
 | `page` | `on` | `on`, `off` | 'Start' starts the page server |
-| `bluetooth` | `off` | `on`, `off` | the passive Bluetooth LE scan, 5 s per refresh |
+| `bluetooth` | `off` | `on`, `off` | the Bluetooth layer: a passive LE scan of 5 s per refresh, or on firmware 2.0 the firmware's own database |
 | `traffic` | `off` | `on`, `off` | channel activity from the AP service and the frame counts of stations |
 
 In the menu's Settings, `interval` is 'Refresh', `window` is 'Show Last', `vendor` is 'Vendor
@@ -135,7 +136,8 @@ Names', `survey` is 'Channel Load', `traffic` is 'Traffic', `bluetooth` is 'Blue
 'Web Page', which takes effect at once. A window of one hour keeps each pass small enough for the
 Pager's CPU; 'Show Last' also offers 'All (may be slow)'. Marking the Pager's own radios
 (`STARCHORUS_OWN=1`) and keeping the Overview closed after 'Start' (`STARCHORUS_DASHBOARD=0`) are
-environment variables only.
+environment variables only. The Settings row 'Alerts' installs or removes the companion alert
+`alert-deauth.sh` and stores no key.
 
 ## Network exposure
 
