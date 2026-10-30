@@ -2,8 +2,8 @@
 # Title: Starchorus
 # Author: Starchorus
 # Description: Strictly passive, receive-only Wi-Fi observation tool; visualises the radio environment and never transmits.
-# Version: 0.1.1
-# Contract: 2
+# Version: 0.2.6.2
+# Contract: 3
 # Category: reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
@@ -13,9 +13,9 @@
 # the device's running recon engine read-only and writes starchorus.json -- access points as stars, clients as orbiting
 # satellites. It NEVER transmits: no deauthentication, no access point of its own, no injection, no association, no
 # active features. It does not change the device LED. On the device it also opens the Overview
-# (starchorus-display.sh) with seven screens: a summary (AP/client counts, band split, freshness, crowding), the
-# strongest networks, bands & security, logical devices/merged SSIDs, probe requests, stations and air quality
-# (channel crowding).
+# (starchorus-display.sh) with eight screens: a summary (AP/client counts, band split, freshness, crowding), the
+# strongest networks, bands & security, logical devices/merged SSIDs, probe requests, stations, Bluetooth (the addresses
+# heard, by company) and air quality (channel crowding).
 #
 # INTERFACE: on the device (no arguments, LIST_PICKER present, STARCHORUS_PAYLOAD_PLAIN not 1) a menu whose title shows the
 #   state, worked out afresh at every draw: "Starchorus: Stopped" (Start | Settings) or "Starchorus: Running" (Overview |
@@ -23,7 +23,7 @@
 #   leaves the payload, and whatever runs keeps running. See MENU below.
 # Everywhere else, and with any argument, no UI command runs:
 #   payload.sh [start]          start per settings (the Overview only opens from the menu); exit 1 if both services are off
-#   payload.sh stop             stop the collector and our page server (our port, the port last served, our directory, our pidfiles only)
+#   payload.sh stop             stop the collector and our page server (our port, the port last served, our directory or its www, our pidfiles only)
 #   payload.sh status           status lines on stdout
 #   payload.sh get [KEY]        KEY=VALUE (env|file|default) for one key or all
 #   payload.sh set KEY VALUE    validate and save; exit 2 on an unknown key or an invalid value (file untouched)
@@ -33,20 +33,26 @@
 # Precedence: environment, then file, then default. Keys (menu and CLI share one validator and one writer):
 #   window 0|60-86400 (STARCHORUS_MAX_AGE), interval 5-3600 (STARCHORUS_INTERVAL), port 1024-65535 but not 1471
 #   (STARCHORUS_PORT), bind auto|all|IPv4 address (STARCHORUS_BIND; CLI only, no menu entry), vendor/survey on|off
-#   (STARCHORUS_VENDOR/_SURVEY 1|0), page on|off (STARCHORUS_PAGE 1|0, read by this payload only). Three switches are
-#   environment only, with no key and no menu row: STARCHORUS_OWN (own interface MACs), STARCHORUS_DASHBOARD (0 = the
-#   Overview does not open after Start) and STARCHORUS_COLLECTOR (0 = no collector; the menu then refuses to run). No key
+#   (STARCHORUS_VENDOR/_SURVEY 1|0), traffic/bluetooth on|off (STARCHORUS_TRAFFIC/_BLUETOOTH 1|0: the channel activity the
+#   AP service reports and the frame counts of stations; the passive Bluetooth LE scan; both off by default, both read by the
+#   collector only), page on|off (STARCHORUS_PAGE 1|0, read by this payload only). Three switches are environment only, with
+#   no key and no menu row: STARCHORUS_OWN (own interface MACs), STARCHORUS_DASHBOARD (0 = the
+#   Overview does not open after Start) and STARCHORUS_COLLECTOR (0 = no collector; the menu then refuses to run). One more
+#   belongs to the collector and is passed through untouched, like STARCHORUS_OWN: STARCHORUS_BT_WINDOW (the length of the
+#   Bluetooth window). No key
 #   reaches the collector's opt-in transmitting source: it stays an environment-only switch of the collector, passed
 #   through untouched.
 #
 # MENU (device only; the texts are the menu specification's, verbatim):
 #   Launch: E1 without a collector, E12 with STARCHORUS_COLLECTOR=0; pidfiles whose pid is not ours are deleted (a pid read
 #   from a file on eMMC can belong to anything after a reboot); "Starchorus listens only."; a version, or a "# Contract:"
-#   number (the interface the three scripts share; a file without one is contract 1), that differs between this payload
-#   and the installed collector or Overview is reported once. A dead loop with the marker present had
-#   stopped by itself ("Collector had stopped."), and a page server left without a collector is stopped.
+#   number (the interface the scripts share; a file without one is contract 1), that differs between this payload
+#   and the installed collector, Overview or (while Alerts is ON) companion alert is reported once. A dead loop
+#   with the marker present had stopped by itself ("Collector had stopped."), and a page server left without a collector is stopped.
 #   Start: no question; spinner; marker /tmp/starchorus.started = the epoch of this Start (tmpfs: a reboot clears it);
-#   the collector (setsid, nice 19) and, with Web Page ON, the page server (nice 19); up to 5 s for both, then, when the
+#   the collector (setsid, nice 19) and, with Web Page ON, the page server (nice 19); up to 5 s for both, and longer for a
+#   launched collector that still lives without its pidfile (up to its own start ceiling, STARCHORUS_INTERVAL + 15 s, plus
+#   5 s: see pl_wait_up), then, when the
 #   Overview is to open, up to 20 s more for the first capture of this Start (the spinner stays up, so the Overview opens
 #   on numbers and not on "Waiting for the first scan."), then the Overview as a child process (no exec; nice 19), back to
 #   RUNNING with the cursor on Overview. A spinner that is up when the payload gets TERM or INT is stopped first.
@@ -54,7 +60,17 @@
 #   pid to go, kill -9 (identity-checked) and 2 s more.
 #   Settings: every change is saved at once; leaving with B applies what changed while the collector runs (collector
 #   keys: restart of the collector only, marker kept; port: restart of the page server only). Nothing is asked except
-#   Reset to Defaults. A key set in the environment is shown "(locked)" and is not changed here.
+#   Reset to Defaults and the Alerts row (below). A key set in the environment is shown "(locked)" and is not changed here.
+#   Alerts: ON when the companion alert payload (alert-deauth.sh, beside this file) is in the firmware's alert tree, OFF when
+#   it is not. A press asks first and then installs it (mkdir -p, cp, chmod +x: the steps the README gives for doing it by
+#   hand, the copy through a temporary file and a rename so that the firmware never finds half a script) or, when it is
+#   ON, removes our payload.sh and our empty directory and nothing else (and a stale DISABLED.starchorus copy of ours, see
+#   below). The firmware's own switch renames a payload that is switched off on its Alerts page to DISABLED.starchorus: when
+#   only that copy exists the row reads "OFF (firmware)", a press installs nothing (a second, enabled copy would be a
+#   second companion) and says to switch it on on the firmware's page. That is the only place this payload writes outside
+#   its own directories, and the only action it takes on the alert tree: it never switches an alert on or off in the
+#   firmware. The row is "(locked)" while STARCHORUS_ALERTS is set in the environment to anything but 1 (the collector then
+#   ignores the alert log, so an installed companion would feed nothing); STARCHORUS_ALERTS=1 or unset leaves the row free.
 #   Debounce: right after a spinner or the Overview, a Start, Stop or B that comes back within 0.6 s (/proc/uptime) is
 #   taken for a queued press and ignored; the menu is drawn again. At most three in a row: a picker that keeps failing
 #   at once ends the payload instead of being drawn for ever.
@@ -81,10 +97,18 @@
 # SERVER: uhttpd may be present on the device (installed, not enabled at boot); the payload uses it when present,
 # else python3, else the bundled nc mini-server. Without any server it still collects to starchorus.json; view it
 # from a connected computer. A port that already has a listener (/proc/net/tcp, read-only) is not tried.
+# What is served: uhttpd and python3 serve $STARCHORUS_DIR/www, a directory of their own that holds two symbolic links
+# and nothing else: index.html -> ../index.html and starchorus.json -> ../starchorus.json (pl_web_prepare makes them). The
+# settings, the pid files, the logs, the homing target and, when /tmp has no room, cap/recon_copy.db (a copy of the recon
+# database, every address and name in it) stay out of reach of a browser. When www is not ours (a symbolic link, a plain
+# file, or a directory that holds anything else) route A is not used: the nc mini-server takes over, which answers only
+# the page and the capture by name, or, without it, no page server starts. A uhttpd of an earlier build (which was given
+# the whole of STARCHORUS_DIR, and outlives a payload update) is still stopped, by its port and its directory.
 #
 # TESTS ONLY: STARCHORUS_PROC (default /proc: uptime, net/tcp, PID/cmdline, PID/stat) and STARCHORUS_MARKER (default
 # /tmp/starchorus.started) point the payload at stand-ins; STARCHORUS_FIRST_CAP (tenths of a second, default 200) is how long
-# Start waits for the first capture before it opens the Overview anyway.
+# Start waits for the first capture before it opens the Overview anyway; STARCHORUS_ALERT_TREE (default /root/payloads/alerts)
+# is the firmware's alert tree that the Alerts row installs into and reads.
 #
 # POSIX sh on purpose (BusyBox ash on the device, dash/sh in the tests): no local, no arrays, no eval.
 
@@ -97,8 +121,7 @@ case $STARCHORUS_DIR in
 esac
 SETTINGS=$STARCHORUS_DIR/settings.conf
 # Which settings the environment sets: read BEFORE any default is applied (the environment beats the settings file).
-# ${VAR:+x}, not ${VAR+x}: an empty variable counts as unset, so it matches the ${VAR:-default} expansions below (an
-# empty STARCHORUS_PORT= must not hide the file value and then report the default as (env)).
+# ${VAR:+x}, not ${VAR+x}: an empty variable counts as unset, so it matches the ${VAR:-default} expansions below.
 PL_ENV=""
 [ -z "${STARCHORUS_MAX_AGE:+x}" ] || PL_ENV="$PL_ENV window"
 [ -z "${STARCHORUS_INTERVAL:+x}" ] || PL_ENV="$PL_ENV interval"
@@ -106,7 +129,10 @@ PL_ENV=""
 [ -z "${STARCHORUS_BIND:+x}" ] || PL_ENV="$PL_ENV bind"
 [ -z "${STARCHORUS_VENDOR:+x}" ] || PL_ENV="$PL_ENV vendor"
 [ -z "${STARCHORUS_SURVEY:+x}" ] || PL_ENV="$PL_ENV survey"
+[ -z "${STARCHORUS_BLUETOOTH:+x}" ] || PL_ENV="$PL_ENV bluetooth"
+[ -z "${STARCHORUS_TRAFFIC:+x}" ] || PL_ENV="$PL_ENV traffic"
 [ -z "${STARCHORUS_PAGE:+x}" ] || PL_ENV="$PL_ENV page"
+[ "${STARCHORUS_ALERTS:-1}" = 1 ] || PL_ENV="$PL_ENV alerts"   # no settings key behind it: the collector's read switch (only 1 reads the log); anything else locks the Alerts row
 STARCHORUS_PORT=${STARCHORUS_PORT:-8199}
 STARCHORUS_BIND=${STARCHORUS_BIND:-auto}                  # payload only: the page server's address (see BIND above)
 export STARCHORUS_DIR STARCHORUS_PORT
@@ -116,16 +142,20 @@ export STARCHORUS_INTERVAL="${STARCHORUS_INTERVAL:-30}"   # seconds between two 
 export STARCHORUS_VENDOR="${STARCHORUS_VENDOR:-1}"        # 1 = local vendor lookup (collector default)
 export STARCHORUS_OWN="${STARCHORUS_OWN:-0}"              # 1 = own interface MACs from sysfs (read-only); environment only
 export STARCHORUS_SURVEY="${STARCHORUS_SURVEY:-0}"        # 1 = channel busy time from the survey dump (read-only)
+export STARCHORUS_BLUETOOTH="${STARCHORUS_BLUETOOTH:-0}"  # 1 = the passive Bluetooth LE scan window every cycle (off by default)
+export STARCHORUS_TRAFFIC="${STARCHORUS_TRAFFIC:-0}"      # 1 = channel activity and station frame counts (off by default)
 STARCHORUS_COLLECTOR=${STARCHORUS_COLLECTOR:-1}           # payload only, environment only: start the collector
 STARCHORUS_PAGE=${STARCHORUS_PAGE:-1}                     # payload only: serve the page
 STARCHORUS_DASHBOARD=${STARCHORUS_DASHBOARD:-1}           # payload only, environment only: open the Overview after Start (menu)
 
-PL_KEYS="window interval port bind vendor survey page"
+PL_KEYS="window interval port bind vendor survey page bluetooth traffic"
 PL_FILE=""                     # keys that the settings file set with a valid value
 PL_CR=$(printf '\r')
 PL_PROC=${STARCHORUS_PROC:-/proc}                         # tests only (see TESTS ONLY above)
 PL_MARK=${STARCHORUS_MARKER:-/tmp/starchorus.started}     # R7: the epoch of the last Start; tmpfs, so a reboot clears it
 PL_PIDDIR=${STARCHORUS_PIDDIR:-$STARCHORUS_DIR}           # where the collector keeps its pidfiles (its own default: OUTDIR)
+PL_ALERT_DIR=${STARCHORUS_ALERT_TREE:-/root/payloads/alerts}/deauth_flood_detected/starchorus   # the firmware's alert tree: ours is this one directory
+PL_ALERT_DIS=${PL_ALERT_DIR%/*}/DISABLED.starchorus                                              # ... or this one, once the firmware's switch has renamed it (switched off on its Alerts page)
 
 pl_has() { case " $1 " in *" $2 "*) return 0 ;; esac; return 1; }   # pl_has "WORD LIST" WORD
 pl_bit() { if [ "$1" = on ]; then echo 1; else echo 0; fi; }
@@ -147,7 +177,7 @@ pl_valid() {
                 *)        [ "$2" -ge 1024 ] && [ "$2" -le 65535 ] && [ "$2" != 1471 ] ;;
             esac ;;
         bind) case $2 in auto|all) return 0 ;; 0.0.0.0) return 1 ;; esac; pl_ipv4 "$2" ;;   # every interface only as `all`
-        vendor|survey|page) [ "$2" = on ] || [ "$2" = off ] ;;
+        vendor|survey|page|bluetooth|traffic) [ "$2" = on ] || [ "$2" = off ] ;;
         *) return 1 ;;
     esac
 }
@@ -162,6 +192,8 @@ pl_assign() {
         vendor)    STARCHORUS_VENDOR=$(pl_bit "$2") ;;
         survey)    STARCHORUS_SURVEY=$(pl_bit "$2") ;;
         page)      STARCHORUS_PAGE=$(pl_bit "$2") ;;
+        bluetooth) STARCHORUS_BLUETOOTH=$(pl_bit "$2") ;;
+        traffic)   STARCHORUS_TRAFFIC=$(pl_bit "$2") ;;
     esac
 }
 
@@ -175,6 +207,8 @@ pl_value() {
         vendor)    pl_onoff "$STARCHORUS_VENDOR" ;;
         survey)    pl_onoff "$STARCHORUS_SURVEY" ;;
         page)      pl_onoff "$STARCHORUS_PAGE" ;;
+        bluetooth) pl_onoff "$STARCHORUS_BLUETOOTH" ;;
+        traffic)   pl_onoff "$STARCHORUS_TRAFFIC" ;;
     esac
 }
 
@@ -189,7 +223,7 @@ pl_snapshot() {
 # Parse the settings file (never source it): KEY=VALUE lines, CR stripped, a fixed key list, every value validated,
 # the last valid line of a key wins; everything else is skipped. A key the environment sets is left alone. A leading
 # UTF-8 BOM on the first line is stripped, and a file far larger than a real settings file is ignored (a single
-# multi-MB line can stall the shell's read loop under bash 3.2; a real file has at most seven short lines).
+# multi-MB line can stall the shell's read loop under bash 3.2; a real file has at most nine short lines).
 PL_BOM=$(printf '\357\273\277')
 pl_load() {
     [ -f "$SETTINGS" ] || return 0
@@ -210,8 +244,8 @@ pl_load() {
 # pl_set KEY VALUE -> validate, then write the settings file atomically (temp file + rename). The ONE writer of CLI
 # and menu. 2 = unknown key or invalid value (nothing written), 1 = the file could not be written. A grep that cannot
 # read the old file (exit >= 2) fails the write, so the old keys are never silently dropped: the file keeps its old
-# content (rename never runs). A stale .tmp (a symlink, or an interrupted earlier write) is removed before the write,
-# so it is never followed. A leftover .tmp is otherwise harmless: load ignores it, the next set overwrites it, reset removes it.
+# content (rename never runs). A leftover .tmp (an interrupted write, or a symlink put there) is removed before every
+# write, so it is never followed; load ignores it and reset removes it.
 pl_set() {
     pl_valid "$1" "$2" || return 2
     rm -f "$SETTINGS.tmp"
@@ -289,8 +323,7 @@ ui_log() {    # ui_log [blue|red|green] TEXT
 # A spinner left up when the payload ends hangs the payload runner (a START_SPINNER child keeps the payload's stdout pipe
 # open) and leaves the dialogue on the screen. pl_id holds the id of the spinner that is up, so that a TERM, an INT or an exit
 # while it is up stops it first. The traps exist only for as long as a spinner does: a trapped signal waits for the foreground
-# command to end, and the Overview, which runs as a foreground child for minutes, must stay killable at once (it ends at its
-# next key press after that, by its own parent_gone check, and holds none of the payload's pipes meanwhile: see pl_overview).
+# command to end, and the Overview, which runs as a foreground child for minutes, must stay killable at once (see pl_overview).
 # The callers call ui_spin_start without a command substitution: pl_id is set here.
 ui_spin_start() {   # ui_spin_start LABEL -> pl_id = the spinner's id (empty off the device); one-word labels (firmware 1.0.4 and older)
     pl_id=
@@ -348,11 +381,9 @@ ui_qr() {
     return 0
 }
 
-# pl_install -> first run from a self-contained payload directory (see BUNDLE above): when this payload's own directory
-# holds the collector and index.html, and STARCHORUS_DIR has no collector yet, copy the bundled files into STARCHORUS_DIR
-# (a temporary file each, made executable before the rename; the collector last, so a half-finished copy is completed on
-# the next run). An installed collector is never overwritten; nothing is copied when the two directories are the same.
-# 1 = a copy failed.
+# pl_install -> first run from a self-contained payload directory (see BUNDLE above): a temporary file each, made
+# executable before the rename; the collector last, so a half-finished copy is completed on the next run; nothing is
+# copied when the two directories are the same. 1 = a copy failed.
 pl_install() {
     [ -n "$PL_HOME" ] && [ "$PL_HOME" != "$STARCHORUS_DIR" ] || return 0
     [ -f "$PL_HOME/starchorus-collect.sh" ] && [ -f "$PL_HOME/index.html" ] || return 0
@@ -415,8 +446,8 @@ pl_loop_pid() { pl_pidof "$PL_PIDDIR/starchorus-loop.pid" starchorus-collect; }
 pl_ad_pid() { pl_pidof "$PL_PIDDIR/starchorus-airodump.pid" airodump; }
 pl_col_up() { [ -n "$(pl_loop_pid)" ]; }   # R6 COLLECTOR_UP: the loop pidfile names a live collector
 
-# pl_clean_pids -> 2.1 step 3: a pidfile whose pid is not ours (gone, or reused by another process after a reboot) is
-# deleted before anything reads it, so neither a false RUNNING nor a wrong kill can follow from it.
+# pl_clean_pids -> 2.1 step 3: a pidfile whose pid is not ours (pl_own) is deleted before anything reads it, so neither a
+# false RUNNING nor a wrong kill can follow from it.
 pl_clean_pids() {
     [ -n "$(pl_loop_pid)" ] || rm -f "$PL_PIDDIR/starchorus-loop.pid"
     [ -n "$(pl_ad_pid)" ] || rm -f "$PL_PIDDIR/starchorus-airodump.pid"
@@ -443,10 +474,16 @@ pl_kids() {
 pl_kill_sleeps() { for pl_sk in $(pl_kids "$1"); do kill "$pl_sk" 2>/dev/null; done; }
 
 pl_nap() { if sleep 0.5 2>/dev/null; then PL_NAP=5; else sleep 1; PL_NAP=10; fi; }   # PL_NAP = tenths of a second slept
+# the Bluetooth window in seconds the collector will use: STARCHORUS_BT_WINDOW as it reads it (whole seconds 5 to 15, a leading zero is no octal), else 5
+pl_btwin() {
+    pl_w=${STARCHORUS_BT_WINDOW:-5}
+    case $pl_w in ''|*[!0-9]*) pl_w=5 ;; *) while [ "${#pl_w}" -gt 1 ] && [ "${pl_w#0}" != "$pl_w" ]; do pl_w=${pl_w#0}; done; if [ "$pl_w" -lt 5 ] || [ "$pl_w" -gt 15 ]; then pl_w=5; fi ;; esac
+    printf '%s' "$pl_w"
+}
 
-# pl_fast_stop all|collector -> 2.8 steps 2 to 5: --stop (and, with all, our page servers), then the loop's sleep child,
-# then up to 10 s for the loop pid read beforehand to go; kill -9 to it and to the airodump (both identity-checked) and
-# 2 s more. 0 = gone (or nothing of ours ran), 1 = still alive. Leftover temporary files are swept by the next start.
+# pl_fast_stop all|collector -> 2.8 steps 2 to 5 (the Stop sequence above); all = also our page servers, collector = the
+# collector alone. Both pids are read before --stop deletes the pidfiles. 0 = gone (or nothing of ours ran), 1 = still
+# alive. Leftover temporary files are swept by the next start.
 pl_fast_stop() {
     pl_lp=$(pl_loop_pid); pl_ap=$(pl_ad_pid)          # read BEFORE --stop deletes the pidfiles
     if [ "$ONDEV" = 1 ]; then ./starchorus-collect.sh --stop >/dev/null 2>&1; else ./starchorus-collect.sh --stop; fi
@@ -467,18 +504,20 @@ pl_fast_stop() {
 }
 
 # pl_pids PORT -> the pids of OUR OWN page server(s) listening on PORT: a uhttpd -p [ADDR:]PORT -h our-dir, or a
-# python -m http.server PORT [--bind ADDR] --directory our-dir. It matches the listening argument only, not the whole `ps w` line, so
-# a PID/USER/VSZ column or an unrelated argument that happens to equal PORT is never mistaken for it; and it requires our
-# own directory, so the device's own uhttpd on :80/:1471 (a different -h) is never touched even if PORT collides with it.
+# python -m http.server PORT [--bind ADDR] --directory our-dir, where our-dir is $STARCHORUS_DIR/www (what pl_serve starts)
+# or $STARCHORUS_DIR itself (what the builds before 0.2.5 started; a uhttpd daemonises and survives a payload update). It
+# matches the listening argument only, not the whole `ps w` line, so a PID/USER/VSZ column or an unrelated argument that
+# happens to equal PORT is never mistaken for it; and it requires our own directory, so the device's own uhttpd on
+# :80/:1471 (its -h is /www, which is neither) is never touched even if PORT collides with it.
 pl_pids() {
     # shellcheck disable=SC2009  # busybox-safe; pgrep/pkill unreliable here
-    ps w 2>/dev/null | awk -v p="$1" -v d="$STARCHORUS_DIR" '
+    ps w 2>/dev/null | awk -v p="$1" -v d="$STARCHORUS_DIR" -v w="$STARCHORUS_DIR/www" '
         !/uhttpd|http\.server/ || /awk/ { next }
         {
             uh = 0; py = 0; dir = 0
             for (i = 2; i <= NF; i++) {
-                if (($i == "-h" || $i == "--directory") && $(i + 1) == d) dir = 1
-                if ($i == ("--directory=" d)) dir = 1
+                if (($i == "-h" || $i == "--directory") && ($(i + 1) == d || $(i + 1) == w)) dir = 1
+                if ($i == ("--directory=" d) || $i == ("--directory=" w)) dir = 1
                 if ($i ~ ("^([0-9.]*:)?" p "$") && $(i - 1) == "-p") uh = 1
                 if ($i ~ ("^([0-9.]*:)?" p "$") && $(i - 1) ~ /http\.server$/) py = 1
             }
@@ -499,15 +538,17 @@ pl_port_gone() {
     return 0
 }
 
-# Stop ONLY our own Starchorus web server(s): the current port, and the port that was actually served when the page last
-# started (recorded in page.port, so a port change while the page ran does not orphan the old server). It never touches
-# the device's own uhttpd on :80/:1471 (pl_pids requires our own -h directory). pkill -f is unreliable on busybox.
-# It returns once the ports it sent a stop to are free again (pl_port_gone), so a restart can bind the same port at once.
+# Stop ONLY our own page server(s): the current port and the port actually served when the page last started (page.port,
+# so a port change while the page ran does not orphan the old server), found with pl_pids. Returns once their ports are
+# free (pl_port_gone).
 stop_servers() {
     pl_pp=$(cat "$STARCHORUS_DIR/page.port" 2>/dev/null)
     pl_held=""                                                  # the ports a server was sent a stop for
     pl_hp=$(cat "$STARCHORUS_DIR/httpd.pid" 2>/dev/null)
-    if pl_own "$pl_hp" "http.server"; then kill "$pl_hp" 2>/dev/null; pl_held="$pl_held ${pl_pp:-$STARCHORUS_PORT}"; fi   # only while it still is our python server
+    if pl_own "$pl_hp" "http.server"; then   # only while it still is our python server
+        kill "$pl_hp" 2>/dev/null
+        pl_held="$pl_held ${pl_pp:-$STARCHORUS_PORT}"
+    fi
     rm -f "$STARCHORUS_DIR/httpd.pid"
     if [ -x "$STARCHORUS_DIR/starchorus-serve.sh" ]; then
         pl_hs=$(cat "$STARCHORUS_DIR/starchorus-serve.pid" 2>/dev/null)
@@ -515,7 +556,7 @@ stop_servers() {
         "$STARCHORUS_DIR/starchorus-serve.sh" stop >/dev/null 2>&1
     fi
     for pl_pt in "$STARCHORUS_PORT" "$pl_pp"; do
-        if [ -z "$pl_pt" ] || ! pl_valid port "$pl_pt"; then continue; fi
+        if ! pl_valid port "$pl_pt"; then continue; fi
         for pl_sp in $(pl_pids "$pl_pt"); do kill "$pl_sp" 2>/dev/null; pl_held="$pl_held $pl_pt"; done
     done
     rm -f "$STARCHORUS_DIR/page.port" "$STARCHORUS_DIR/page.addr"
@@ -572,9 +613,41 @@ pl_port_busy() {
         END { exit !f }'
 }
 
-# Best-effort static server for the visualiser. Prefer a real server (uhttpd/python3); else use the bundled nc
-# mini-server. start-stop-daemon detaches it cleanly so the payload runner returns. Every server listens on PL_ADDR
-# (pl_addr) only, at nice 19; the address and port served are recorded in page.addr and page.port.
+# pl_web_prepare -> 0 iff $STARCHORUS_DIR/www is a plain directory of ours (not a symbolic link) that holds nothing but two
+# symbolic links, index.html -> ../index.html and starchorus.json -> ../starchorus.json, made here when they are missing. This
+# is the directory the route-A page servers (uhttpd, python3) are given, so that a browser reaches the page and the capture
+# and nothing else in STARCHORUS_DIR (settings, pid files, logs, the homing target, cap/recon_copy.db). Returns 1 with one note
+# on stderr, and leaves it at that, when www is a symbolic link, is not a directory, holds any other entry (a file, a dot
+# file, a directory), holds index.html or starchorus.json as anything but a link (or as a link to a directory), or when
+# mkdir or ln fail (a BusyBox build without ln counts): the caller then does not use route A. Nothing is written but
+# below $STARCHORUS_DIR/www. The links point at files that may not exist yet (the first capture is still to come): they
+# dangle until the collector's rename lands, which is how the page already behaved.
+pl_web_prepare() {
+    pl_wd=$STARCHORUS_DIR/www
+    pl_wok=1
+    if [ -L "$pl_wd" ] || { [ -e "$pl_wd" ] && [ ! -d "$pl_wd" ]; }; then pl_wok=0
+    elif mkdir -p "$pl_wd" 2>/dev/null; then
+        for pl_we in "$pl_wd"/* "$pl_wd"/.[!.]* "$pl_wd"/..?*; do
+            [ -e "$pl_we" ] || [ -L "$pl_we" ] || continue
+            case ${pl_we##*/} in
+                index.html|starchorus.json) { [ -L "$pl_we" ] && [ ! -d "$pl_we" ]; } || pl_wok=0 ;;
+                *) pl_wok=0 ;;
+            esac
+        done
+        if [ "$pl_wok" = 1 ]; then
+            ln -sf ../index.html "$pl_wd/index.html" 2>/dev/null && ln -sf ../starchorus.json "$pl_wd/starchorus.json" 2>/dev/null || pl_wok=0
+        fi
+    else pl_wok=0
+    fi
+    [ "$pl_wok" = 1 ] && return 0
+    echo "Starchorus: note: $pl_wd is not a plain directory of ours that holds the two links alone (or the links cannot be made); no page server from it" >&2
+    return 1
+}
+
+# Best-effort static server for the visualiser: uhttpd, else python3, else the bundled nc mini-server. Every server
+# listens on PL_ADDR (pl_addr) only, niced by PL_NICE; the address and port served are recorded in page.addr and page.port.
+# uhttpd and python3 are given $STARCHORUS_DIR/www (pl_web_prepare) and never the whole of STARCHORUS_DIR; when www cannot be
+# made ready they are not used at all: the nc mini-server takes over when it is there, else no page server starts (1).
 # 0 = a server was started (whether it holds the port shows in pl_page_up), 1 = no server program, 2 = the port is taken
 # or the server refused to start.
 pl_serve() {
@@ -587,16 +660,30 @@ pl_serve() {
         echo "Starchorus: port $STARCHORUS_PORT is in use on $PL_ADDR; no page server started" >&2
         return 2
     fi
+    pl_ra=0
+    if command -v uhttpd >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+        if pl_web_prepare; then pl_ra=1
+        elif [ -x "$STARCHORUS_DIR/starchorus-serve.sh" ] && command -v nc >/dev/null 2>&1; then :
+        else
+            echo "Starchorus: no web server for the page -> $STARCHORUS_DIR/starchorus.json (view from a connected computer)" >&2
+            return 1
+        fi
+    fi
     # shellcheck disable=SC2086   # PL_NICE is "nice -n 19" or empty: split on purpose
-    if command -v uhttpd >/dev/null 2>&1; then
+    if [ "$pl_ra" = 1 ] && command -v uhttpd >/dev/null 2>&1; then
         # uhttpd daemonises itself (no -f), so it detaches cleanly and stop_servers sweeps it by port and our directory.
-        $PL_NICE uhttpd -p "$PL_ADDR:$STARCHORUS_PORT" -h "$STARCHORUS_DIR" || { echo "Starchorus: uhttpd could not listen on $PL_ADDR:$STARCHORUS_PORT" >&2; return 2; }
+        $PL_NICE uhttpd -p "$PL_ADDR:$STARCHORUS_PORT" -h "$STARCHORUS_DIR/www" || {
+            echo "Starchorus: uhttpd could not listen on $PL_ADDR:$STARCHORUS_PORT" >&2
+            return 2
+        }
         pl_srvn=""
-    elif command -v python3 >/dev/null 2>&1; then
-        $PL_NICE python3 -m http.server "$STARCHORUS_PORT" --bind "$PL_ADDR" --directory "$STARCHORUS_DIR" >/dev/null 2>&1 & echo $! > "$STARCHORUS_DIR/httpd.pid"
+    elif [ "$pl_ra" = 1 ] && command -v python3 >/dev/null 2>&1; then
+        $PL_NICE python3 -m http.server "$STARCHORUS_PORT" --bind "$PL_ADDR" --directory "$STARCHORUS_DIR/www" >/dev/null 2>&1 &
+        echo $! > "$STARCHORUS_DIR/httpd.pid"
         pl_srvn=""
     else
-        # the mini-server gets the resolved address (or all), so it binds the same one; STARCHORUS_DIR/PORT are exported
+        # the mini-server gets the resolved address (or all), so it binds the same one; STARCHORUS_DIR/PORT are exported.
+        # start-stop-daemon detaches it cleanly so the payload runner returns.
         pl_sb=$PL_ADDR; [ "$PL_ADDR" = 0.0.0.0 ] && pl_sb=all
         if command -v start-stop-daemon >/dev/null 2>&1; then
             STARCHORUS_BIND=$pl_sb $PL_NICE start-stop-daemon -S -b -x "$STARCHORUS_DIR/starchorus-serve.sh"
@@ -650,13 +737,13 @@ pl_wlab() {   # seconds -> short window label: All, N h, N min or N s
 # present), so Status reports the right ones.
 pl_page_up() {
     pl_pp=$(cat "$STARCHORUS_DIR/page.port" 2>/dev/null)
-    if [ -n "$pl_pp" ] && pl_valid port "$pl_pp"; then PL_UPPORT=$pl_pp; else PL_UPPORT=$STARCHORUS_PORT; fi
+    if pl_valid port "$pl_pp"; then PL_UPPORT=$pl_pp; else PL_UPPORT=$STARCHORUS_PORT; fi
     PL_UPADDR=$(cat "$STARCHORUS_DIR/page.addr" 2>/dev/null)
     pl_ipv4 "$PL_UPADDR" || PL_UPADDR=$(pl_addr quiet)
     [ -f "$STARCHORUS_DIR/httpd.pid" ] && pl_own "$(cat "$STARCHORUS_DIR/httpd.pid" 2>/dev/null)" "http.server" && return 0
     [ -f "$STARCHORUS_DIR/starchorus-serve.pid" ] && pl_own "$(cat "$STARCHORUS_DIR/starchorus-serve.pid" 2>/dev/null)" "starchorus-serve" && return 0
     for pl_pt in "$STARCHORUS_PORT" "$pl_pp"; do
-        if [ -z "$pl_pt" ] || ! pl_valid port "$pl_pt"; then continue; fi
+        if ! pl_valid port "$pl_pt"; then continue; fi
         if [ -n "$(pl_pids "$pl_pt")" ]; then PL_UPPORT=$pl_pt; return 0; fi
     done
     return 1
@@ -672,15 +759,21 @@ pl_status() {
     ui_log "Window $(pl_wlab "$STARCHORUS_MAX_AGE"), every $STARCHORUS_INTERVAL s"
 }
 
-# pl_skew -> the "# Version:" and "# Contract:" headers of the installed collector and Overview against this payload's own;
-# a difference is reported once per launch (dialogue and LOG on the device, stderr elsewhere) and nothing else changes. The
-# contract number is the interface the three scripts share (the collector's --status/--stop/pidfile protocol, the
-# Overview's environment): it changes with that interface, so a payload updated on its own is caught at the same version
-# too. An installed file with a version but no contract line is contract 1, every build before the line existed; a file
-# with no version header at all is not judged. The remedy named is tools/install.sh, or, where this payload's own directory
-# carries the files (Hak5's library layout, no tools/ on the device), the one file whose absence makes the next run copy them.
-pl_ver() { sed -n 's/^# Version:[[:space:]]*\([0-9][0-9.]*\).*/\1/p' "$1" 2>/dev/null | head -n 1; }
+# pl_skew -> the "# Version:" and "# Contract:" headers of the installed collector and Overview, and of the companion alert (the copy of
+# alert-deauth.sh that the Alerts row made in the firmware's alert tree, read only while it is there: none, nothing to judge), against this
+# payload's own, and the "# Version:" of the installed netcat server and the version line of the installed page (index.html:
+# `  version: "x.y.z",`), which carry no contract of their own and are judged on the version alone;
+# a difference is reported once per launch (dialogue and LOG on the device, stderr elsewhere; one dialogue, for the first file that
+# differs) and nothing else changes. The
+# contract number is the interface the scripts share (the collector's --status/--stop/pidfile protocol, the
+# Overview's environment, the line format of the alerts.log that the companion alert writes and the collector parses): it changes
+# with that interface, so a payload updated on its own is caught at the same version too. An installed file with a version but no
+# contract line is contract 1; a file with no version header at all is not judged. The remedy named is tools/install.sh, or, where this payload's own directory
+# carries the files (Hak5's library layout, no tools/ on the device), the one file whose absence makes the next run copy them; for the
+# companion alert, whose copy only the Alerts row replaces (read-only here), it is "Switch Alerts off, then on.".
+pl_ver() { sed -n 's/^# Version:[[:space:]]*\([0-9][0-9A-Za-z.-]*\).*/\1/p' "$1" 2>/dev/null | head -n 1; }
 pl_con() { sed -n 's/^# Contract:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$1" 2>/dev/null | head -n 1; }
+pl_pver() { sed -n '/^  version: "[0-9][0-9A-Za-z.-]*",$/{s/^  version: "\(.*\)",$/\1/p;q;}' "$1" 2>/dev/null; }   # the page's version line (tools/doc-truth.py reads the same one); q: sed stops at the first match and does not read the rest of the page
 pl_skew() {
     pl_me=$(pl_ver "$0"); [ -n "$pl_me" ] || pl_me=$(pl_ver "$PL_HOME/payload.sh")
     [ -n "$pl_me" ] || return 0
@@ -688,17 +781,28 @@ pl_skew() {
     if [ -f "$PL_HOME/starchorus-collect.sh" ] && [ "$PL_HOME" != "$STARCHORUS_DIR" ]; then
         pl_fd="Delete starchorus-collect.sh\nin $STARCHORUS_DIR."; pl_fn="delete $STARCHORUS_DIR/starchorus-collect.sh"
     else pl_fd="Run tools/install.sh."; pl_fn="run tools/install.sh"; fi
-    for pl_f in starchorus-collect.sh starchorus-display.sh; do
-        pl_v=$(pl_ver "$STARCHORUS_DIR/$pl_f")
+    for pl_f in starchorus-collect.sh starchorus-display.sh starchorus-serve.sh index.html alert-deauth.sh; do
+        case $pl_f in
+            alert-deauth.sh) pl_p=$PL_ALERT_DIR/payload.sh ;;   # the copy in the firmware's alert tree (read only; absent: not judged)
+            *) pl_p=$STARCHORUS_DIR/$pl_f ;;
+        esac
+        case $pl_f in
+            index.html) pl_v=$(pl_pver "$pl_p") ;;
+            *) pl_v=$(pl_ver "$pl_p") ;;
+        esac
         [ -n "$pl_v" ] || continue
-        pl_c=$(pl_con "$STARCHORUS_DIR/$pl_f"); pl_c=${pl_c:-1}
+        case $pl_f in
+            starchorus-serve.sh|index.html) pl_c=$pl_mc; pl_cn= ;;   # no contract line: the version alone decides
+            *) pl_c=$(pl_con "$pl_p"); pl_c=${pl_c:-1}; pl_cn=" (contract $pl_c)" ;;
+        esac
         if [ "$pl_v/$pl_c" = "$pl_me/$pl_mc" ]; then continue; fi
+        case $pl_f in alert-deauth.sh) pl_fd="Switch Alerts off, then on."; pl_fn="switch Alerts off, then on" ;; esac   # only the Alerts row renews this copy (the check ends below, so no later file meets this remedy)
         if [ "$ONDEV" = 1 ]; then
             if [ "$pl_v" = "$pl_me" ]; then pl_sk="Installed files differ from\nthe payload."; pl_sl="Installed files differ from the payload."
             else pl_sk="Installed $pl_v, payload $pl_me."; pl_sl=$pl_sk; fi
             ui_log red "$pl_sl"
             ui_err "$pl_sk\n$pl_fd"
-        else echo "Starchorus: note: installed $pl_f is $pl_v (contract $pl_c), this payload is $pl_me (contract $pl_mc); $pl_fn" >&2; fi
+        else echo "Starchorus: note: installed $pl_f is $pl_v$pl_cn, this payload is $pl_me (contract $pl_mc); $pl_fn" >&2; fi
         return 0
     done
 }
@@ -731,13 +835,13 @@ pl_ov_ok() { [ -r "$STARCHORUS_DIR/starchorus-display.sh" ] && command -v jq >/d
 
 # pl_overview -> 2.4: the Overview as a child process at nice 19 (no exec: B there comes back here). It gets the epoch of
 # the last Start (a capture older than that counts as no data), the page's address, and this payload's pid, so that it ends at
-# its next key press after the payload has gone: it waits for a key with no time limit and checks the pid when a key has been
-# taken (once per pass, so before it arms the next wait, and again when its list returns).
+# its next key press after the payload has gone: it waits for keys with no time limit and checks the pid after each key it takes
+# from its queue (by which time its key reader has opened the next wait, which its exit ends), and again when its list returns.
 # Its output goes to /dev/null for that reason: the payload runner reads the payload's stdout until EOF, so a child that keeps
 # it open hangs the runner (as a spinner left up does, see ui_spin_start), and an Overview left waiting behind a killed
 # payload would hold it open for as long as nobody presses a key. Nothing is lost: LOG and the pickers speak to the UI
 # service, not to stdout (ui_log discards LOG's own output for the same reason), and the display gets the answers itself: its
-# waiter, a background child that holds none of the payload's pipes either, leaves each key in a file in a private temp directory.
+# key reader, a background process that holds none of the payload's pipes either, appends each key to a queue in a private temp directory.
 pl_overview() {
     PL_CUR=Overview; PL_ARMED=1
     [ -r "$STARCHORUS_DIR/starchorus-display.sh" ] || return 0
@@ -755,10 +859,14 @@ pl_lastlog() {   # L7: the last line of collect.log, without the collector's pre
     [ -z "$pl_ll" ] || printf '%s\n' "$pl_ll" | cut -c1-40
 }
 
-# pl_wait_up WANTPAGE -> polls every 0.5 s until the collector is up (and, with WANTPAGE=1, the page too), 5 s at most; a
-# collector still starting (the process we launched is alive, no pidfile yet) gets 5 s more. 0 = up, 1 = not.
+# pl_wait_up WANTPAGE -> polls every 0.5 s until the collector is up (and, with WANTPAGE=1, the page too): 5 s for the usual
+# case, and after that for as long as the process we launched is still alive without a pidfile, since a collector that lives
+# is a collector still starting. Its own start first waits for an earlier loop to end (up to STARCHORUS_INTERVAL + 15 s, the
+# collector's replace_loops), and on the single core it starts at nice 19 beside the spinner and the page server, so on the
+# device the pidfile can take well over 10 s to land while nothing is wrong. The ceiling is the collector's own, plus 5 s. A
+# launched process that has gone without a pidfile is a collector that could not start: given up at once. 0 = up, 1 = not.
 pl_wait_up() {
-    pl_w=0
+    pl_w=0; pl_um=$(( (STARCHORUS_INTERVAL + 20) * 10 ))      # tenths of a second: the collector's own ceiling plus slack
     while :; do
         if pl_col_up; then
             [ "$1" = 1 ] || return 0
@@ -766,7 +874,7 @@ pl_wait_up() {
         fi
         if [ "$pl_w" -ge 50 ]; then
             pl_col_up && return 0                     # the page did not come up in time: the caller says so
-            [ "$pl_w" -lt 100 ] && pl_own "$PL_COLPID" starchorus-collect || return 1
+            [ "$pl_w" -lt "$pl_um" ] && pl_own "$PL_COLPID" starchorus-collect || return 1
         fi
         pl_nap; pl_w=$((pl_w + PL_NAP))
     done
@@ -822,7 +930,7 @@ pl_start_flow() {
         pl_ll=$(pl_lastlog); [ -z "$pl_ll" ] || ui_log red "$pl_ll"                # L7
         return 0
     fi
-    # only when the Overview is to open: it needs numbers; without them it would show "Waiting for the first scan." and stay so
+    # only when the Overview is to open (see pl_wait_capture)
     [ "$STARCHORUS_DASHBOARD" = 1 ] && pl_ov_ok && pl_wait_capture
     ui_spin_stop "$pl_id"
     case $PL_SERVED in
@@ -885,7 +993,8 @@ pl_web_flow() {
 # ---- Settings (2.5)
 pl_envvar() {   # pl_envvar KEY -> the environment variable behind a settings key
     case $1 in window) echo STARCHORUS_MAX_AGE ;; interval) echo STARCHORUS_INTERVAL ;; port) echo STARCHORUS_PORT ;;
-        vendor) echo STARCHORUS_VENDOR ;; survey) echo STARCHORUS_SURVEY ;; page) echo STARCHORUS_PAGE ;; esac
+        vendor) echo STARCHORUS_VENDOR ;; survey) echo STARCHORUS_SURVEY ;; page) echo STARCHORUS_PAGE ;;
+        bluetooth) echo STARCHORUS_BLUETOOTH ;; traffic) echo STARCHORUS_TRAFFIC ;; esac
 }
 pl_lock() { pl_has "$PL_ENV" "$1" && printf ' (locked)'; return 0; }                # " (locked)" when the environment sets KEY
 pl_sw() { if [ "$(pl_value "$1")" = on ]; then echo ON; else echo OFF; fi; }      # R1: an ON/OFF value flips with one press
@@ -894,7 +1003,7 @@ pl_save() {     # pl_save KEY VALUE -> saved (0), or E9 and nothing changed (1)
     ui_err "Could not save the setting."                                            # E9
     return 1
 }
-pl_applykeys() { for pl_k in interval window vendor survey port; do printf '%s=%s ' "$pl_k" "$(pl_value "$pl_k")"; done; }
+pl_applykeys() { for pl_k in interval window vendor survey traffic bluetooth port; do printf '%s=%s ' "$pl_k" "$(pl_value "$pl_k")"; done; }
 
 pl_set_page() {   # Web Page: while RUNNING the flip applies at once; while STOPPED it only saves
     if [ "$STARCHORUS_PAGE" = 1 ]; then
@@ -909,6 +1018,44 @@ pl_set_page() {   # Web Page: while RUNNING the flip applies at once; while STOP
     case $pl_sr in 0) ;; 1) pl_e3; return 0 ;; *) pl_e4; return 0 ;; esac   # nothing saved, the row stays OFF
     pl_save page on || { stop_servers; return 0; }
     pl_l2
+}
+
+# ---- Alerts (2.5a): the companion alert payload in the firmware's alert tree. The row reads ON while our payload.sh is in our one
+# directory of that tree and OFF while it is not; a press asks, then installs or removes (a stale DISABLED copy of ours goes with the
+# removal). Nothing else of the tree is touched: no other path, nothing of the firmware's own alerts, and no switch that enables or
+# disables one (that stays on the firmware's Alerts page).
+pl_alert_on() { [ -f "$PL_ALERT_DIR/payload.sh" ]; }
+pl_alert_dis() { [ -f "$PL_ALERT_DIS/payload.sh" ]; }   # the firmware's switch renamed our directory: switched off on its Alerts page
+pl_alert_sw() { if pl_alert_on; then echo ON; elif pl_alert_dis && ! pl_has "$PL_ENV" alerts; then echo "OFF (firmware)"; else echo OFF; fi; }   # "(firmware)" and "(locked)" together would pass 28 characters
+pl_alert_src() {   # -> 0 and PL_ALSRC = alert-deauth.sh in the payload directory (the places pl_install looks in); 1 when there is none
+    PL_ALSRC=
+    for pl_ad in "${_PAYLOAD_HOME:-}" "$PL_HOME" /root/payloads/user/reconnaissance/starchorus /mmc/root/payloads/user/reconnaissance/starchorus; do
+        [ -n "$pl_ad" ] && [ -f "$pl_ad/alert-deauth.sh" ] && { PL_ALSRC=$pl_ad/alert-deauth.sh; return 0; }
+    done
+    return 1
+}
+pl_alert_install() {
+    pl_alert_src || { ui_err "alert-deauth.sh is not\nbeside the payload."; return 0; }                                  # E13
+    ui_confirm "Install the alert\ncompanion? It may run at\nonce; switch it off on\nthe firmware Alerts page." || return 0       # C2
+    # the README's three steps; the copy goes through a temporary file of the same directory and a rename, made executable first
+    rm -f "$PL_ALERT_DIR/payload.sh.tmp"
+    if mkdir -p "$PL_ALERT_DIR" 2>/dev/null && cp "$PL_ALSRC" "$PL_ALERT_DIR/payload.sh.tmp" 2>/dev/null \
+        && chmod +x "$PL_ALERT_DIR/payload.sh.tmp" 2>/dev/null && mv -f "$PL_ALERT_DIR/payload.sh.tmp" "$PL_ALERT_DIR/payload.sh" 2>/dev/null; then
+        ui_log "Alerts: the firmware's reports are noted."                                                                 # L8f
+    else
+        rm -f "$PL_ALERT_DIR/payload.sh.tmp"; rmdir "$PL_ALERT_DIR" 2>/dev/null   # an empty directory of ours is not left behind
+        ui_err "Could not install the\nalert companion."                                                                  # E14
+    fi
+    return 0
+}
+pl_alert_remove() {   # our payload.sh (and a temporary file of an interrupted install) and our directory if it is empty: nothing else
+    ui_confirm "Remove the alert\ncompanion?" || return 0                                                                 # C3
+    rm -f "$PL_ALERT_DIR/payload.sh" "$PL_ALERT_DIR/payload.sh.tmp" 2>/dev/null
+    rmdir "$PL_ALERT_DIR" 2>/dev/null
+    if pl_alert_dis; then rm -f "$PL_ALERT_DIS/payload.sh" 2>/dev/null; rmdir "$PL_ALERT_DIS" 2>/dev/null; fi            # a stale copy the firmware switched off: ours as well
+    if pl_alert_on || pl_alert_dis; then ui_err "Could not remove the\nalert companion."                                  # E15
+    else ui_log "Alerts: companion removed."; fi                                                                           # L8g
+    return 0
 }
 
 pl_set_list() {   # pl_set_list KEY TITLE ROW... -> sub-list of presets; the cursor on the current value (row 1 if custom)
@@ -938,6 +1085,9 @@ pl_settings() {
             "Show Last: $(pl_wlab "$STARCHORUS_MAX_AGE")$(pl_lock window)" \
             "Vendor Names: $(pl_sw vendor)$(pl_lock vendor)" \
             "Channel Load: $(pl_sw survey)$(pl_lock survey)" \
+            "Traffic: $(pl_sw traffic)$(pl_lock traffic)" \
+            "Bluetooth: $(pl_sw bluetooth)$(pl_lock bluetooth)" \
+            "Alerts: $(pl_alert_sw)$(pl_lock alerts)" \
             "Port: $STARCHORUS_PORT$(pl_lock port)" \
             "Reset to Defaults") || break
         case $pl_c in
@@ -946,11 +1096,15 @@ pl_settings() {
             "Show Last: "*)    pl_scur="Show Last:"; pl_k=window ;;
             "Vendor Names: "*) pl_scur="Vendor Names:"; pl_k=vendor ;;
             "Channel Load: "*) pl_scur="Channel Load:"; pl_k=survey ;;
+            "Traffic: "*)      pl_scur="Traffic:"; pl_k=traffic ;;
+            "Bluetooth: "*)    pl_scur="Bluetooth:"; pl_k=bluetooth ;;
+            "Alerts: "*)       pl_scur="Alerts:"; pl_k=alerts ;;
             "Port: "*)         pl_scur="Port:"; pl_k=port ;;
             *)                 pl_scur="Reset to Defaults"; pl_k=reset ;;
         esac
         case $pl_c in
-            *" (locked)") ui_prompt "Set by $(pl_envvar "$pl_k").\nUnset it to change it here."; continue ;;   # P1
+            *" (locked)") if [ "$pl_k" = alerts ]; then ui_prompt "The collector ignores the\nalert log: STARCHORUS_ALERTS\nis not 1. Unset it to\nuse this row."                      # P2
+                          else ui_prompt "Set by $(pl_envvar "$pl_k").\nUnset it to change it here."; fi; continue ;;   # P1
         esac
         case $pl_k in
             page)     pl_set_page ;;
@@ -960,6 +1114,13 @@ pl_settings() {
                       elif pl_save vendor on; then ui_log "Vendor names: device makers."; fi ;;            # L8a
             survey)   if [ "$STARCHORUS_SURVEY" = 1 ]; then pl_save survey off
                       elif pl_save survey on; then ui_log "Channel load: busy time per"; ui_log "channel, in Air quality."; fi ;;   # L8b, L8c
+            traffic)  if [ "$STARCHORUS_TRAFFIC" = 1 ]; then pl_save traffic off
+                      elif pl_save traffic on; then ui_log "Traffic: channel activity and frame rates."; fi ;;   # L8d
+            bluetooth) if [ "$STARCHORUS_BLUETOOTH" = 1 ]; then pl_save bluetooth off
+                       elif pl_save bluetooth on; then ui_log "Bluetooth: passive LE scan, $(pl_btwin) s per refresh."; fi ;;   # L8e (the window the collector will use)
+            alerts)   if pl_alert_on; then pl_alert_remove
+                      elif pl_alert_dis; then ui_prompt "Switched off on the\nfirmware Alerts page.\nSwitch it on there."                 # P3: no second copy
+                      else pl_alert_install; fi ;;                                                                   # C2, C3
             port)     if pl_n=$(ui_num Port "$STARCHORUS_PORT"); then
                           if ! pl_valid port "$pl_n"; then ui_err "Use 1024 to 65535, not 1471."               # E7
                           elif [ "$pl_n" != "$STARCHORUS_PORT" ]; then pl_save port "$pl_n"; fi
@@ -1010,8 +1171,8 @@ pl_apply() {
     ui_log blue "Settings applied."                                                    # L5
 }
 
-# R6 at every draw: a dead loop with the marker present stopped by itself (L6); a page server without a collector is a
-# leftover and is stopped (L9)
+# R6 at every draw: a dead loop with the marker present had stopped by itself; a page server without a collector is a
+# leftover and is stopped
 pl_reconcile() {
     pl_col_up && return 0
     if [ -f "$PL_MARK" ]; then
@@ -1074,11 +1235,8 @@ pl_usage() { echo "usage: payload.sh [start | stop | status | get [KEY] | set KE
 
 # ------------------------------------------------------------------ dispatch
 case "$1" in
-    "")
+    ""|start)
         [ "$ONDEV" = 1 ] && pl_menu
-        pl_clean_pids; pl_skew
-        pl_start; exit $? ;;
-    start)
         pl_clean_pids; pl_skew
         pl_start; exit $? ;;
     stop)
