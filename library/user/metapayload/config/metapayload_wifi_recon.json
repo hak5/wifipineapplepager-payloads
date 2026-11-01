@@ -1,0 +1,36 @@
+{
+    "payloads": [
+        {
+            "name": "MP-WhoIs MAC",
+            "path": "recon/client/MP_WhoIs_MAC",
+            "command": "[ -f /mmc/root/.hcxtools/oui.txt ] || whoismac -d && echo 'MAC Address: $_RECON_SELECTED_CLIENT_MAC_ADDRESS \\nSSID: $_RECON_SELECTED_AP_SSID \\nBSSID: $_RECON_SELECTED_CLIENT_BSSID \\nOUI: $_RECON_SELECTED_CLIENT_OUI\\nWhoIsMAC:\\n' && whoismac -m $_RECON_SELECTED_CLIENT_MAC_ADDRESS",
+            "required_vars": [],
+            "optional_vars": {},
+            "required_packages": [],
+            "description": "Lookup the vendor/manufacturer information for the selected client's MAC address using whoismac",
+            "author": "MetaPayload Wifi Recon"
+        },
+        {
+            "name": "MP-PINEAPPLE Examine BSSID",
+            "path": "recon/access_point/MP_PINEAPPLE_Examine_BSSID",
+            "command": "PINEAPPLE_EXAMINE_BSSID $_RECON_SELECTED_AP_BSSID $TIMEOUT_SECS",
+            "required_vars": [],
+            "optional_vars": {
+                "TIMEOUT_SECS": "60"
+            },
+            "required_packages": [],
+            "description": "Locks recon to the selected AP's channel for focused monitoring (optional time limit in seconds)",
+            "author": "MetaPayload Wifi Recon"
+        },
+        {
+            "name": "MP-Log AP Details",
+            "path": "recon/access_point/MP_Log_AP_Details",
+            "command": "echo 'Targeted AP Details:\\n' && echo 'SSID: $_RECON_SELECTED_AP_SSID\\nBSSID: $_RECON_SELECTED_AP_BSSID\\nOUI: $_RECON_SELECTED_AP_OUI\\nChannel: $_RECON_SELECTED_AP_CHANNEL\\nFrequency: $_RECON_SELECTED_AP_FREQ\\nRSSI: $_RECON_SELECTED_AP_RSSI\\nEncryption: $_RECON_SELECTED_AP_ENCRYPTION_TYPE\\nHidden: $_RECON_SELECTED_AP_HIDDEN\\nClient Count: $_RECON_SELECTED_AP_CLIENT_COUNT\\nPackets: $_RECON_SELECTED_AP_PACKETS\\nTimestamp: $_RECON_SELECTED_AP_TIMESTAMP'",
+            "required_vars": [],
+            "optional_vars": {},
+            "required_packages": [],
+            "description": "Log all visible details of the selected access point. Then press RIGHT to export to loot or Discord.",
+            "author": "MetaPayload Wifi Recon"
+        }
+    ]
+}

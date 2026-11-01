@@ -1,0 +1,147 @@
+{
+  "payloads": [
+    {
+      "name": "Quick Hosts Scan",
+      "path": "user/metapayload_recon/Quick_Hosts_Scan",
+      "command": "nmap -sn -PR $TARGET_SUBNET -T$TIMING --max-retries $MAX_RETRIES --min-rate=$MIN_RATE -n",
+      "required_vars": [
+        "TARGET_SUBNET"
+      ],
+      "optional_vars": {
+        "TIMING": "5",
+        "MAX_RETRIES": "1",
+        "MIN_RATE": "1000"
+      },
+      "required_packages": [],
+      "description": "Fast host discovery scan on target subnet using ARP ping (local network) (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Top Ports Scan",
+      "path": "user/metapayload_recon/Quick_Port_Scan",
+      "command": "nmap -sS --top-ports $NUM_PORTS -T$TIMING --max-retries $MAX_RETRIES --min-rate=$MIN_RATE -n $TARGET_IP",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "NUM_PORTS": "100",
+        "TIMING": "5",
+        "MAX_RETRIES": "0",
+        "MIN_RATE": "1000"
+      },
+      "required_packages": [],
+      "description": "Quick SYN port scan on most common ports (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Full Port Scan",
+      "path": "user/metapayload_recon/Full_Port_Scan",
+      "command": "nmap -sS -p- $TARGET_IP -T$TIMING --max-retries $MAX_RETRIES -v --min-rate=$MIN_RATE -n -oN /tmp/metapayload_fullscan_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "TIMING": "4",
+        "MAX_RETRIES": "1",
+        "MIN_RATE": "2000"
+      },
+      "required_packages": [],
+      "description": "Slow and comprehensive SYN scan of all 65535 TCP ports (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Service Version Detection",
+      "path": "user/metapayload_recon/Service_Detection",
+      "command": "nmap -sS -sV $PORT_ARGS $TARGET_IP -T$TIMING --version-intensity $VERSION_INTENSITY --min-rate=$MIN_RATE -n -oN /tmp/metapayload_services_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "PORT_ARGS": "--top-ports 100",
+        "TIMING": "4",
+        "VERSION_INTENSITY": "2",
+        "MIN_RATE": "500"
+      },
+      "required_packages": [],
+      "description": "Detect service versions with light probing intensity (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "OS Detection",
+      "path": "user/metapayload_recon/OS_Detection",
+      "command": "nmap -sS -O $TARGET_IP -T$TIMING --osscan-guess --max-retries $MAX_RETRIES -n -oN /tmp/metapayload_os_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "TIMING": "4",
+        "MAX_RETRIES": "2"
+      },
+      "required_packages": [],
+      "description": "Detect operating system and version of target host (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "UDP Port Scan",
+      "path": "user/metapayload_recon/UDP_Scan",
+      "command": "nmap -sU $PORT_ARGS $TARGET_IP -T$TIMING --max-retries $MAX_RETRIES -n -oN /tmp/metapayload_udp_$TARGET_IP.txt",
+      "required_vars": [
+        "TARGET_IP"
+      ],
+      "optional_vars": {
+        "PORT_ARGS": "--top-ports 20",
+        "TIMING": "4",
+        "MAX_RETRIES": "0"
+      },
+      "required_packages": [],
+      "description": "Scan most common UDP ports (nmap). Note: UDP scans are slow.",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "ARP Network Scan (arp-scan)",
+      "path": "user/metapayload_recon/ARP_Network_Scan",
+      "command": "arp-scan -I $INTERFACE --localnet --macfile /usr/share/arp-scan/mac-vendor.txt",
+      "required_vars": [],
+      "optional_vars": {
+        "INTERFACE": "wlan0cli"
+      },
+      "required_packages": [
+        "arp-scan",
+        "arp-scan-database"
+      ],
+      "description": "Fast ARP-based network discovery with vendor MAC address identification (arp-scan)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Network Port Sweep",
+      "path": "user/metapayload_recon/Network_Port_Sweep",
+      "command": "echo 'Finding live hosts...' && nmap -sn -PR $TARGET_SUBNET -n -oG - | grep 'Host:' | awk '{print \\$2}' | xargs > /tmp/live_hosts.txt && cat /tmp/live_hosts.txt && [ -s /tmp/live_hosts.txt ] && nmap -sS --top-ports $NUM_PORTS -T$TIMING --max-retries $MAX_RETRIES --min-rate=$MIN_RATE -n -iL /tmp/live_hosts.txt -oN /tmp/metapayload_netsweep_$(date +%s).txt || echo 'No live hosts found'",
+      "required_vars": [
+        "TARGET_SUBNET"
+      ],
+      "optional_vars": {
+        "NUM_PORTS": "100",
+        "TIMING": "5",
+        "MAX_RETRIES": "0",
+        "MIN_RATE": "1000"
+      },
+      "required_packages": [],
+      "description": "Two-stage scan: fast ARP host discovery, then port scan only live hosts (nmap)",
+      "author": "MetaPayload"
+    },
+    {
+      "name": "Network Web Sweep",
+      "path": "user/metapayload_recon/Network_Web_Sweep",
+      "command": "echo 'Finding web servers on subnet...' && nmap -sS -p $WEBPORTS $TARGET_SUBNET --open -n -oG - | awk '/Ports:/ {host=\\$2; for(i=1;i<=NF;i++) if(\\$i ~ /\\/open/) {split(\\$i,a,\\\"/\\\"); print host\\\":\\\"a[1]}}' > /tmp/web_hosts_ports.txt && if [ -s /tmp/web_hosts_ports.txt ]; then echo 'Found web servers:' && cat /tmp/web_hosts_ports.txt && echo '\\n=== Extracting titles ===' && while IFS=: read host port; do echo \\\"\\n[\\$host:\\$port]\\\"; if echo \\$port | grep -qE '^(443|8443)\\$'; then curl -sk -m 3 https://\\$host:\\$port 2>/dev/null | grep -o '<title>.*</title>' | head -1; else curl -s -m 3 http://\\$host:\\$port 2>/dev/null | grep -o '<title>.*</title>' | head -1; fi; done < /tmp/web_hosts_ports.txt; else echo 'No web servers found on subnet'; fi",
+      "required_vars": [
+        "TARGET_SUBNET"
+      ],
+      "optional_vars": {
+        "WEBPORTS": "80,443,8080,8443,8000,8888,9000,9090"
+      },
+      "required_packages": [],
+      "description": "Sweep entire subnet for web servers and extract page titles from all discovered ports",
+      "author": "MetaPayload"
+    }
+  ]
+}
