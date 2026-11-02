@@ -1,7 +1,7 @@
 #!/bin/bash
 # Menu Functions for BluePine
 # Author: cncartist
-# Version: 1.6
+# Version: 2.0
 # 
 # check_dependencies
 # check_ringtones
@@ -67,7 +67,7 @@ check_dependencies() {
 	# 
 	# NEW <root> grep -V
 	# grep (GNU grep) 3.11
-	local evtestCheck=0; local gpsdepCheck=0; local grepCheck=0; local jqCheck=0; local ouiCheck=0; local count=0; local limit=3; local substring="BusyBox v"; local substring2='grep (GNU grep)'
+	local evtestCheck=0; local gpsdepCheck=0; local grepCheck=0; local ouiCheck=0; local count=0; local limit=3; local substring="BusyBox v"; local substring2='grep (GNU grep)'
 	# check grep
 	while IFS= read -r line && [[ "$count" -lt "$limit" ]] ; do
 		if [[ "$line" == *"$substring2"* ]]; then
@@ -80,7 +80,6 @@ check_dependencies() {
 	)
 	if [[ "$archCur" == "pager" ]] ; then
 		gpsdepCheck=1
-		jqCheck=1
 		ouiCheck=1
 		# check evtest
 		if command -v evtest &> /dev/null; then
@@ -98,10 +97,6 @@ check_dependencies() {
 				# gps_enabled=1
 				# echo "passed!"
 			fi
-		fi
-		# check jq
-		if command -v jq &> /dev/null; then
-			jqCheck=1
 		fi
 		# check oui data
 		if [[ -f "/var/lib/ieee-data/oui.txt" ]] ; then
@@ -483,13 +478,15 @@ bluetoothd_check() {
 	# service bluetoothd restart
 	# service bluetoothd status
 	# not running
+	# inactive
 	# /etc/bluetooth/keys/
 	# name coming from lsusb when bluetoothd not running
 	local loop=0
 	while true; do
 		# LOG red "in loop"
 		loop=$((loop + 1))
-		if service $servicebt_cur status | grep -q "not"; then
+		# if service $servicebt_cur status | grep -qiE "not|inact"; then
+		if service $servicebt_cur status | grep -qi -e "not" -e "inact"; then
 			if [[ "$loop" -eq 6 ]] ; then
 				# echo "== NOT RUNNING after $loop tries! ==="
 				break
@@ -2155,6 +2152,13 @@ sub_sub_menu_managegps() {
 		MENU_ITEMS[3]="Select GPS Device"
 		MENU_ITEMS[4]="Select GPS Baud"
 	# fi
+	if [[ "$archCur" == "pager" ]] ; then
+		if [[ "$gpsd_enabled" -eq 1 ]] ; then
+			MENU_ITEMS[5]="Disable GPSd"
+		else
+			MENU_ITEMS[5]="Enable GPSd"
+		fi
+	fi
 	
 	local maxarritems=$(( ${#MENU_ITEMS[@]} - 1 ))
 	local defaultselnum=1
@@ -2203,6 +2207,7 @@ sub_sub_menu_managegps() {
 		"${MENU_ITEMS[2]}") selnum=2 ;;
 		"${MENU_ITEMS[3]}") selnum=3 ;;
 		"${MENU_ITEMS[4]}") selnum=4 ;;
+		"${MENU_ITEMS[5]}") selnum=5 ;;
 		"${MENU_ITEMS[0]}") selnum=0 ;;
 		*)
 		selnum=0 # LOG "Cancel pressed or unknown"
