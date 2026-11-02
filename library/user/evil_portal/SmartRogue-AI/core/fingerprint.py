@@ -37,8 +37,8 @@ def detect_os(packet):
         if not addr:
             return "generic"
 
-        # Standardize MAC format to uppercase with colons
-        oui = ":".join(addr.split(":")[][:3]).lower()
+        # Standardize MAC format to uppercase with colons and lowercase OUI
+        oui = ":".join(addr.split(":")[:3]).lower()
     except Exception:
         oui = None
 
