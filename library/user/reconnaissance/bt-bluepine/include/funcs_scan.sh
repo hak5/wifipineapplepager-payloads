@@ -1,7 +1,7 @@
 #!/bin/bash
 # Scan Functions for BluePine
 # Author: cncartist
-# Version: 1.6
+# Version: 2.0
 # 
 # reset_bt_adapter
 # rssitxtsw_hci0
@@ -652,6 +652,8 @@ device_hunter() {
 				/MGMT Event: Command Compl/ {N;N;N;N;d}; 
 				/Command: LE Set Extended/,+5d;
 				/HCI Event: Return Link Keys/,+5d;
+				/Read BD ADDR / {N;N;d}; 
+				 
 				' "$DATASTREAMBTTMP_FILE"				
 				
 				# -E extended regular expressions
@@ -1595,6 +1597,7 @@ detect_bt_scan() {
 		/MGMT Event: Command Compl/ {N;N;N;N;d}; 
 		/Command: LE Set Extended/,+5d;
 		/HCI Event: Return Link Keys/,+5d;
+		/Read BD ADDR / {N;N;d}; 
 		' "$DATASTREAMBTTMP_FILE"	
 		
 		# -E extended regular expressions
@@ -3946,6 +3949,12 @@ detect_jammers() {
 		LOG blue "================================================="
 		
 		LOG "Loading..."
+		if [[ "$archCur" == "pager" ]] ; then
+			LOG red "======================================= NOTICE =="
+			LOG     "Bluetooth Recon must be disabled on Pager Radios."
+			LOG     "If not disabled, many false positives will occur!"
+			LOG red "======================================= NOTICE =="
+		fi
 
 		# check both adapters are up and online
 		hci_check_status
