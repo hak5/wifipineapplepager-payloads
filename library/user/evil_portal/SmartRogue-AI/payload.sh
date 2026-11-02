@@ -1,17 +1,22 @@
 #!/bin/bash
-
-# payload.sh - Setup script for SmartRogue-AI
+#
+# Title: SmartRogue-AI
+# Author: turkkat284-ui (email: turkkat284@gmail.com)
+# Description: SmartRogue-AI is not just another Rogue AP. It is an intelligent ecosystem designed for the WiFi Pineapple Pager that eliminates the "one-size-fits-all" approach to captive portals.
+# Target: Windows / Linux / apple / android
+# Category: Rogue-AP / evil portal
+#
 
 # 1. Root Check
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root"
-   exit 1
+    echo "This script must be run as root"
+    exit 1
 fi
 
 echo "[+] Root privileges confirmed."
 
-# 2. Dependency Check
-DEPENDENCIES=("airmon-ng" "dnsmasq" "python3")
+# 2. Dependency Check (Adapted for OpenWrt/embedded environment)
+DEPENDENCIES=("iw" "dnsmasq" "python3")
 for dep in "${DEPENDENCIES[@]}"; do
     if ! command -v "$dep" &> /dev/null; then
         echo "[-] Error: $dep is not installed. Please install it to proceed."
@@ -20,34 +25,26 @@ for dep in "${DEPENDENCIES[@]}"; do
 done
 echo "[+] All dependencies are installed."
 
-# 3. airmon-ng check kill
-echo "[+] Killing interfering processes..."
-airmon-ng check kill
+# 3. Interface Setup (Using OpenWrt compatible ip command instead of airmon-ng)
+INTERFACE="wlan0"
+IP_ADDR="192.168.1.1"
 
-# 4. airmon-ng start wlan0
-echo "[+] Enabling monitor mode on wlan0..."
-airmon-ng start wlan0
+echo "[+] Configuring network interface $INTERFACE..."
+ip link set dev $INTERFACE down
+ip addr flush dev $INTERFACE
+ip addr add $IP_ADDR/24 dev $INTERFACE
+ip link set dev $INTERFACE up
 if [ $? -ne 0 ]; then
-    echo "[-] Failed to start monitor mode on wlan0."
+    echo "[-] Failed to configure interface $INTERFACE."
     exit 1
 fi
 
-# 5. dnsmasq setup
-# Assuming a basic setup for a rogue AP scenario
-# We use wlan0mon as it is the default interface name after airmon-ng start
-INTERFACE="wlan0mon"
-IP_ADDR="192.168.1.1"
-NETMASK="255.255.255.0"
-
-echo "[+] Configuring network interface $INTERFACE..."
-ifconfig $INTERFACE $IP_ADDR netmask $NETMASK up
-
+# 4. dnsmasq setup (Fixed flag error from --dnsmasq.conf to --conf-file)
 echo "[+] Starting dnsmasq..."
-# Start dnsmasq to provide DHCP and DNS services
-dnsmasq --interface=$INTERFACE --dhcp-range=$IP_ADDR,192.168.1.10,192.168.1.50,12h --dnsmasq.conf /dev/null &
+dnsmasq --interface=$INTERFACE --dhcp-range=192.168.1.10,192.168.1.50,12h --conf-file=/dev/null --bind-interfaces
 DNSMASQ_PID=$!
 
-# 6. Launch core/engine.py
+# 5. Launch core/engine.py
 echo "[+] Launching core engine..."
 if [ -f "core/engine.py" ]; then
     python3 core/engine.py
@@ -59,4 +56,4 @@ else
 fi
 
 # Cleanup on exit
-trap "kill $DNSMASQ_PID; airmon-ng stop $INTERFACE" EXIT
+trap "kill $DNSMASQ_PID; ip link set dev $INTERFACE down" EXIT
