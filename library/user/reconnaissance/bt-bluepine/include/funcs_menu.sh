@@ -340,8 +340,9 @@ external_bt_check() {
 	if [[ "$scan_btiface" != "hci0" ]] && hciconfig | grep -q $scan_btiface; then 
 		foundBT=1
 		BLE_IFACE="$scan_btiface"
+		sleep 0.5
 	else
-		sleep 0.25
+		sleep 0.5
 	fi
 	if [[ "$foundBT" -eq 0 ]] && hciconfig | grep -q hci1; then 
 		foundBT=1
@@ -368,7 +369,7 @@ external_bt_check() {
 				foundBT=1
 				BLE_IFACE="$scan_btiface"
 			else
-				sleep 0.25
+				sleep 0.5
 			fi
 			if [[ "$foundBT" -eq 0 ]] && hciconfig | grep -q hci1; then 
 				foundBT=1
@@ -377,6 +378,7 @@ external_bt_check() {
 			fi
 		fi
 		if [[ "$foundBT" -eq 1 ]] ; then
+			sleep 0.5
 			CSR_CHECK=$(hciconfig -a $BLE_IFACE | grep 'Manufacturer: Cambridge Silicon Radio' | awk '{print $1}')
 			# LOG red "CSR_CHECK: $CSR_CHECK"
 			if [[ -z "$CSR_CHECK" ]]; then
