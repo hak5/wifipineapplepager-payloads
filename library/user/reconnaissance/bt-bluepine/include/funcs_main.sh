@@ -2735,6 +2735,23 @@ gps_info() {
 	local cur_gpsstatus="OFFLINE"
 	
 	LOG magenta "=================================== GPS Info ===="
+	
+	gpspos_cur=$(GPS_GET)
+	if [[ "$gpspos_cur" != "0 0 0 0" ]] ; then
+		gpspos_last="$gpspos_cur" # GPS is valid
+	fi
+	if [[ -n "$gpspos_last" ]] ; then
+		cur_gpsrec="Yes"
+		# format after decimal
+		printf -v gps_formatted "%.4f %.4f %.4f %.4f" $gpspos_last
+		# gps_formatted="$gpspos_last"
+		if [[ "$cur_gpslast" != "$gpspos_last" ]] ; then
+			# GPS FOUND TO BE UPDATED
+			cur_gpsstatus="Online"
+			cur_gpsenabled="Yes"
+		fi
+	fi
+	
 	if [[ "$archCur" == "pager" ]] ; then
 		pager_gpsenabled=$(uci get gpsd.core.enabled)
 		cur_gpsdevice=$(uci get gpsd.core.device)
@@ -2758,24 +2775,20 @@ gps_info() {
 	LOG "Current Device: '${cur_gpsdevice}'"
 	LOG "Current Baud: '${cur_gpsbaud}'"
 	
-	gpspos_cur=$(GPS_GET)
-	if [[ "$gpspos_cur" != "0 0 0 0" ]] ; then
-		gpspos_last="$gpspos_cur" # GPS is valid
-	fi
-	if [[ -n "$gpspos_last" ]] ; then
-		cur_gpsrec="Yes"
-		# format after decimal
-		printf -v gps_formatted "%.4f %.4f %.4f %.4f" $gpspos_last
-		# gps_formatted="$gpspos_last"
-		if [[ "$cur_gpslast" != "$gpspos_last" ]] ; then
-			# GPS FOUND TO BE UPDATED
-			cur_gpsstatus="Online"
-		fi
-	fi
 	LOG "Status: $cur_gpsstatus"
 	LOG " "
 	LOG "Verified / Received Coordinates: $cur_gpsrec"
 	
+	if [[ "$archCur" == "pager" && "$pager_gpsenabled" -eq 1 && "$cur_gpsrec" == "No" ]] ; then
+		if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
+			LOG " "
+			LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
+			LOG "GPSd is Enabled but not working properly..."
+			LOG "GPS Device possibly not found/working..."
+			LOG "Pager GPS might be 'native', switch to 'GPSd'?"
+			LOG cyan "Please Check Pager GPS Configuration"
+		fi
+	fi
 	if [[ "$cur_gpsrec" == "Yes" ]] ; then
 		if [[ "$archCur" == "pager" ]] ; then
 			LOG "Press OK to confirm Showing Last GPS Position..."
@@ -2804,6 +2817,7 @@ gps_verify() {
 	
 	local cur_gpsrec="No"
 	local cur_gpsenabled=0
+	local pager_gpsenabled=0
 	local cur_gpschange="No"
 	local cur_gpslast=""
 	local loop=0
@@ -2822,27 +2836,37 @@ gps_verify() {
 	fi
 	if [[ -n "$gpspos_last" ]] ; then
 		cur_gpsrec="Yes"
+		cur_gpsenabled=1
 	fi
 	LOG "Verified / Received Coordinates: $cur_gpsrec"
 	LOG " "
 	LOG "Checking GPS Configuration..."
 	sleep 2
 	if [[ "$archCur" == "pager" ]] ; then
-		cur_gpsenabled=$(uci get gpsd.core.enabled)
-		gpsd_enabled="$cur_gpsenabled"
 		if [[ "$cur_gpsenabled" -eq 0 ]] ; then
-			LOG red "=== WARNING ===== GPSd Disabled! ==== WARNING ==="
-			LOG "Verify Pager GPS is set to 'GPSd'"
-			LOG "'native' support for this app is TBD"
-			LOG cyan "Please Check Pager GPS Configuration"
-		else
-			if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
-				LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
-				LOG "Pager GPS is 'native', needs to be 'GPSd'"
-				LOG "'native' support for this app is TBD"
+			pager_gpsenabled=$(uci get gpsd.core.enabled)
+			gpsd_enabled="$pager_gpsenabled"
+			if [[ "$pager_gpsenabled" -eq 0 ]] ; then
+				LOG " "
+				LOG red "=== WARNING ===== GPSd Disabled! ==== WARNING ==="
+				LOG "No fix yet or GPSd is currently disabled..."
+				LOG "No coordinates with 'native' GPS. no fix yet?"
+				LOG "Pager GPS set to 'GPSd' or 'native'?"
 				LOG cyan "Please Check Pager GPS Configuration"
 				gpspass=0
+			else
+				if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
+					LOG " "
+					LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
+					LOG "GPSd is Enabled but not working properly..."
+					LOG "GPS Device possibly not found/working..."
+					LOG "Pager GPS might be 'native', switch to 'GPSd'?"
+					LOG cyan "Please Check Pager GPS Configuration"
+					gpspass=0
+				fi
 			fi
+		else
+			pager_gpsenabled=1
 		fi
 	else
 		cur_gpsenabled="$gps_enabled"
