@@ -1,7 +1,7 @@
 #!/bin/bash
 # Main Functions for BluePine
 # Author: cncartist
-# Version: 1.6
+# Version: 2.0
 # 
 # update_bluetooth_status
 # update_bluetooth_name
@@ -36,6 +36,7 @@
 # node_modifyhs_int
 # node_modifyhs_netw
 #
+# gpsd_switch
 # gps_info
 # gps_verify
 # gps_deviceselect
@@ -732,6 +733,7 @@ update_bluetooth_mac() {
 update_bluetooth_int() {
 	LOG cyan "Currently Selected BT Interface: ${scan_btiface}"
 	
+	if declare -p interfaces 2>/dev/null | grep -E -q "declare -[aA]"; then unset interfaces; fi # clear array
 	# Read the sorted command output directly into an array line-by-line
 	# mapfile -t interfaces < <(iw dev | grep Interface | awk '!/mon$/ {sub(/^[ \t]*Interface[ \t]*/, ""); print}' | sort)
 	mapfile -t interfaces < <(hciconfig | awk '/^[ \t]*hci[0-9]+/ {sub(/:.*/, ""); gsub(/^[ \t]+/, ""); print}' | sort)
@@ -2504,6 +2506,7 @@ No single quotes allowed in Password.")
 node_modifyhs_int() {
 	LOG cyan "Currently Selected HS Interface: ${nodes_iface}"
 	
+	if declare -p interfaces 2>/dev/null | grep -E -q "declare -[aA]"; then unset interfaces; fi # clear array
 	# Read the sorted command output directly into an array line-by-line
 	mapfile -t interfaces < <(iw dev | grep Interface | awk '!/mon$/ {sub(/^[ \t]*Interface[ \t]*/, ""); print}' | sort)
 
@@ -2674,6 +2677,50 @@ Network IP must end in '.1' to Broadcast Properly.")
 	sleep 0.5
 }
 
+# gpsd switch
+gpsd_switch() {
+	gpsd_enabled=$(uci get gpsd.core.enabled)
+	if [[ "$gpsd_enabled" -eq 1 ]] ; then
+		resp=$(CONFIRMATION_DIALOG "Disable GPSd?")
+	else
+		resp=$(CONFIRMATION_DIALOG "Enable GPSd?")
+	fi
+	if [[ "$resp" == "$DUCKYSCRIPT_USER_CONFIRMED" ]] ; then
+		if [[ "$gpsd_enabled" -eq 1 ]] ; then
+			LOG "Disabling GPSd..."
+			uci set gpsd.core.enabled="0"
+		else
+			LOG "Enabling GPSd..."
+			uci set gpsd.core.enabled="1"
+		fi
+		uci commit gpsd
+		sleep 1
+		/etc/init.d/gpsd reload 2>/dev/null
+		if [[ "$gpsd_enabled" -eq 1 ]] ; then
+			gpsd_enabled=0
+			/etc/init.d/gpsd stop 2>/dev/null
+			LOG red "Disabled GPSd"
+		else
+			gpsd_enabled=1
+			/etc/init.d/gpsd restart 2>/dev/null
+			LOG green "Enabled GPSd"
+			sleep 1
+			if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
+				LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
+				LOG "Pager GPS is 'native', needs to be 'GPSd'"
+				LOG "'native' support for this app is TBD"
+				LOG cyan "Please Check Pager GPS Configuration"
+			fi
+		fi
+		LOG "Press OK to continue..."
+		LOG " "
+		WAIT_FOR_BUTTON_PRESS A
+		sleep 0.25
+	else		
+		LOG "Skipped GPSd Enable/Disable..."
+		LOG " "
+	fi
+}
 
 # gps info
 gps_info() {
@@ -2688,10 +2735,28 @@ gps_info() {
 	local cur_gpsstatus="OFFLINE"
 	
 	LOG magenta "=================================== GPS Info ===="
+	
+	gpspos_cur=$(GPS_GET)
+	if [[ "$gpspos_cur" != "0 0 0 0" ]] ; then
+		gpspos_last="$gpspos_cur" # GPS is valid
+	fi
+	if [[ -n "$gpspos_last" ]] ; then
+		cur_gpsrec="Yes"
+		# format after decimal
+		printf -v gps_formatted "%.4f %.4f %.4f %.4f" $gpspos_last
+		# gps_formatted="$gpspos_last"
+		if [[ "$cur_gpslast" != "$gpspos_last" ]] ; then
+			# GPS FOUND TO BE UPDATED
+			cur_gpsstatus="Online"
+			cur_gpsenabled="Yes"
+		fi
+	fi
+	
 	if [[ "$archCur" == "pager" ]] ; then
 		pager_gpsenabled=$(uci get gpsd.core.enabled)
 		cur_gpsdevice=$(uci get gpsd.core.device)
 		cur_gpsbaud=$(uci get gpsd.core.speed)
+		gpsd_enabled="$pager_gpsenabled"
 		if [[ "$pager_gpsenabled" -eq 1 ]] ; then
 			cur_gpsenabled="Yes"
 		fi
@@ -2710,24 +2775,20 @@ gps_info() {
 	LOG "Current Device: '${cur_gpsdevice}'"
 	LOG "Current Baud: '${cur_gpsbaud}'"
 	
-	gpspos_cur=$(GPS_GET)
-	if [[ "$gpspos_cur" != "0 0 0 0" ]] ; then
-		gpspos_last="$gpspos_cur" # GPS is valid
-	fi
-	if [[ -n "$gpspos_last" ]] ; then
-		cur_gpsrec="Yes"
-		# format after decimal
-		printf -v gps_formatted "%.4f %.4f %.4f %.4f" $gpspos_last
-		# gps_formatted="$gpspos_last"
-		if [[ "$cur_gpslast" != "$gpspos_last" ]] ; then
-			# GPS FOUND TO BE UPDATED
-			cur_gpsstatus="Online"
-		fi
-	fi
 	LOG "Status: $cur_gpsstatus"
 	LOG " "
 	LOG "Verified / Received Coordinates: $cur_gpsrec"
 	
+	if [[ "$archCur" == "pager" && "$pager_gpsenabled" -eq 1 && "$cur_gpsrec" == "No" ]] ; then
+		if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
+			LOG " "
+			LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
+			LOG "GPSd is Enabled but not working properly..."
+			LOG "GPS Device possibly not found/working..."
+			LOG "Pager GPS might be 'native', switch to 'GPSd'?"
+			LOG cyan "Please Check Pager GPS Configuration"
+		fi
+	fi
 	if [[ "$cur_gpsrec" == "Yes" ]] ; then
 		if [[ "$archCur" == "pager" ]] ; then
 			LOG "Press OK to confirm Showing Last GPS Position..."
@@ -2756,9 +2817,11 @@ gps_verify() {
 	
 	local cur_gpsrec="No"
 	local cur_gpsenabled=0
+	local pager_gpsenabled=0
 	local cur_gpschange="No"
 	local cur_gpslast=""
 	local loop=0
+	local gpspass=1
 	
 	LOG magenta "=========================== GPS Verification ===="
 	if [[ "$archCur" != "pager" ]] ; then
@@ -2773,16 +2836,39 @@ gps_verify() {
 	fi
 	if [[ -n "$gpspos_last" ]] ; then
 		cur_gpsrec="Yes"
+		cur_gpsenabled=1
 	fi
 	LOG "Verified / Received Coordinates: $cur_gpsrec"
 	LOG " "
 	LOG "Checking GPS Configuration..."
-	sleep 2
+	sleep 1
 	if [[ "$archCur" == "pager" ]] ; then
-		cur_gpsenabled=$(uci get gpsd.core.enabled)
 		if [[ "$cur_gpsenabled" -eq 0 ]] ; then
-			LOG red "GPS Disabled on Pager!"
-			LOG "Please Check Pager GPS Configuration"
+			pager_gpsenabled=$(uci get gpsd.core.enabled)
+			gpsd_enabled="$pager_gpsenabled"
+			if [[ "$pager_gpsenabled" -eq 0 ]] ; then
+				LOG " "
+				LOG red "=== WARNING ===== GPSd Disabled! ==== WARNING ==="
+				LOG "No fix yet or GPSd is currently disabled..."
+				LOG "No coordinates with 'native' GPS. no fix yet?"
+				LOG "Pager GPS set to 'GPSd' or 'native'?"
+				LOG cyan "Please Check Pager GPS Configuration"
+				gpspass=0
+			else
+				if /etc/init.d/gpsd status 2>/dev/null | grep -q "tive with no inst"; then 
+					LOG " "
+					LOG red "=== WARNING === GPSd Not Working! === WARNING ==="
+					LOG "GPSd is Enabled but not working properly..."
+					LOG "GPS Device possibly not found/working..."
+					LOG "Pager GPS might be 'native', switch to 'GPSd'?"
+					LOG cyan "Please Check Pager GPS Configuration"
+					gpspass=0
+				else
+					cur_gpsenabled=1
+				fi
+			fi
+		else
+			pager_gpsenabled=1
 		fi
 	else
 		cur_gpsenabled="$gps_enabled"
@@ -2792,7 +2878,7 @@ gps_verify() {
 		fi
 	fi
 	
-	if [[ "$cur_gpsenabled" -eq 1 ]] ; then
+	if [[ "$cur_gpsenabled" -eq 1 && "$gpspass" -eq 1 ]] ; then
 		if [[ "$archCur" == "pager" ]] ; then
 			LOG "Press OK to confirm Test for New Coordinates..."
 			WAIT_FOR_BUTTON_PRESS A
@@ -2839,6 +2925,11 @@ gps_verify() {
 						LOG "GPS Last Pos.: $gps_formatted"
 					fi
 				fi
+			# else
+				# if [[ "$cur_gpsrec" == "No" && "$archCur" == "pager" ]] ; then
+					# LOG cyan "Please verify Pager GPS is set to 'GPSd'"
+					# LOG cyan "'native' support for this app is TBD"
+				# fi
 			fi
 		fi
 	fi
@@ -2862,6 +2953,7 @@ gps_deviceselect() {
 	LOG cyan "Current GPS Device: '${cur_gpsdevice}'"
 	
 		
+	if declare -p interfaces 2>/dev/null | grep -E -q "declare -[aA]"; then unset interfaces; fi # clear array
 	# 1. Check persistent USB/Serial mappings (Highly reliable for USB dongles)
 	# 2. Check for common USB Serial / Modem nodes
 	# if [ -d "/dev/serial/by-id" ]; then	mapfile -t interfaces < <(ls -l /dev/serial/by-id/ | sort); fi
@@ -2999,6 +3091,7 @@ gps_baudselect() {
 	
 	LOG cyan "Current GPS Baud: '${cur_gpsbaud}'"
 	
+	if declare -p interfaces 2>/dev/null | grep -E -q "declare -[aA]"; then unset interfaces; fi # clear array
 	# Read the sorted command output directly into an array line-by-line
 	# mapfile -t interfaces < <(iw dev | grep Interface | awk '!/mon$/ {sub(/^[ \t]*Interface[ \t]*/, ""); print}' | sort)
 	

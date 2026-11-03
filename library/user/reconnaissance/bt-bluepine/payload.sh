@@ -1,9 +1,9 @@
 #!/bin/bash
 # Title: BluePine
 # Author: cncartist
-# Description: Bluepine - Bluetooth Device Detection & Hunting Suite. Detection Scanner, Jammer Locator, Target Probing, Last Target and Saved Targets List Management, Save / Load Saved Target List from File, Configuration Saving, GPS, Debugging, Privacy, Stealth, and more.  Full functionality tested on Pagers internal Bluetooth & USB CSR8510 / CSR v4.0 Bluetooth Adapter.  Without a USB CSR v4.0 Bluetooth Adapter there will be a slightly limited experience due to less signal/range, no jammer location capabilities, and inability to change the built in MAC.
+# Description: Bluepine - Bluetooth Device Detection & Hunting Suite. Detection Scanner, Jammer Locator, Target Probing, Last Target and Saved Targets List Management, Save / Load Saved Target List from File, Configuration Saving, GPS, Node Support, Debugging, Privacy, Stealth, and more.  Full functionality tested on Pagers internal Bluetooth & USB CSR8510 / CSR v4.0 Bluetooth Adapter.  Without a USB CSR v4.0 Bluetooth Adapter there will be a slightly limited experience due to less signal/range, no jammer location capabilities, and inability to change the built in MAC.
 # Category: reconnaissance
-# Version: 1.6
+# Version: 2.0
 # 
 # ============================================
 # Acknowledgements: 
@@ -217,6 +217,7 @@
 # ============================================
 #            Version History
 # ============================================
+# v2.0 -- Pager FW 2.0 Compatibility & Fixes
 # v1.6 -- GPS Management, Node Support, AirTag Detection, Fixes
 # v1.5 -- Add Nest, Smart Glasses, & Tile Detection
 # v1.4 -- AArch64/ARM64/Debian Support
@@ -249,6 +250,8 @@ architecture_check
 servicebt_cur="bluetoothd"
 if [[ "$archCur" == "pager" ]] ; then
 	LOOT_DIR="/root/loot/csec/bt-bluepine"
+	jqCheck=1 # jq pre-loaded on pager
+	gpsd_enabled=$(uci get gpsd.core.enabled)
 else
 	# AArch64/ARM64/Debian Support
 	# Files are not included with the pager payload, they can be found at: 
@@ -273,6 +276,9 @@ else
 	gps_selbaud=9600
 	gps_scriptloc="./include/aarch64/gps_stream.py"
 	source "./include/aarch64/funcs_duck.sh" # load funcs
+	jqCheck=0 # check jq
+	if command -v jq &> /dev/null; then jqCheck=1; fi
+	gpsd_enabled=0
 fi
 
 # Include the function files   # or #        . "./file1.sh"
@@ -421,36 +427,6 @@ BLE_IFACE="hci0"
 # ---- REGEX ----
 VALID_MAC="([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}"
 
-cleanup() {
-    killall hcitool 2>/dev/null
-	killall btmon 2>/dev/null
-	if [[ "$archCur" == "pager" ]] ; then
-		killall evtest 2>/dev/null
-		btn_a_path="/sys/devices/platform/leds/leds/a-button-led/brightness"
-		btn_b_path="/sys/devices/platform/leds/leds/b-button-led/brightness"
-		echo 1 > "$btn_a_path" 2>/dev/null
-		echo 1 > "$btn_b_path" 2>/dev/null
-		rm "$KEYCKTMP_FILE" 2>/dev/null
-		rm "$ADDRREM_FILE" 2>/dev/null
-	else
-		# stop gps collection for other arch
-		if [[ "$gps_enabled" -eq 1 ]] ; then gps_collect_stop; fi
-		sudo rm -f "$KEYCKTMP_FILE" 2>/dev/null
-		sudo rm -f "$ADDRREM_FILE" 2>/dev/null
-	fi
-	if [[ "$nodes_verified" -eq 1 || "$nodes_enabled" -eq 1 ]]; then
-		killall socat 2>/dev/null
-	fi
-	rm "$DATASTREAMBT_FILE" 2>/dev/null
-	rm "$DATASTREAMBT2_FILE" 2>/dev/null
-	rm "$DATASTREAMBT3_FILE" 2>/dev/null
-	rm "$DATASTREAMBTTMP_FILE" 2>/dev/null
-	silent_action=1
-	config_backup
-    exit 0
-}
-trap cleanup EXIT SIGINT SIGTERM SIGHUP
-
 bluepinelogo() {
 	LOG cyan   "¨ ██████╗ ██╗ ¨ ¨ ██╗ ¨ ██╗███████╗¨ ¨ ^x^ . x^ "
 	LOG cyan   "¨ ██╔══██╗██║ ¨ ¨ ██║ ¨ ██║██╔════╝ ^x.:;\,:/_.x^"
@@ -543,11 +519,41 @@ gps_selbaud=$(PAYLOAD_GET_CONFIG bluepinesuite gps_selbaud)
 [[ -z "$gps_selport" || "$gps_selport" == null ]] && gps_selport="/dev/ttyAMA0"
 [[ -z "$gps_selbaud" || "$gps_selbaud" == null ]] && gps_selbaud=9600
 
+cleanup() {
+    killall hcitool 2>/dev/null
+	killall btmon 2>/dev/null
+	if [[ "$archCur" == "pager" ]] ; then
+		killall evtest 2>/dev/null
+		btn_a_path="/sys/devices/platform/leds/leds/a-button-led/brightness"
+		btn_b_path="/sys/devices/platform/leds/leds/b-button-led/brightness"
+		echo 1 > "$btn_a_path" 2>/dev/null
+		echo 1 > "$btn_b_path" 2>/dev/null
+		rm "$KEYCKTMP_FILE" 2>/dev/null
+		rm "$ADDRREM_FILE" 2>/dev/null
+	else
+		# stop gps collection for other arch
+		if [[ "$gps_enabled" -eq 1 ]] ; then gps_collect_stop; fi
+		sudo rm -f "$KEYCKTMP_FILE" 2>/dev/null
+		sudo rm -f "$ADDRREM_FILE" 2>/dev/null
+	fi
+	if [[ "$nodes_verified" -eq 1 || "$nodes_enabled" -eq 1 ]]; then
+		killall socat 2>/dev/null
+	fi
+	rm "$DATASTREAMBT_FILE" 2>/dev/null
+	rm "$DATASTREAMBT2_FILE" 2>/dev/null
+	rm "$DATASTREAMBT3_FILE" 2>/dev/null
+	rm "$DATASTREAMBTTMP_FILE" 2>/dev/null
+	silent_action=1
+	if [[ "$jqCheck" -eq 1 ]]; then config_backup; fi
+    exit 0
+}
+trap cleanup EXIT SIGINT SIGTERM SIGHUP
+
+# check config value versus found
+if [[ "$jqCheck" -eq 1 ]]; then config_check; fi
 # check dependencies + ringtones
 check_dependencies
 if [[ "$skip_ask_ringtones" -eq 0 && "$archCur" == "pager" ]] ; then check_ringtones; fi
-# check config value versus found
-config_check
 # check settings
 settings_check
 
@@ -599,18 +605,27 @@ if [[ "$archCur" != "pager" ]] ; then check_rfkill "start"; fi
 # run saved targets check/load
 saved_targets_check
 
+if [[ "$archCur" == "pager" ]] ; then 
+	IMAGE_PATH="${_PAYLOAD_HOME}/payload_start.png"
+	if [ -f "$IMAGE_PATH" ]; then
+		PROMPT_IMAGE "$IMAGE_PATH"
+	fi
+fi
 # start logo and display
 LOG blue   "|||||||||||||||||||||||||||||||||||||¨¨¨¨¨¨¨¨¨¨¨¨¨"
-sleep 1
+sleep 0.25
 bluepinelogo
 if [[ "$scan_mute" == "false" ]] ; then
 	RINGTONE "flutter" # (short)
 fi
-sleep 0.5
-LOG cyan   "||||||| - Press OK to Start - ||||||| ^^^^^^^^^ ||"
+if [[ "$archCur" != "pager" ]] ; then 
+	LOG cyan   "||||||| - Press OK to Start - ||||||| ^^^^^^^^^ ||"
+	WAIT_FOR_BUTTON_PRESS A
+else
+	LOG cyan   "||||||| -- Bluetooth Suite -- ||||||| ^^^^^^^^^ ||"
+fi
 # LOG blue   "░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"
 # LOG blue   "||||||||||||||||||||||||||||||||||||||||||||||||||"
-WAIT_FOR_BUTTON_PRESS A
 sleep 0.5
 
 # External Bluetooth Adapter?
@@ -1029,6 +1044,14 @@ while true; do
 					elif [[ "$submenu_option" -eq 4 ]]; then
 						LOG "Select GPS Baud...."
 						gps_baudselect
+					elif [[ "$submenu_option" -eq 5 ]]; then
+						if [[ "$gpsd_enabled" -eq 1 ]] ; then
+							LOG "Disable GPSd...."
+							gpsd_switch
+						else
+							LOG "Enable GPSd...."
+							gpsd_switch
+						fi
 					fi
 				done
 				submenu_option=0
