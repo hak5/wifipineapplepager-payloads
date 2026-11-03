@@ -2841,7 +2841,7 @@ gps_verify() {
 	LOG "Verified / Received Coordinates: $cur_gpsrec"
 	LOG " "
 	LOG "Checking GPS Configuration..."
-	sleep 2
+	sleep 1
 	if [[ "$archCur" == "pager" ]] ; then
 		if [[ "$cur_gpsenabled" -eq 0 ]] ; then
 			pager_gpsenabled=$(uci get gpsd.core.enabled)
@@ -2863,6 +2863,8 @@ gps_verify() {
 					LOG "Pager GPS might be 'native', switch to 'GPSd'?"
 					LOG cyan "Please Check Pager GPS Configuration"
 					gpspass=0
+				else
+					cur_gpsenabled=1
 				fi
 			fi
 		else
