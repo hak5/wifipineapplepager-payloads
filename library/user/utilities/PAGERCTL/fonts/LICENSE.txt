@@ -1,0 +1,16 @@
+Font Licenses
+=============
+
+Roboto (Roboto-Regular.ttf, Roboto-Bold.ttf)
+--------------------------------------------
+Copyright 2011 Google Inc. All Rights Reserved.
+Licensed under the Apache License, Version 2.0
+https://github.com/googlefonts/roboto
+
+Press Start 2P (PressStart2P.ttf)
+---------------------------------
+Copyright 2012 Cody "CodeMan38" Boisclair
+Licensed under the SIL Open Font License, Version 1.1
+https://github.com/google/fonts/tree/main/ofl/pressstart2p
+
+These fonts are free to use, modify, and distribute.
