@@ -91,6 +91,9 @@ During the initial training period (default: 100 samples, one per minute), the p
 3. Populates a `bssid_registry` table tracking every BSSID seen
 4. **Does not alert** — it's building the model
 
+<img width="882" height="604" alt="RF SS1" src="https://github.com/user-attachments/assets/1749d783-7ff2-4147-ae9b-b5ddbb566bb6" />
+<img width="873" height="603" alt="Rf Baseline SS" src="https://github.com/user-attachments/assets/8c0e8369-4598-4d86-9c7a-7a8e768a0b08" />
+
 ### Phase 2: Monitoring Mode
 
 Once the baseline is established:
