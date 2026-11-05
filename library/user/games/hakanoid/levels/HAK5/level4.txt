@@ -1,0 +1,8 @@
+# Level 4 - Skull
+# Danger zone
+0 0 0 w w w w w w w w 0 0 0
+0 0 w w w w w w w w w w 0 0
+0 w w xL w w w w xL w w w 0
+0 0 w w w w S w w w w 0 0 0
+0 0 0 w wE w w wE w 0 0 0 0
+0 0 0 0 w w w w w 0 0 0 0 0
