@@ -2,7 +2,7 @@
 # Title: PWRLVL9000 — Pentesting Web UI
 # Author: sinX
 # Description: Browser-based pentesting dashboard. Open http://172.16.42.1:9000 in any browser.
-# Version: 1.5
+# Version: 1.6
 # Category: user/interception
 # Firmware: 2.0.0-stable or newer
 
@@ -25,8 +25,13 @@ if ! declare -f STOP_SPINNER  >/dev/null 2>&1; then STOP_SPINNER()  { :; }; fi
 if ! declare -f WAIT_FOR_INPUT>/dev/null 2>&1; then WAIT_FOR_INPUT(){ read -r _btn; echo "${_btn:-B}"; }; fi
 
 # Persistent log — written first so we know the script ran at all
-echo "=== PWRLVL9000 START ===" > "$LOG_FILE" 2>/dev/null
+echo "=== PWRLVL9000 v1.6 START ===" > "$LOG_FILE" 2>/dev/null
 date >> "$LOG_FILE" 2>/dev/null
+echo "Running as: $(basename "${BASH_SOURCE[0]:-$0}") from $(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" >> "$LOG_FILE" 2>/dev/null
+# Visible proof-of-life before anything can fail silently
+LED BLUE 2>/dev/null
+LOG ""
+LOG "cyan" "PWRLVL9000 v1.6 starting..."
 
 # ------------------------------------------------------------------ #
 # Find python3
@@ -40,7 +45,9 @@ done
 
 if [ -z "$PYTHON3_BIN" ]; then
     LED RED
-    ERROR_DIALOG "python3 not found\nRun: opkg install python3"
+    LOG "red" "python3 not found!"
+    LOG "red" "Run: opkg install python3-light"
+    ERROR_DIALOG "python3 not found\nRun: opkg install python3-light"
     exit 1
 fi
 
@@ -71,6 +78,8 @@ done
 if [ -z "$SERVER_PY" ]; then
     echo "ERROR: server.py not found" >> "$LOG_FILE" 2>/dev/null
     LED RED
+    LOG "red" "server.py not found!"
+    LOG "red" "payload.sh must sit next to server.py"
     ERROR_DIALOG "server.py not found\nRedeploy payload\nLog: $LOG_FILE"
     exit 1
 fi
@@ -92,6 +101,8 @@ echo "Preflight: $_CHECK" >> "$LOG_FILE" 2>/dev/null
 
 if [ "$_CHECK" != "OK" ]; then
     LED RED
+    LOG "red" "Python module missing: $_CHECK"
+    LOG "red" "Fix: opkg install python3-light"
     ERROR_DIALOG "Python module missing:\n$_CHECK\nFix: opkg install python3-light"
     exit 1
 fi
@@ -127,6 +138,11 @@ _cleanup() {
     # Restart pineapplepager in case pager_display.py stopped it
     if ! pgrep -x pineapple >/dev/null 2>&1; then
         /etc/init.d/pineapplepager start 2>/dev/null
+    fi
+    # Keep a persistent copy of the run log in loot so it survives reboots
+    # and is browsable from Manage Data > Files.
+    if [ -n "$LOOT_DIR" ] && [ -d "$LOOT_DIR" ] && [ -f "$LOG_FILE" ]; then
+        cp "$LOG_FILE" "$LOOT_DIR/last_run.log" 2>/dev/null
     fi
     LOG ""
     LOG "green" "PWRLVL9000 stopped."
@@ -206,6 +222,10 @@ fi
 # ------------------------------------------------------------------ #
 LED GREEN
 VIBRATE
+
+LOG "green" "Server UP."
+LOG "cyan"  "Web UI: http://172.16.42.1:${WEBUI_PORT}"
+LOG ""
 
 echo "Server UP. Starting display..." >> "$LOG_FILE" 2>/dev/null
 
