@@ -2,7 +2,7 @@
 # Title: PWRLVL9000 — Pentesting Web UI
 # Author: sinX
 # Description: Browser-based pentesting dashboard. Open http://172.16.42.1:9000 in any browser.
-# Version: 1.6
+# Version: 1.7
 # Category: user/interception
 # Firmware: 2.0.0-stable or newer
 
@@ -25,13 +25,13 @@ if ! declare -f STOP_SPINNER  >/dev/null 2>&1; then STOP_SPINNER()  { :; }; fi
 if ! declare -f WAIT_FOR_INPUT>/dev/null 2>&1; then WAIT_FOR_INPUT(){ read -r _btn; echo "${_btn:-B}"; }; fi
 
 # Persistent log — written first so we know the script ran at all
-echo "=== PWRLVL9000 v1.6 START ===" > "$LOG_FILE" 2>/dev/null
+echo "=== PWRLVL9000 v1.7 START ===" > "$LOG_FILE" 2>/dev/null
 date >> "$LOG_FILE" 2>/dev/null
 echo "Running as: $(basename "${BASH_SOURCE[0]:-$0}") from $(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" >> "$LOG_FILE" 2>/dev/null
 # Visible proof-of-life before anything can fail silently
 LED BLUE 2>/dev/null
 LOG ""
-LOG "cyan" "PWRLVL9000 v1.6 starting..."
+LOG "cyan" "PWRLVL9000 v1.7 starting..."
 
 # ------------------------------------------------------------------ #
 # Find python3
@@ -148,7 +148,10 @@ _cleanup() {
     LOG "green" "PWRLVL9000 stopped."
     LED WHITE
 }
-trap _cleanup EXIT INT TERM HUP
+trap _cleanup EXIT INT TERM
+# Firmware 2.0.0 can SIGHUP the payload when its process is backgrounded
+# after launch — never let that tear down the server.
+trap '' HUP 2>/dev/null
 
 # ------------------------------------------------------------------ #
 # Launch server in background
@@ -230,8 +233,12 @@ LOG ""
 echo "Server UP. Starting display..." >> "$LOG_FILE" 2>/dev/null
 
 # Check whether we can use pagerctl for direct screen control
+# pagerctl owns the screen by stopping pineapplepager; on 2.0.0 that path is
+# not reliable, so the graphical display is opt-in. The web console (the
+# actual tool) runs identically either way. Enable with PWRLVL_PAGERCTL=1.
 _HAS_PAGERCTL=false
-if [ -f "$PAYLOAD_DIR/lib/pagerctl.py" ] && \
+if [ "${PWRLVL_PAGERCTL:-0}" = "1" ] && \
+   [ -f "$PAYLOAD_DIR/lib/pagerctl.py" ] && \
    [ -f "$PAYLOAD_DIR/lib/libpagerctl.so" ] && \
    [ -f "$PAYLOAD_DIR/pager_display.py" ] && \
    "$PYTHON3_BIN" -c "import ctypes" 2>/dev/null; then
@@ -278,14 +285,11 @@ if [ "$_HAS_PAGERCTL" != "true" ]; then
     LOG "red"    "[ B ] Stop"
     LOG ""
 
-    # Wait for B/RED.  Use 'while true' (not 'while kill -0') so we always
-    # block on WAIT_FOR_INPUT regardless of SERVER_PID validity — BusyBox ash
-    # can return a shell-wrapper PID that exits immediately even though the
-    # Python process is still alive.
+    # Wait for B/RED/Escape (nautilus pattern — known good on 2.0.0).
     while true; do
-        BUTTON=$(WAIT_FOR_INPUT 2>/dev/null)
+        BUTTON=$(WAIT_FOR_INPUT)
         case "$BUTTON" in
-            "RED"|"B") break ;;
+            "B"|"RED"|"Escape") break ;;
         esac
         # Exit early if server process has died
         if ! pgrep -f "python3.*server.py" >/dev/null 2>&1; then
