@@ -2,7 +2,7 @@
 # Title: PWRLVL9000 — Pentesting Web UI
 # Author: sinX
 # Description: Browser-based pentesting dashboard. Open http://172.16.42.1:9000 in any browser.
-# Version: 1.4
+# Version: 1.5
 # Category: user/interception
 # Firmware: 2.0.0-stable or newer
 
@@ -223,12 +223,17 @@ if [ "$_HAS_PAGERCTL" = "true" ]; then
     echo "Using pagerctl display." >> "$LOG_FILE" 2>/dev/null
     # Run pager_display.py in the foreground — it blocks until B is pressed.
     # It stops pineapplepager, owns the screen, and restarts pineapplepager on exit.
+    _disp_start=$(date +%s 2>/dev/null || echo 0)
     "$PYTHON3_BIN" "$PAYLOAD_DIR/pager_display.py" >> "$LOG_FILE" 2>&1
     _disp_rc=$?
-    if [ $_disp_rc -ne 0 ]; then
-        # pagerctl incompatible (e.g. after a firmware upgrade) — fall back
-        # to the LOG display instead of tearing down the server.
-        echo "pager_display exited rc=$_disp_rc — LOG fallback" >> "$LOG_FILE" 2>/dev/null
+    _disp_end=$(date +%s 2>/dev/null || echo 99)
+    _disp_elapsed=$((_disp_end - _disp_start))
+    echo "pager_display rc=$_disp_rc after ${_disp_elapsed}s" >> "$LOG_FILE" 2>/dev/null
+    # A real stop takes a human a few seconds. Any faster exit — whatever the
+    # return code — means the display bailed (phantom input, pagerctl drift),
+    # so fall back to the LOG display instead of tearing down the server.
+    if [ $_disp_rc -ne 0 ] || [ $_disp_elapsed -lt 5 ]; then
+        echo "display exit too fast/rc=$_disp_rc — LOG fallback" >> "$LOG_FILE" 2>/dev/null
         _HAS_PAGERCTL=false
     fi
 fi

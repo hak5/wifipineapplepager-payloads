@@ -10,6 +10,7 @@ Runs a Python3 HTTP server on port **9000**, serving a hacker-themed single-page
 
 - Uses the firmware-managed monitor interfaces (`wlan0mon`, `wlan1mon`, `wlan2mon`) — pick them in the interface dropdowns. The payload never bounces the managed base radios; on older firmware it falls back to the classic `iw` monitor toggle.
 - If the bundled `libpagerctl` display is incompatible with the current firmware, the payload automatically falls back to the on-device LOG display — the web console keeps running either way.
+- The display debounces the stop button for 3s after launch (2.0.0's rebuilt input stack can deliver stale events from the button press that started the payload, which used to make the payload exit instantly and report "completed"), and any display exit faster than 5 seconds is treated as a failure and falls back instead of stopping the server.
 - No firewall rules needed: 2.0.0 accepts LAN-side input by default (the payload only touches `iptables` if the binary exists).
 
 ---

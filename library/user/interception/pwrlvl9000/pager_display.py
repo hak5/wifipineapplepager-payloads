@@ -182,6 +182,12 @@ def draw_screen(p, xp, level, title, xp_next, frame_handles, frame_idx):
 # ── Main ──────────────────────────────────────────────────────────────────
 _running = True
 
+# Ignore B presses for the first few seconds after launch. The user just
+# pressed a button to run the payload, and firmware 2.0.0's rebuilt input
+# stack can deliver stale or phantom events to libpagerctl — without this
+# debounce the display can exit instantly and the payload looks "completed".
+_B_DEBOUNCE_SEC = 3.0
+
 
 def main():
     global _running
@@ -215,17 +221,22 @@ def main():
             xp, level, title, xp_next = load_xp()
             anim_frame     = 0
             last_xp_check  = time.time()
+            started        = time.time()
 
             draw_screen(p, xp, level, title, xp_next, frame_handles, anim_frame)
 
             try:
                 while _running:
-                    # Poll for B button press
+                    # Poll for B button press (debounced after launch)
                     event = p.get_input_event()
                     if event:
                         button, etype, _ = event
                         if button == Pager.BTN_B and etype == Pager.EVENT_PRESS:
-                            break
+                            if time.time() - started > _B_DEBOUNCE_SEC:
+                                break
+                            # stale/phantom event during debounce window — drain
+                            # any queued leftovers and keep running
+                            p.clear_input_events()
 
                     # Refresh XP every 5 seconds
                     now = time.time()
@@ -237,11 +248,24 @@ def main():
                     anim_frame = (anim_frame + 1) % _N_FRAMES
                     draw_screen(p, xp, level, title, xp_next, frame_handles, anim_frame)
                     p.delay(200)
+            except Exception as e:
+                # pagerctl API drift (firmware upgrade) — exit non-zero so
+                # payload.sh falls back to the LOG display.
+                print(f'display loop failed: {e}', file=sys.stderr)
+                raise SystemExit(2)
             finally:
                 # Free pre-loaded images while pager is still initialised
-                _free_frames(p, frame_handles)
+                try:
+                    _free_frames(p, frame_handles)
+                except Exception:
+                    pass
                 # p.cleanup() called automatically by 'with' block __exit__
 
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f'pager init failed: {e}', file=sys.stderr)
+        sys.exit(1)
     finally:
         # Always restart pineapplepager whether we exited cleanly or not
         subprocess.run(
