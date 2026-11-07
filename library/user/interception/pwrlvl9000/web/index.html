@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PWRLVL9000 | Pentesting Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=VT323&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/pwrlvl.css">
+</head>
+<body>
+
+<!-- Matrix Rain Canvas -->
+<canvas id="matrix-rain"></canvas>
+
+<!-- Header -->
+<header class="site-header">
+  <div class="glitch-wrap">
+    <h1 class="glitch" data-text="PWRLVL9000">PWRLVL9000</h1>
+  </div>
+  <div class="header-sub">WiFi PINEAPPLE PAGER // PENTEST CONSOLE // <span id="hdr-status">STANDBY</span></div>
+</header>
+
+<!-- Character / XP Bar -->
+<div class="char-bar" id="char-bar">
+  <div class="necro-sprite necro-idle" id="necro-sprite"></div>
+  <div class="char-info">
+    <div class="char-top">
+      <span class="xp-level" id="xp-level">LVL 1</span>
+      <span class="xp-title" id="xp-title">APPRENTICE</span>
+    </div>
+    <div class="xp-bar-wrap">
+      <div class="xp-bar" id="xp-bar" style="width:0%"></div>
+    </div>
+    <div class="xp-numbers" id="xp-numbers">0 / 100 XP</div>
+  </div>
+</div>
+
+<!-- Tab Nav -->
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="wifi">
+    <span class="tab-icon">&#x25BC;</span> WiFi
+  </button>
+  <button class="tab-btn" data-tab="probe">
+    <span class="tab-icon">&#x25CE;</span> Probe
+  </button>
+  <button class="tab-btn" data-tab="rogueap">
+    <span class="tab-icon">&#x26A1;</span> Rogue AP
+  </button>
+  <button class="tab-btn" data-tab="wps">
+    <span class="tab-icon">&#x2B21;</span> WPS
+  </button>
+  <button class="tab-btn" data-tab="webscan">
+    <span class="tab-icon">&#x2316;</span> Web
+  </button>
+  <button class="tab-btn" data-tab="network">
+    <span class="tab-icon">&#x2022;</span> Network
+  </button>
+  <button class="tab-btn" data-tab="capture">
+    <span class="tab-icon">&#x2193;</span> Capture
+  </button>
+  <button class="tab-btn" data-tab="loot">
+    <span class="tab-icon">&#x2691;</span> Loot
+  </button>
+  <button class="tab-btn" data-tab="terminal">
+    <span class="tab-icon">&gt;_</span> Shell
+  </button>
+</nav>
+
+<!-- Main Layout -->
+<main class="main-layout">
+
+  <!-- LEFT PANEL: Controls -->
+  <section class="panel panel-left">
+    <div id="tab-wifi"     class="tab-panel active"></div>
+    <div id="tab-probe"    class="tab-panel"></div>
+    <div id="tab-rogueap"  class="tab-panel"></div>
+    <div id="tab-wps"      class="tab-panel"></div>
+    <div id="tab-webscan"  class="tab-panel"></div>
+    <div id="tab-network"  class="tab-panel"></div>
+    <div id="tab-capture"  class="tab-panel"></div>
+    <div id="tab-loot"     class="tab-panel"></div>
+    <div id="tab-terminal" class="tab-panel"></div>
+  </section>
+
+  <!-- RIGHT PANEL: Live output -->
+  <section class="panel panel-right">
+    <div class="panel-title">// EVENT STREAM</div>
+    <div id="event-log" class="event-log"></div>
+  </section>
+
+</main>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="scripts/app.js"></script>
+<script src="scripts/wifi.js"></script>
+<script src="scripts/probe.js"></script>
+<script src="scripts/rogueap.js"></script>
+<script src="scripts/wps.js"></script>
+<script src="scripts/webscan.js"></script>
+<script src="scripts/network.js"></script>
+<script src="scripts/capture.js"></script>
+<script src="scripts/loot.js"></script>
+<script src="scripts/terminal.js"></script>
+
+</body>
+</html>
