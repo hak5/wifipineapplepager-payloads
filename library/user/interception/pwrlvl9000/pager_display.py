@@ -174,7 +174,7 @@ def draw_screen(p, xp, level, title, xp_next, frame_handles, frame_idx):
     p.draw_text(W - 94, sep_y + 7, '[ B ] STOP', p.RED, 1)
 
     # Status text on the left
-    p.draw_text(4, sep_y + 7, 'PENTEST CONSOLE  ONLINE', p.rgb(0, 200, 0), 1)
+    p.draw_text(4, sep_y + 7, 'DARKSECLABZ  ONLINE', p.rgb(0, 200, 0), 1)
 
     p.flip()
 

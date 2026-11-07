@@ -2,7 +2,7 @@
 # Title: PWRLVL9000 — Pentesting Web UI
 # Author: sinX
 # Description: Browser-based pentesting dashboard. Open http://172.16.42.1:9000 in any browser.
-# Version: 1.8
+# Version: 1.9
 # Category: user/interception
 # Firmware: 2.0.0-stable or newer
 
@@ -25,7 +25,7 @@ if ! command -v STOP_SPINNER   >/dev/null 2>&1; then STOP_SPINNER()  { :; }; fi
 if ! command -v WAIT_FOR_INPUT >/dev/null 2>&1; then WAIT_FOR_INPUT(){ read -r _btn; echo "${_btn:-B}"; }; fi
 
 # Persistent log — written first so we know the script ran at all
-echo "=== PWRLVL9000 v1.8 START ===" > "$LOG_FILE" 2>/dev/null
+echo "=== PWRLVL9000 v1.9 START ===" > "$LOG_FILE" 2>/dev/null
 # Full execution trace to the log for on-device debugging
 exec 2>>"$LOG_FILE"
 set -x
@@ -34,7 +34,7 @@ echo "Running as: $(basename "${BASH_SOURCE[0]:-$0}") from $(cd "$(dirname "${BA
 # Visible proof-of-life before anything can fail silently
 LED BLUE 2>/dev/null
 LOG ""
-LOG "cyan" "PWRLVL9000 v1.8 starting..."
+LOG "cyan" "PWRLVL9000 v1.9 starting..."
 
 # ------------------------------------------------------------------ #
 # Find python3
@@ -273,13 +273,10 @@ if [ "$_HAS_PAGERCTL" != "true" ]; then
     echo "Using LOG fallback display." >> "$LOG_FILE" 2>/dev/null
 
     LOG ""
-    LOG "red"    "    *    "
-    LOG "cyan"   "   /|\\  "
-    LOG "cyan"   "  (x x) "
-    LOG "red"    "   )|(   "
-    LOG "cyan"   "  / | \\ "
-    LOG "cyan"   " |  |  | "
-    LOG "cyan"   "  \\_|_/ "
+    LOG "magenta" "=============================================="
+    LOG "magenta" "   P W R L V L 9 0 0 0"
+    LOG "cyan"    "          b y   d a r k s e c l a b z"
+    LOG "magenta" "=============================================="
     LOG ""
     LOG "yellow" "LVL ${_LEVEL_NUM} ${_LEVEL_TITLE}"
     LOG "white"  "XP: ${_LEVEL_XP} / ${_XP_NEXT}"
