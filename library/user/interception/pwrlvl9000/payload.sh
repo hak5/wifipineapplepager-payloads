@@ -2,7 +2,7 @@
 # Title: PWRLVL9000 — Pentesting Web UI
 # Author: sinX
 # Description: Browser-based pentesting dashboard. Open http://172.16.42.1:9000 in any browser.
-# Version: 1.7
+# Version: 1.8
 # Category: user/interception
 # Firmware: 2.0.0-stable or newer
 
@@ -16,22 +16,25 @@ export PATH="/mmc/usr/bin:/usr/bin:${PATH}"
 # ------------------------------------------------------------------ #
 # Fallback stubs for running outside the Pager
 # ------------------------------------------------------------------ #
-if ! declare -f LOG           >/dev/null 2>&1; then LOG()           { echo "${1:-} ${2:-}"; }; fi
-if ! declare -f LED           >/dev/null 2>&1; then LED()           { :; }; fi
-if ! declare -f VIBRATE       >/dev/null 2>&1; then VIBRATE()       { :; }; fi
-if ! declare -f ERROR_DIALOG  >/dev/null 2>&1; then ERROR_DIALOG()  { echo "ERROR: $*"; }; fi
-if ! declare -f START_SPINNER >/dev/null 2>&1; then START_SPINNER() { echo "... $*"; echo $$; }; fi
-if ! declare -f STOP_SPINNER  >/dev/null 2>&1; then STOP_SPINNER()  { :; }; fi
-if ! declare -f WAIT_FOR_INPUT>/dev/null 2>&1; then WAIT_FOR_INPUT(){ read -r _btn; echo "${_btn:-B}"; }; fi
+if ! command -v LOG            >/dev/null 2>&1; then LOG()           { echo "${1:-} ${2:-}"; }; fi
+if ! command -v LED            >/dev/null 2>&1; then LED()           { :; }; fi
+if ! command -v VIBRATE        >/dev/null 2>&1; then VIBRATE()       { :; }; fi
+if ! command -v ERROR_DIALOG   >/dev/null 2>&1; then ERROR_DIALOG()  { echo "ERROR: $*"; }; fi
+if ! command -v START_SPINNER  >/dev/null 2>&1; then START_SPINNER() { echo "... $*"; echo $$; }; fi
+if ! command -v STOP_SPINNER   >/dev/null 2>&1; then STOP_SPINNER()  { :; }; fi
+if ! command -v WAIT_FOR_INPUT >/dev/null 2>&1; then WAIT_FOR_INPUT(){ read -r _btn; echo "${_btn:-B}"; }; fi
 
 # Persistent log — written first so we know the script ran at all
-echo "=== PWRLVL9000 v1.7 START ===" > "$LOG_FILE" 2>/dev/null
+echo "=== PWRLVL9000 v1.8 START ===" > "$LOG_FILE" 2>/dev/null
+# Full execution trace to the log for on-device debugging
+exec 2>>"$LOG_FILE"
+set -x
 date >> "$LOG_FILE" 2>/dev/null
 echo "Running as: $(basename "${BASH_SOURCE[0]:-$0}") from $(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)" >> "$LOG_FILE" 2>/dev/null
 # Visible proof-of-life before anything can fail silently
 LED BLUE 2>/dev/null
 LOG ""
-LOG "cyan" "PWRLVL9000 v1.7 starting..."
+LOG "cyan" "PWRLVL9000 v1.8 starting..."
 
 # ------------------------------------------------------------------ #
 # Find python3
