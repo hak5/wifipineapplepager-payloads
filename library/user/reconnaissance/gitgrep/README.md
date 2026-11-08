@@ -41,7 +41,8 @@ so `your_api_key_here` and friends are ignored.
 
 - WiFi Pineapple Pager, firmware **2.0.0-stable** or newer
 - `python3-light` (the payload offers to install it)
-- `python3-openssl` for GitHub (HTTPS) scans
+- `curl` for GitHub scans (the engine drives curl for HTTPS, so no extra
+  Python packages are needed)
 - `git` + `git-http` for the optional history mode
 - A GitHub personal access token is optional but strongly recommended:
   the unauthenticated API limit is 60 requests/hour. A token is stored in
@@ -129,6 +130,8 @@ rm -rf /root/loot/gitgrep
 
 ## Version
 
+1.1.0 - HTTP moved from urllib to curl (the Pager's python3-light ships no
+urllib), so GitHub scans now only need `python3-light` + `curl`.
 1.0.0 - initial release for Pager firmware 2.0.0-stable.
 
 ## Legal

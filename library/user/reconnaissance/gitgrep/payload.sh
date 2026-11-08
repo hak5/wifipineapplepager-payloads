@@ -2,10 +2,10 @@
 # Title: GITGREP - GitHub Secret Hunter
 # Description: Read-only secret hunter for GitHub users/orgs/repos and local git history. Finds committed AWS, cloud, API, webhook and private keys, then writes a masked, deduplicated report with secret-reuse detection.
 # Author: sinXne0
-# Version: 1.0.0
+# Version: 1.1.0
 # Category: user/reconnaissance
 # Firmware: 2.0.0-stable or newer
-# Requires: python3-light (python3-openssl for HTTPS, git for history mode)
+# Requires: python3-light, curl (git + git-http for history mode)
 #
 # GITGREP hunts for credentials that were committed by mistake.
 #
@@ -81,19 +81,25 @@ spinner_stop() {
 }
 
 # === DEPENDENCIES ===
+python_ready() {
+    command -v python3 >/dev/null 2>&1 && \
+        python3 -c 'import json, tarfile, subprocess, csv, hashlib, argparse' \
+            >/dev/null 2>&1
+}
+
 ensure_python() {
-    if command -v python3 >/dev/null 2>&1; then
+    if python_ready; then
         return 0
     fi
 
-    LOG "yellow" "python3 is not installed."
+    LOG "yellow" "python3 is missing or incomplete."
     resp=$(CONFIRMATION_DIALOG "Install python3-light now? (~3 MB)")
     confirmed "$resp" || return 1
 
     LOG "cyan" "Updating package lists..."
     opkg update >/dev/null 2>&1
     if opkg install python3-light >/tmp/gitgrep_opkg.log 2>&1 && \
-       command -v python3 >/dev/null 2>&1; then
+       python_ready; then
         LOG "green" "python3-light installed."
         return 0
     fi
@@ -103,24 +109,24 @@ ensure_python() {
     return 1
 }
 
-ensure_ssl() {
-    if python3 -c 'import ssl' >/dev/null 2>&1; then
+ensure_curl() {
+    if command -v curl >/dev/null 2>&1; then
         return 0
     fi
 
-    LOG "yellow" "HTTPS support is missing (python3-openssl)."
-    resp=$(CONFIRMATION_DIALOG "Install python3-openssl now? (~2 MB)")
+    LOG "yellow" "curl is not installed (needed for GitHub scans)."
+    resp=$(CONFIRMATION_DIALOG "Install curl now? (~1 MB)")
     confirmed "$resp" || return 1
 
     opkg update >/dev/null 2>&1
-    if opkg install python3-openssl >/tmp/gitgrep_opkg_ssl.log 2>&1 && \
-       python3 -c 'import ssl' >/dev/null 2>&1; then
-        LOG "green" "python3-openssl installed."
+    if opkg install curl >/tmp/gitgrep_opkg_curl.log 2>&1 && \
+       command -v curl >/dev/null 2>&1; then
+        LOG "green" "curl installed."
         return 0
     fi
 
-    LOG "red" "Install failed. See /tmp/gitgrep_opkg_ssl.log"
-    ALERT "python3-openssl install failed.\n\nRun manually:\nopkg update && opkg install python3-openssl"
+    LOG "red" "Install failed. See /tmp/gitgrep_opkg_curl.log"
+    ALERT "curl install failed.\n\nRun manually:\nopkg update && opkg install curl"
     return 1
 }
 
@@ -290,7 +296,7 @@ run_user() {
     [ -z "$target" ] && return
 
     pick_depth
-    ensure_ssl || return 1
+    ensure_curl || return 1
 
     token=$(load_token)
     if [ -n "$token" ]; then
@@ -312,7 +318,7 @@ run_repo() {
     [ -z "$target" ] && return
 
     pick_depth
-    ensure_ssl || return 1
+    ensure_curl || return 1
 
     hist=""
     resp=$(CONFIRMATION_DIALOG "Also scan git history?\n\nClones the repo with git (needs ~8 MB of packages).")

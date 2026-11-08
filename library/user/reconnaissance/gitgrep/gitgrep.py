@@ -9,8 +9,9 @@ tokens, private keys, webhooks and generic high-entropy secrets.
 
 Design notes
 ------------
-* Pure standard library.  Only ``python3-light`` is required; ``python3-openssl``
-  is needed for HTTPS (the payload offers to install it).
+* Only ``python3-light`` is required.  All HTTPS is done through ``curl``
+  (the Pager's python3-light does not ship urllib), so no extra Python
+  packages are needed for GitHub scans.
 * Remote scans stream the repository tarball straight into ``tarfile`` so a
   100 MB repo never has to fit in RAM.
 * Findings are masked in the report by default.  ``--show`` reveals them.
@@ -24,7 +25,6 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import io
 import json
 import math
 import os
@@ -33,20 +33,29 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 
-try:
-    import ssl
-except ImportError:  # python3-light without python3-openssl
-    ssl = None
-
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 DEFAULT_LOOT = "/root/loot/gitgrep"
 USER_AGENT = "GITGREP-Pager/" + VERSION
 API = "https://api.github.com"
+
+
+def quote(value, safe=""):
+    """RFC 3986 quoting; a tiny urllib.parse.quote replacement so the engine
+    does not need python3-urllib (which Pager python3-light omits)."""
+    keep = ("ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789-._~" + safe)
+    out = []
+    for ch in str(value):
+        if ch in keep:
+            out.append(ch)
+        else:
+            for b in ch.encode("utf-8"):
+                out.append("%%%02X" % b)
+    return "".join(out)
 
 
 # --------------------------------------------------------------------------
@@ -516,77 +525,136 @@ class LimitedReader(object):
 
 
 class GitHub(object):
-    def __init__(self, token=None, timeout=30):
+    """Minimal GitHub client built on curl, because the Pager's python3-light
+    does not ship urllib and TLS through curl needs no python3-openssl."""
+
+    def __init__(self, token=None, timeout=45):
         self.token = token
         self.timeout = timeout
         self.remaining = None
         self.reset = None
         self.insecure_fallback = False
+        if not shutil.which("curl"):
+            raise SystemExit(
+                "curl is required for GitHub scans.\n"
+                "Install it with: opkg update && opkg install curl")
 
-    def headers(self, accept):
-        h = {
-            "User-Agent": USER_AGENT,
-            "Accept": accept,
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
+    # -- low level --------------------------------------------------------
+    def _cmd(self, url, accept, header_file, insecure):
+        cmd = ["curl", "-sS", "-L",
+               "--connect-timeout", str(self.timeout),
+               "--max-time", str(max(self.timeout * 3, 90)),
+               "-D", header_file,
+               "-H", "User-Agent: " + USER_AGENT,
+               "-H", "Accept: " + accept,
+               "-H", "X-GitHub-Api-Version: 2022-11-28"]
+        if insecure:
+            cmd.append("-k")
         if self.token:
-            h["Authorization"] = "Bearer " + self.token
-        return h
+            cmd += ["-H", "Authorization: Bearer " + self.token]
+        cmd.append(url)
+        return cmd
 
-    def open(self, url, accept="application/vnd.github+json"):
-        req = urllib.request.Request(url, headers=self.headers(accept))
+    @staticmethod
+    def _header_text(path):
         try:
-            return self._open(req)
-        except urllib.error.HTTPError as exc:
-            body = b""
+            with open(path, "r", errors="replace") as fh:
+                return fh.read()
+        except (IOError, OSError):
+            return ""
+
+    def _status(self, header_file):
+        status = None
+        for line in self._header_text(header_file).splitlines():
+            m = re.match(r"^HTTP/\S+\s+(\d{3})", line.strip())
+            if m:
+                status = int(m.group(1))
+        return status
+
+    def _track(self, header_file):
+        text = self._header_text(header_file)
+        m = re.search(r"(?im)^x-ratelimit-remaining:\s*(\d+)", text)
+        if m:
+            self.remaining = int(m.group(1))
+        m = re.search(r"(?im)^x-ratelimit-reset:\s*(\d+)", text)
+        if m:
+            self.reset = int(m.group(1))
+
+    @staticmethod
+    def _header_file():
+        fd, path = tempfile.mkstemp(prefix="gitgrep-hdr-")
+        os.close(fd)
+        return path
+
+    # -- buffered requests (JSON, small blobs) ----------------------------
+    def get_bytes(self, url, accept="application/vnd.github+json"):
+        hf = self._header_file()
+        try:
+            for attempt in (0, 1):
+                insecure = attempt == 1
+                try:
+                    proc = subprocess.run(
+                        self._cmd(url, accept, hf, insecure),
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        timeout=max(self.timeout * 3, 90) + 30)
+                except subprocess.SubprocessError as exc:
+                    raise GitHubError(0, "curl: %s" % exc)
+                self._track(hf)
+                if proc.returncode == 60 and not insecure:
+                    # CA bundle missing on device -> retry without verification
+                    self.insecure_fallback = True
+                    continue
+                if proc.returncode != 0:
+                    raise GitHubError(0, "curl exit %d: %s" % (
+                        proc.returncode,
+                        proc.stderr.decode("utf-8", "replace").strip()[:200]))
+                status = self._status(hf)
+                if status and status >= 400:
+                    raise GitHubError(status,
+                                      proc.stdout.decode("utf-8", "replace")[:300])
+                return proc.stdout
+        finally:
             try:
-                body = exc.read(4000)
-            except Exception:
+                os.unlink(hf)
+            except OSError:
                 pass
-            raise GitHubError(exc.code, body.decode("utf-8", "replace"))
-        except urllib.error.URLError as exc:
-            raise GitHubError(0, str(exc))
-
-    def _open(self, req):
-        try:
-            resp = urllib.request.urlopen(req, timeout=self.timeout)
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", None)
-            text = str(exc)
-            if ssl is not None and (
-                    isinstance(reason, ssl.SSLError) or
-                    "CERTIFICATE_VERIFY_FAILED" in text):
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                self.insecure_fallback = True
-                resp = urllib.request.urlopen(req, timeout=self.timeout, context=ctx)
-            else:
-                raise
-        self._track(resp)
-        return resp
-
-    def _track(self, resp):
-        try:
-            rem = resp.headers.get("X-RateLimit-Remaining")
-            if rem is not None:
-                self.remaining = int(rem)
-            reset = resp.headers.get("X-RateLimit-Reset")
-            if reset is not None:
-                self.reset = int(reset)
-        except Exception:
-            pass
 
     def get_json(self, url):
-        resp = self.open(url)
+        body = self.get_bytes(url)
         try:
-            data = resp.read()
-        finally:
-            resp.close()
-        try:
-            return json.loads(data.decode("utf-8", "replace"))
+            return json.loads(body.decode("utf-8", "replace"))
         except ValueError:
             raise GitHubError(0, "invalid JSON from " + url)
+
+    # -- streaming (tarballs) ---------------------------------------------
+    def open_stream(self, url, accept="application/vnd.github+json"):
+        """Return (proc, header_file).  The caller must consume proc.stdout,
+        wait() for the process and then call finish_stream()."""
+        hf = self._header_file()
+        cmd = self._cmd(url, accept, hf, insecure=self.insecure_fallback)
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE)
+        return proc, hf
+
+    def finish_stream(self, proc, header_file):
+        """Collect a stream started by open_stream().  Returns (status, rc)."""
+        try:
+            proc.stdout.close()
+        except Exception:
+            pass
+        err = b""
+        try:
+            err = proc.stderr.read()
+        except Exception:
+            pass
+        proc.wait()
+        self._track(header_file)
+        status = self._status(header_file)
+        try:
+            os.unlink(header_file)
+        except OSError:
+            pass
+        return status, proc.returncode, err.decode("utf-8", "replace")
 
     def check_quota(self):
         if self.remaining is not None and self.remaining <= 1:
@@ -622,7 +690,7 @@ def parse_target(target):
 def resolve_login(gh, login):
     """Decide whether a single name is a user or an organisation."""
     try:
-        data = gh.get_json(API + "/users/" + urllib.parse.quote(login))
+        data = gh.get_json(API + "/users/" + quote(login))
         return data.get("type", "User")
     except GitHubError as exc:
         if exc.code == 404:
@@ -638,7 +706,7 @@ def list_repos(gh, login, kind, limit, include_forks=False):
     while len(repos) < limit and page <= 10:
         gh.check_quota()
         url = "%s%s/repos?per_page=%d&page=%d&sort=updated" % (
-            base, urllib.parse.quote(login), per_page, page)
+            base, quote(login), per_page, page)
         batch = gh.get_json(url)
         if not isinstance(batch, list) or not batch:
             break
@@ -671,59 +739,76 @@ def scan_remote_repo(gh, repo, state, show=False, ref=None):
         return
     state.repos += 1
     print("[*] repo %s (%s, %d KB)" % (label, branch, size_kb))
-    url = "%s/repos/%s/%s/tarball/%s" % (
-        API, urllib.parse.quote(owner), urllib.parse.quote(name),
-        urllib.parse.quote(branch))
-    try:
-        resp = gh.open(url, accept="application/vnd.github+json")
-    except GitHubError as exc:
-        state.errors.append("%s: %s" % (label, exc))
-        print("[!] %s: %s" % (label, exc))
-        return
-    limit_bytes = state.limits["max_tarball_bytes"]
-    reader = LimitedReader(resp, limit_bytes)
-    try:
-        tf = tarfile.open(fileobj=reader, mode="r|gz")
-        for member in tf:
-            if state.stop or state.out_of_time():
-                state.stop = True
-                break
-            if not member.isfile():
-                continue
-            # Tarball paths are "owner-repo-sha/path/to/file".
-            parts = member.name.split("/", 1)
-            rel = parts[1] if len(parts) == 2 else member.name
-            if not should_scan_path(rel):
-                continue
-            if member.size > state.limits["max_file_bytes"]:
-                state.skipped_big += 1
-                continue
-            try:
-                fh = tf.extractfile(member)
-                if fh is None:
-                    continue
-                data = fh.read(state.limits["max_file_bytes"] + 1)
-            except (IOError, OSError, tarfile.TarError):
-                continue
-            scan_bytes(data, {"repo": label, "path": rel}, state, show=show)
-            if state.files % 100 == 0:
-                print("[*] %s: %d files, %d findings" % (
-                    label, state.files, len(state.findings)))
-    except (tarfile.TarError, GitHubError) as exc:
-        state.errors.append("%s: %s" % (label, exc))
-        print("[!] %s: %s" % (label, exc))
-    finally:
+    url = "%s/repos/%s/%s/tarball/%s" % (API, quote(owner), quote(name),
+                                         quote(branch))
+
+    for attempt in (0, 1):
+        proc = None
+        hf = None
+        tar_error = None
         try:
-            resp.close()
-        except Exception:
-            pass
+            proc, hf = gh.open_stream(url)
+            reader = LimitedReader(proc.stdout, state.limits["max_tarball_bytes"])
+            tf = tarfile.open(fileobj=reader, mode="r|gz")
+            for member in tf:
+                if state.stop or state.out_of_time():
+                    state.stop = True
+                    break
+                if not member.isfile():
+                    continue
+                # Tarball paths are "owner-repo-sha/path/to/file".
+                parts = member.name.split("/", 1)
+                rel = parts[1] if len(parts) == 2 else member.name
+                if not should_scan_path(rel):
+                    continue
+                if member.size > state.limits["max_file_bytes"]:
+                    state.skipped_big += 1
+                    continue
+                try:
+                    fh = tf.extractfile(member)
+                    if fh is None:
+                        continue
+                    data = fh.read(state.limits["max_file_bytes"] + 1)
+                except (IOError, OSError, tarfile.TarError):
+                    continue
+                scan_bytes(data, {"repo": label, "path": rel}, state, show=show)
+                if state.files % 100 == 0:
+                    print("[*] %s: %d files, %d findings" % (
+                        label, state.files, len(state.findings)))
+        except (tarfile.TarError, GitHubError, IOError, OSError) as exc:
+            tar_error = exc
+
+        status, rc, err = gh.finish_stream(proc, hf) if proc else (None, 0, "")
+
+        if rc == 60 and attempt == 0:
+            gh.insecure_fallback = True
+            print("[!] %s: TLS certificate problem - retrying without "
+                  "verification" % label)
+            continue
+
+        if tar_error is None and rc == 0 and (status is None or status < 400):
+            return  # success
+
+        if status and status >= 400:
+            msg = "HTTP %d" % status
+            if status == 404:
+                msg += " (repo/branch not found or private)"
+            elif status in (401, 403):
+                msg += " (unauthorized or rate limited)"
+        elif rc:
+            msg = "curl exit %d %s" % (rc, err.strip()[:120])
+        else:
+            msg = str(tar_error)
+        state.errors.append("%s: %s" % (label, msg))
+        print("[!] %s: %s" % (label, msg))
+        return
 
 
 def scan_gists(gh, login, state, show=False):
     print("[*] gists for %s" % login)
     try:
         gists = gh.get_json("%s/users/%s/gists?per_page=100" % (
-            API, urllib.parse.quote(login)))
+            API, quote(login)))
     except GitHubError as exc:
         print("[!] gists: %s" % exc)
         return
@@ -744,11 +829,12 @@ def scan_gists(gh, login, state, show=False):
             if not raw_url:
                 continue
             try:
-                resp = gh.open(raw_url, accept="*/*")
-                data = resp.read(state.limits["max_file_bytes"] + 1)
-                resp.close()
-            except (GitHubError, IOError, OSError) as exc:
+                data = gh.get_bytes(raw_url, accept="*/*")
+            except GitHubError as exc:
                 state.errors.append("gist %s/%s: %s" % (gist.get("id"), fname, exc))
+                continue
+            if len(data) > state.limits["max_file_bytes"]:
+                state.skipped_big += 1
                 continue
             scan_bytes(data, {"repo": "gist:" + (gist.get("id") or "?")[:12],
                               "path": fname}, state, show=show)
@@ -772,7 +858,7 @@ def clone_for_history(gh, repo, state, show=False):
         shutil.rmtree(tmp, ignore_errors=True)
     if gh.token:
         clone_url = "https://x-access-token:%s@github.com/%s/%s.git" % (
-            urllib.parse.quote(gh.token, safe=""), owner, name)
+            quote(gh.token, safe=""), owner, name)
     else:
         clone_url = "https://github.com/%s/%s.git" % (owner, name)
     print("[*] clone %s for history (partial)" % label)
@@ -1104,15 +1190,11 @@ def main(argv):
                              max_commits=limits["max_commits"], repo="local")
     else:
         target = args.target
-        if ssl is None:
-            print("[!] python3-openssl is missing; HTTPS will fail.")
-            print("    Install it with: opkg install python3-openssl")
         gh = GitHub(token=token)
         kind, *rest = parse_target(args.target)
         if kind == "repo":
             owner, name = rest
-            repo_url = "%s/repos/%s/%s" % (API, urllib.parse.quote(owner),
-                                           urllib.parse.quote(name))
+            repo_url = "%s/repos/%s/%s" % (API, quote(owner), quote(name))
             try:
                 gh.check_quota()
                 repo = gh.get_json(repo_url)
