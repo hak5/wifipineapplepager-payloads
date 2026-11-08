@@ -9,8 +9,8 @@
 #               It NEVER transmits: it only reads a local JSON file. No deauth, no rogue AP, no scan,
 #               no association. It starts and stops nothing.
 # Author:       Starchorus
-# Version:      0.2.6.2
-# Contract:     3
+# Version:      0.2.7
+# Contract:     4
 # Category:     reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
 #

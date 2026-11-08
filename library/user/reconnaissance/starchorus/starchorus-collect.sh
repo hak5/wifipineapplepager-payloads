@@ -9,8 +9,8 @@
 #               no injection, no association/connection, no channel jamming, no active
 #               features of the device's AP service. It only RECEIVES what the air already carries.
 # Author:       Starchorus
-# Version:      0.2.6.2
-# Contract:     3
+# Version:      0.2.7
+# Contract:     4
 # Category:     reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Notes:        Monitor-mode capture (tcpdump / airodump-ng) and reading the already-passive
@@ -97,8 +97,10 @@
 #                        companies the blue5 source reports by number alone (id<TAB>name, the id four
 #                        hex digits: the firmware's /lib/hak5/bt_companies.txt). auto takes that file
 #                        when it parses. Missing/unusable file => the company id alone, as before, one
-#                        log line. The window source names companies itself.          (default auto)
-#   Everything that depends on device behaviour that is not verified yet is a FLAG, default OFF:
+#                        log line. The window source names companies itself. The list is read only for
+#                        an identifier no earlier cycle looked up (BTCO_MEMO, emptied at the re-check
+#                        every 120 cycles), not once per cycle.                        (default auto)
+#   Everything that depends on device behaviour that is not verified yet is a FLAG, default OFF (the alert log and the derived alerts, listed here too, default ON):
 #   STARCHORUS_HOPINFO        1 = top-level "channels": [{"freq", "last_heard"}] from the recon.db `time`
 #                        column (the front-end never calls an AP "gone" without it).  (default 0)
 #   STARCHORUS_SURVEY         1 = add "busy_pct" / "noise" to channels[] from `iw dev IF survey dump`
@@ -110,6 +112,13 @@
 #                        in the same document. Refused, with no field and no error: a station, a BSSID not in this document's aps[] and
 #                        one of our own transmitters. Nothing is transmitted or looked up. Also read from the first line of
 #                        $STARCHORUS_OUTDIR/homing.target (the device writes it). Coarse: one reading per cycle.  (default: none)
+#   STARCHORUS_WATCH_FILE     tests only: the watch list to read instead of $STARCHORUS_OUTDIR/watch.list. The list is a text file the operator writes by
+#                        hand, one entry per line: an address (six hex pairs with : or -, or twelve hex digits) or a name (byte for byte, 1 to 32 bytes),
+#                        optionally prefixed mac: or ssid:; # starts a comment, a BOM and CR are dropped. Every record whose address or name is listed gets
+#                        "watched": true right after its address: access points (by bssid or by ssid; a hidden network has no name to match), their
+#                        clients and the unassociated stations (by mac), Bluetooth records (by addr); homing, alerts and center are never touched. At most
+#                        64 entries from at most 512 lines or 8 KiB; a line that is neither an address nor a name is said once. The list never leaves the
+#                        device: it is not in the document, not in the log, and the page server does not serve it. Read once per cycle, read-only.  (default: empty)
 #   STARCHORUS_APCLI_RO       1 = apcli_ro() may run its three literal read-only list lines (see there); nothing calls it
 #                        except the pineap source, which switches it on for itself (spec §14.6). The refusal rules are self-tested.  (default 0)
 #   STARCHORUS_BLUETOOTH      1 = every cycle runs ONE passive Bluetooth LE scan window (STARCHORUS_BT_WINDOW seconds, in the background
@@ -132,6 +141,17 @@
 #   STARCHORUS_ALERT_DIR      the directory of alerts.log: a directory of its own outside the one the page server serves, default /root/loot/starchorus-alerts
 #                             (the companion uses the same default and runs without the payload's environment; the variable is an override for tests)
 #   STARCHORUS_ALERT_WINDOW   the seconds an alert stays in "alerts": whole seconds from 60 to 86400; anything else is 600, with one log line.  (default 600)
+#   STARCHORUS_WIDS           1 = five more kinds of alert in "alerts", derived from what the collector already holds (nothing is read from the air for
+#                        them): own_name (a name of center.own_ssids sent by an address that is not in own_bssids; needs STARCHORUS_OWN=1), sec_profiles
+#                        (one name, two or more security families), sec_weaker and chan_changed (an access point whose profile stood for five minutes
+#                        and then changed to open, WEP or legacy WPA, or to another channel, the new profile held for a minute, seen cycle after cycle; an unknown label or
+#                        channel is no evidence; a memory of at most 500 access points, in RAM, a new address taken while there is room, forgotten after
+#                        a day without the address), bt_fixed_new (a public or random-static Bluetooth address whose first row is younger than ten
+#                        minutes, stronger than -50 dBm with three reports, from the blue5 source and a database older than an hour). At most eight
+#                        such entries beside the deauth entries, one per address, a deauth entry never displaced, the whole list newest first.
+#                        sec_weaker and chan_changed live for STARCHORUS_ALERT_WINDOW seconds; own_name, sec_profiles and bt_fixed_new stand while
+#                        their evidence is in the document. A name outside ASCII matches own_ssids on the recon database path only (the pineap source
+#                        writes such names escaped).  (default 1)
 #   STARCHORUS_SYSFS_BT       tests only: where the controller is looked for (default /sys/class/bluetooth), like STARCHORUS_SYSFS_NET.
 #   STARCHORUS_PROC_BT        tests only: where the Bluetooth window code reads /proc from (default /proc).
 #
@@ -160,12 +180,16 @@
 #   top level: "bluetooth" (array, STARCHORUS_BLUETOOTH=1: one record per ADDRESS heard in the last passive window or held for
 #            "bt_hold" seconds: addr, addr_type, rssi, reports, last_seen (our own window: the "generated" of the cycle that heard
 #            it; the blue5 source: the database's own value), and when
-#            advertised company, company_name, name, connectable; at most 256, strongest first; addresses, not devices: random
+#            advertised company, company_name, name, connectable, and from the blue5 source class (one of fourteen words for what the
+#            advertisement claims to be) and remote_id (what a Remote ID broadcast says, see bt_blue5_sql and AWK_LAYERS); "watched": true
+#            from the watch list; at most 256, strongest first; addresses, not devices: random
 #            addresses rotate), "activity" (array,
 #            STARCHORUS_TRAFFIC=1: {"freq", "share"} per frequency from RECON CHANNELS, shares of the frames counted on all
 #            frequencies from 2400 MHz, three decimals, never a count; "channels" is not touched by it), "alerts" (array, STARCHORUS_ALERTS=1
 #            and an alerts.log with lines of the last STARCHORUS_ALERT_WINDOW seconds: {"type": "deauth", "t", "ap", "n"}, one per access
-#            point address, "t" the newest epoch of its lines and "n" how many there are; at most 20, newest first, then by address. A line
+#            point address, "t" the newest epoch of its lines and "n" how many there are; at most 20, newest first, then by address; with
+#            STARCHORUS_WIDS=1 up to eight more entries of the five kinds named there, the same four keys, one per address, never at the
+#            cost of a deauth entry ("n" is then what the kind counts: foreign addresses, families, confirmed changes, reports). A line
 #            whose epoch is not digits, whose type is not deauth, whose AP is not an address or whose epoch lies more than 60 s ahead is
 #            skipped, and said once per episode. It means that many deauth/disassoc frames were heard for that AP: no channel, no signal
 #            strength, no count of frames, and the log's source address is usually not the sender's).
@@ -199,7 +223,7 @@ PIDDIR=${STARCHORUS_PIDDIR:-$OUTDIR}
 VENDOR=${STARCHORUS_VENDOR:-1}
 OUI_FILE=${STARCHORUS_OUI_FILE:-auto}
 BTCO_FILE=${STARCHORUS_BT_COMPANIES_FILE:-auto}   # auto | path: the Bluetooth company-identifier list (id<TAB>name) that names the companies the blue5 source reports by number
-# Flags, default OFF: see the header (docs/device-notes.md).
+# Flags, default OFF but for ALERTS and WIDS: see the header (docs/device-notes.md).
 HOPINFO=${STARCHORUS_HOPINFO:-0}
 SURVEY=${STARCHORUS_SURVEY:-0}
 OWN=${STARCHORUS_OWN:-0}
@@ -210,10 +234,14 @@ BT_SOURCE=${STARCHORUS_BT_SOURCE:-auto}               # auto|blue5|window: the B
 BLUE5_DB=${STARCHORUS_BLUE5_DB:-/root/recon/blue5.db}  # the firmware's own Bluetooth database, read-only; the auto/blue5 source reads it
 TRAFFIC=${STARCHORUS_TRAFFIC:-0}
 ALERTS=${STARCHORUS_ALERTS:-1}                    # 1 = read $ALERT_DIR/alerts.log when it exists (the header says what writes it); nothing happens without the file
+WIDS=${STARCHORUS_WIDS:-1}                        # 1 = five more kinds of alert (own_name, sec_profiles, sec_weaker, chan_changed, bt_fixed_new) from the document and the Bluetooth database into alerts[]; nothing is read from the air for them; 0 switches them off
+case $WIDS in 1) ;; *) WIDS=0 ;; esac             # anything but 1 is off, for the shell and for the awk alike
 ALERT_DIR=${STARCHORUS_ALERT_DIR:-/root/loot/starchorus-alerts}   # where the companion alert-deauth.sh writes alerts.log: a directory of its own, outside the one the page server serves
 BT_WIN=${STARCHORUS_BT_WINDOW:-5}                 # the window in whole seconds, 5 to 15 (checked below, once the log helper exists)
 BT_SYSFS=${STARCHORUS_SYSFS_BT:-/sys/class/bluetooth}   # tests only: where the controller is looked for
 # The homing target: ONE access point the operator chose (rules and sources: see STARCHORUS_HOMING_BSSID in the header).
+WL_FILE=${STARCHORUS_WATCH_FILE:-}                # the watch list (0.2.7): a text file of addresses and names the operator writes by hand; empty = $OUTDIR/watch.list (wl_look)
+WL_ON=0             # 1 = the watch list is a readable regular file with something in it this cycle (wl_look)
 HOMING_BSSID=${STARCHORUS_HOMING_BSSID:-}         # "aa:bb:cc:dd:ee:ff" or empty (then $OUTDIR/homing.target, if it exists)
 HOMING_PEAK=""; HOMING_POLLS=0               # peak hold across cycles (a new maximum resets, 12 quiet cycles decay it)
 
@@ -238,6 +266,7 @@ CACHE_LOCKED=0      # lock depth: >0 while this instance holds $OUI_CACHE.lock (
 VENDOR_STATE=""     # last logged vendor-setup state: setup_vendor logs only when it changes
 BTCO_PATH=""        # the Bluetooth company list in use ("" = none: the blue5 source then reports company ids alone)
 BTCO_STATE=""       # last logged company-list state: setup_btco logs only when it changes
+BTCO_MEMO=""        # id<TAB>name lines of the company identifiers earlier cycles looked up (an empty name = not in the list), at most 512; emptied by setup_btco
 STARTED_AIRODUMP=0  # 1 if THIS instance started airodump (only then does cleanup stop it)
 AD_PID=""           # the pid of that airodump: cleanup stops this one, never the one a later start wrote into the shared pidfile
 LOCK_BUDGET=100     # cache_lock: wait at most this long (0.1-s units) for a live holder
@@ -308,6 +337,9 @@ BT_SRC=window       # bt_pick's choice this cycle: window (our own passive scan)
 BT5_DB=""           # the RAM copy of blue5.db this cycle (bt_blue5_copy sets it, bt_blue5_done frees it); "" = none
 BT5_RAM=0           # 1 = BT5_DB is a copy of ours to remove after reading
 BT5_MAX=4194304     # cap on the blue5.db copy: above this, no Bluetooth this cycle (it is ~40 KB on the device; RAM only)
+BT5_SV=""           # 1 = blue5.db answered only the narrow query (no mfr, appearance or svc16 column, an older firmware): no classes until the vendor re-check retries the full one
+BT5_SVLOG=0         # 1 = the narrow-query line has been logged; the return to the full query is logged once as well
+WIDS_SEEN=""        # the WIDS memory (STARCHORUS_WIDS=1): one line per access point, bssid|family|channel|since|last|pending family|pending channel|pending since|alarm type|alarm time|alarm count, at most 500; in memory, like BT_HELD
 BT_HELD=""          # last cycle's Bluetooth records (tab separated: the B fields, last_seen, carry); in memory, like RS_DOCV: a file would outlive a killed collector
 BT_CUR=" "          # the log keys raised in this cycle, and BT_LOGGED = those of the cycle before: a message is logged once per episode (bt_issue)
 BT_LOGGED=" "
@@ -799,9 +831,10 @@ cleanup() {
     [ "$(cat "$LOOP_PIDFILE" 2>/dev/null)" = "$$" ] && rm -f "$LOOP_PIDFILE"
     # This instance's pid-stamped temp files only: the output files of a cycle cut short by the signal (each post-pass's own:
     # .c center, .h homing, .v vendor, .l layers), an OUI index build, the pineap side files and security cache in the making, the RAM copy of recon.db.
-    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.c" "$OUTFILE.tmp.$$.h" "$OUTFILE.tmp.$$.v" "$OUTFILE.tmp.$$.l" "$OUTFILE.gen$$" "${OUI_CACHE:-$CAPDIR/oui-cache.txt}.gat.$$" 2>/dev/null
+    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.c" "$OUTFILE.tmp.$$.h" "$OUTFILE.tmp.$$.v" "$OUTFILE.tmp.$$.l" "$OUTFILE.tmp.$$.w" "$OUTFILE.gen$$" "${OUI_CACHE:-$CAPDIR/oui-cache.txt}.gat.$$" 2>/dev/null
     # the Bluetooth window's files of this process (the pid file only when no tool is left, bt_end abort decides), the RECON CHANNELS call and its file
-    rm -f "$TMPDIR_RAM/starchorus-bt-$$.txt.out" "$TMPDIR_RAM/starchorus-bt-$$.held" "$TMPDIR_RAM/starchorus-bt-$$.new" "$TMPDIR_RAM/starchorus-bt-$$.stat" \
+    rm -f "$TMPDIR_RAM/starchorus-bt-$$.txt.out" "$TMPDIR_RAM/starchorus-bt-$$.txt.co" "$TMPDIR_RAM/starchorus-bt-$$.held" "$TMPDIR_RAM/starchorus-bt-$$.new" "$TMPDIR_RAM/starchorus-bt-$$.stat" \
+          "$TMPDIR_RAM/starchorus-bt-$$.wseen" "$TMPDIR_RAM/starchorus-bt-$$.wnew" "$TMPDIR_RAM/starchorus-wl-$$.stat" \
           "$TMPDIR_RAM/starchorus-bt-$$.alog" "$TMPDIR_RAM/starchorus-traffic-$$.json" 2>/dev/null
     if [ -n "$TR_PID" ]; then is_own_child "$TR_PID" && kill "$TR_PID" 2>/dev/null; TR_PID=""; fi
     rm -rf "$CAPDIR"/oui-index.new.$$.* 2>/dev/null
@@ -1055,8 +1088,41 @@ bt_blue5_done() {
 #   * rssi is rssi_avg (steadier than the last sample) and must be a real reading (-127..-1); reports is packets, floored at 1; company
 #     is kept only as a real id (0 and 65535 mean "no id"); the name BLOB has TAB/LF/CR turned to spaces and is cut to 32;
 #   * only addresses seen within BT_HOLD (120 s) of ts are kept, and never one stamped later than ts (a clock that moved back);
-#   * one row per address, the newest, via MAX(last_seen) with its bare columns in a sub-query (the single-aggregate form SQLite defines).
+#   * one row per address, the newest, via MAX(last_seen) with its bare columns in a sub-query (the single-aggregate form SQLite defines);
+#   * fields 11-13, the class columns of the firmware's 2.0 schema (device-notes §2c), cut IN SQL so that only what the table in AWK_LAYERS can
+#     name leaves the database: of mfr the first three bytes as hex (the company id, little-endian, and the byte after it: Apple's message
+#     type), never the payload with its rotating identifiers; appearance only as a whole number 1..65535; svc16 only when it is text of hex
+#     digits, commas and blanks, 40 characters at most. Anything else is '' (no class);
+#   * field 14, svcd (the service data) as hex, only when it is a blob of 8 to 255 bytes that holds the Remote ID service head FAFF0D (the
+#     service FFFA, little-endian, then the app code 0D): the decoder in AWK_LAYERS reads the broadcast's messages from it; any other service
+#     data stays in the database. With BT5_SV=1 (a database that lacks the columns, an older firmware: bt_blue5_read sets it when the full
+#     query gives no sentinel) the same statement carries four empty fields instead, so the B-line keeps its 14 fields and the layer its
+#     records; the vendor re-check clears BT5_SV and the full query is tried again;
+#   * with STARCHORUS_WIDS=1 a second SELECT adds W-lines (W, addr, strongest rssi, reports, first_seen, last_seen) for bt_fixed_new in
+#     AWK_LAYERS: public or random-static addresses whose first row is younger than ten minutes, heard within the hold, stronger than -50 dBm
+#     with three reports or more, and only from a database whose oldest row is older than an hour (a fresh database makes nothing new); eight at most.
+#     The first row of an address comes from one grouped pass over the table joined on the address (a derived table SQLite indexes once), not from a
+#     subquery per row: on a table of two thousand rows the per-row form cost 25 times the B query and grew with the square of the rows (7 November 2026).
 bt_blue5_sql() {
+    if [ "$BT5_SV" = 1 ]; then b5_cx="'', '', '', ''"; b5_ci=""
+    else
+        b5_cx="CASE WHEN typeof(mfr)='blob' AND length(mfr)>=3 THEN hex(substr(mfr,1,3)) ELSE '' END,
+  CASE WHEN typeof(appearance)='integer' AND appearance BETWEEN 1 AND 65535 THEN appearance ELSE '' END,
+  CASE WHEN typeof(svc16)='text' AND svc16 NOT GLOB '*[^0-9A-Fa-f, ]*' THEN upper(substr(svc16,1,40)) ELSE '' END,
+  CASE WHEN typeof(svcd)='blob' AND length(svcd) BETWEEN 8 AND 255 AND instr(hex(svcd),'FAFF0D')>0 THEN hex(svcd) ELSE '' END"
+        b5_ci="mfr, appearance, svc16, svcd,"
+    fi
+    b5_w=""
+    [ "$WIDS" != 1 ] || b5_w="SELECT 'W', lower(substr(mac,1,2)||':'||substr(mac,3,2)||':'||substr(mac,5,2)||':'||substr(mac,7,2)||':'||substr(mac,9,2)||':'||substr(mac,11,2)), r, pk, fs, ls
+FROM (SELECT d.mac AS mac, MAX(d.rssi_avg) AS r, MIN(CAST(TOTAL(d.packets) AS INTEGER), 2147483647) AS pk, f.fs AS fs, MAX(d.last_seen) AS ls
+      FROM bt_device AS d
+      JOIN (SELECT mac, MIN(first_seen) AS fs FROM bt_device WHERE typeof(first_seen)='integer' GROUP BY mac) AS f ON f.mac=d.mac
+      WHERE d.transports=1 AND length(d.mac)=12 AND d.mac NOT GLOB '*[^0-9A-Fa-f]*'
+        AND typeof(d.rssi_avg)='integer' AND d.rssi_avg BETWEEN -127 AND -1 AND typeof(d.last_seen)='integer' AND typeof(d.packets)='integer'
+        AND (d.le_random=0 OR (instr('0123456789ABCDEF',substr(upper(d.mac),1,1))-1)/4=3)
+      GROUP BY d.mac, f.fs)
+WHERE fs IS NOT NULL AND fs>=$2-600 AND ls<=$2 AND ls>=$2-120 AND r>-50 AND pk>=3 AND (SELECT MIN(first_seen) FROM bt_device WHERE typeof(first_seen)='integer')<=$2-3600
+ORDER BY r DESC LIMIT 8;"
     sqlite3 -readonly -noheader -bail -separator "$RECON_TAB" "$1" "
 SELECT 'B',
   lower(substr(mac,1,2)||':'||substr(mac,3,2)||':'||substr(mac,5,2)||':'||substr(mac,7,2)||':'||substr(mac,9,2)||':'||substr(mac,11,2)),
@@ -1071,30 +1137,47 @@ SELECT 'B',
   '',
   substr(replace(replace(replace(CAST(name AS TEXT),char(9),' '),char(10),' '),char(13),' '),1,32),
   CASE WHEN connectable=1 THEN 1 ELSE 0 END,
-  lastseen
-FROM (SELECT mac, le_random, rssi_avg, packets, company, name, connectable, MAX(last_seen) AS lastseen
+  lastseen,
+  $b5_cx
+FROM (SELECT mac, le_random, rssi_avg, packets, company, name, connectable, $b5_ci MAX(last_seen) AS lastseen
       FROM bt_device
       WHERE transports=1 AND length(mac)=12 AND mac NOT GLOB '*[^0-9A-Fa-f]*'
         AND rssi_avg IS NOT NULL AND rssi_avg BETWEEN -127 AND -1
         AND last_seen<=$2 AND last_seen>=$2-120
       GROUP BY mac)
 ORDER BY rssi_avg DESC;
+$b5_w
 SELECT '#STARCHORUS_BT5OK#';
 " 2>/dev/null
 }
 # bt_blue5_read: $1 = ts. Reads blue5.db (its RAM copy) into $BT_F.out, the file add_layers reads (SC_BTP), as B-lines with the real
 # last_seen. 0 = a complete read, the records (maybe none) in $BT_F.out; 1 = transient (no copy, a bad clock, or no complete answer:
 # the caller makes it a void cycle, mode 2, so the held records fade instead of the layer blinking off). The blue5 tools are never run.
-# The company name, which blue5.db does not hold, is filled from the company list (btco_fill) when one is in use.
+# The company name, which blue5.db does not hold, is filled from the company list (btco_fill) when one is in use. A copy that gives the full
+# query no complete answer is asked the narrow one once (BT5_SV=1, kept until the vendor re-check clears it): a database without the class
+# columns keeps its Bluetooth layer, without classes, and the switch is logged once each way; a copy that answers neither is the transient case.
 bt_blue5_read() {
     case $1 in ''|0|*[!0-9]*) return 1 ;; esac
     bt_blue5_copy "$BLUE5_DB" || return 1
     BT_F="$TMPDIR_RAM/starchorus-bt-$$.txt"
     br_raw=$(bt_blue5_sql "$BT5_DB" "$1")
+    case $br_raw in
+        *"#STARCHORUS_BT5OK#"*)
+            if [ "$BT5_SV" != 1 ] && [ "$BT5_SVLOG" = 1 ]; then log "Bluetooth: blue5.db answers the full query again (mfr, appearance, svc16, svcd); classes and Remote ID are back"; BT5_SVLOG=0; fi ;;
+        *)
+            if [ "$BT5_SV" != 1 ]; then
+                BT5_SV=1; br_raw=$(bt_blue5_sql "$BT5_DB" "$1")
+                case $br_raw in
+                    *"#STARCHORUS_BT5OK#"*) [ "$BT5_SVLOG" = 1 ] || log "Bluetooth: blue5.db has no mfr, appearance, svc16 or svcd column (an older firmware); addresses without a class or Remote ID until the next re-check"; BT5_SVLOG=1 ;;
+                    *) BT5_SV="" ;;
+                esac
+            fi ;;
+    esac
     bt_blue5_done
     case $br_raw in *"#STARCHORUS_BT5OK#"*) ;; *) return 1 ;; esac
     br_um=$(umask); umask 077
-    printf '%s\n' "$br_raw" | grep "^B$RECON_TAB" | btco_fill | clean_ctrl > "$BT_F.out" 2>/dev/null
+    printf '%s\n' "$br_raw" | grep -e "^B$RECON_TAB" -e "^W$RECON_TAB" | btco_fill | clean_ctrl > "$BT_F.out" 2>/dev/null
+    btco_memo_take
     umask "$br_um"
     return 0
 }
@@ -1598,15 +1681,157 @@ AWK_LAYERS='
         for (i = int((n - 2) / 2); i >= 0; i--) sift(i, n - 1, ix)
         for (i = n - 1; i > 0; i--) { t = ix[0]; ix[0] = ix[i]; ix[i] = t; sift(0, i - 1, ix) }
     }
-    function addrec(a, ty_, r_, n_, co_, cn_, nm_, cc_, ls_, ca_) {
+    function addrec(a, ty_, r_, n_, co_, cn_, nm_, cc_, ls_, ca_, cl_, ra_, rp_) {
         ad[nrec] = a; tp[nrec] = ty_; rr[nrec] = r_ + 0; rp[nrec] = n_ + 0; cmp[nrec] = co_; cnm[nrec] = cn_; nmx[nrec] = nm_
-        cnx[nrec] = cc_ + 0; lsn[nrec] = ls_ + 0; car[nrec] = ca_ + 0; have[a] = 1; nrec++
+        cnx[nrec] = cc_ + 0; lsn[nrec] = ls_ + 0; car[nrec] = ca_ + 0; cls[nrec] = cl_; rida[nrec] = ra_; ridp[nrec] = rp_; have[a] = 1; nrec++
     }
+    # Remote ID (ASTM F3411, the Bluetooth service FFFA with the app code 0D), decoded from the hex of svcd that bt_blue5_sql lets through, in
+    # POSIX awk alone (a byte from two index() calls, little-endian numbers as doubles). Read: Basic ID (type 0), Location (1), System (4) and
+    # Operator ID (5), single or in a Message Pack (type F, up to nine 25-byte messages). Not read: Authentication, Self-ID, direction, speed,
+    # timestamps, accuracies. What the broadcast says is passed on as it stands: ids only as [A-Za-z0-9._-], positions only inside their
+    # ranges, 0/0 and an altitude of 0 meaning unknown; a claim of the sender, never a reading, a direction or a distance of ours.
+    function rhb(h, i) { return (index("0123456789ABCDEF", substr(h, 2 * i + 1, 1)) - 1) * 16 + index("0123456789ABCDEF", substr(h, 2 * i + 2, 1)) - 1 }
+    function ru16(h, i) { return rhb(h, i) + 256 * rhb(h, i + 1) }
+    function ri32(h, i,   v) { v = rhb(h, i) + 256 * rhb(h, i + 1) + 65536 * rhb(h, i + 2) + 16777216 * rhb(h, i + 3); return v >= 2147483648 ? v - 4294967296 : v }
+    function ridtx(h, i, n,   k, c, s, z) {   # an id of n bytes: [A-Za-z0-9._-] then NUL padding; "" when anything else is in it
+        s = ""; z = 0
+        for (k = 0; k < n; k++) {
+            c = rhb(h, i + k)
+            if (c == 0) { z = 1; continue }
+            if (z) return ""
+            if (c >= 48 && c <= 57) s = s substr("0123456789", c - 47, 1)
+            else if (c >= 65 && c <= 90) s = s substr("ABCDEFGHIJKLMNOPQRSTUVWXYZ", c - 64, 1)
+            else if (c >= 97 && c <= 122) s = s substr("abcdefghijklmnopqrstuvwxyz", c - 96, 1)
+            else if (c == 45) s = s "-"
+            else if (c == 46) s = s "."
+            else if (c == 95) s = s "_"
+            else return ""
+        }
+        return s
+    }
+    function rll(v, m) { return (v >= -m * 10000000 && v <= m * 10000000) ? sprintf("%.7f", v / 10000000) : "" }
+    function rmsg(h, o,   t, x, a, b) {   # one 25-byte message at byte o: fills the R_ fields it carries
+        t = int(rhb(h, o) / 16)
+        if (t == 0) {   # a text id (serial or registration) already read from this pack is not overwritten by a later binary id of the same pack
+            x = rhb(h, o + 1)
+            if (R_id != "" && int(x / 16) != 1 && int(x / 16) != 2) R_ua = x % 16
+            else { R_idt = int(x / 16); R_ua = x % 16; R_id = (R_idt == 1 || R_idt == 2) ? ridtx(h, o + 2, 20) : "" }
+        }
+        else if (t == 1) {
+            R_st = int(rhb(h, o + 1) / 16); a = ri32(h, o + 5); b = ri32(h, o + 9)
+            if (!(a == 0 && b == 0)) { R_lat = rll(a, 90); R_lon = rll(b, 180); if (R_lat == "" || R_lon == "") { R_lat = ""; R_lon = "" } }
+            x = ru16(h, o + 15); R_alt = x ? sprintf("%.1f", x / 2 - 1000) : ""
+        }
+        else if (t == 4) { a = ri32(h, o + 2); b = ri32(h, o + 6); if (!(a == 0 && b == 0)) { R_olat = rll(a, 90); R_olon = rll(b, 180); if (R_olat == "" || R_olon == "") { R_olat = ""; R_olon = "" } } }
+        else if (t == 5) R_oid = ridtx(h, o + 2, 20)
+    }
+    function ridec(h,   p, q, o, n, k) {   # the hex of svcd -> the R_ fields; 0 when it holds no Remote ID message
+        R_idt = ""; R_ua = ""; R_st = ""; R_id = ""; R_lat = ""; R_lon = ""; R_alt = ""; R_olat = ""; R_olon = ""; R_oid = ""
+        if (h !~ /^[0-9A-F]+$/ || length(h) % 2 || length(h) > 510) return 0
+        p = index(h, "FAFF0D"); while (p && (p - 1) % 2) { q = index(substr(h, p + 1), "FAFF0D"); p = q ? p + q : 0 }
+        if (!p) return 0
+        o = (p - 1) / 2 + 4; n = length(h) / 2
+        if (o + 25 > n) return 0
+        if (int(rhb(h, o) / 16) == 15) {
+            k = rhb(h, o + 2); if (k < 1 || k > 9 || rhb(h, o + 1) != 25 || o + 3 + 25 * k > n) return 0
+            o += 3; while (k-- > 0) { rmsg(h, o); o += 25 }
+        } else rmsg(h, o)
+        return 1
+    }
+    function ridmerge(a,   n, f, k) {   # the identity string held for the address (six |-separated fields), overridden by what this cycle decoded (R_)
+        n = split(a, f, "|"); for (k = n + 1; k <= 6; k++) f[k] = ""
+        if (R_ua != "") { f[1] = ((R_ua + 1) in RUA) ? RUA[R_ua + 1] : ""; f[2] = ((R_idt + 1) in RIT) ? RIT[R_idt + 1] : ""; f[3] = R_id }
+        if (R_olat != "") { f[4] = R_olat; f[5] = R_olon }
+        if (R_oid != "") f[6] = R_oid
+        if (f[1] f[2] f[3] f[4] f[5] f[6] == "") return ""
+        return f[1] "|" f[2] "|" f[3] "|" f[4] "|" f[5] "|" f[6]
+    }
+    function ridpos(   s) {   # the position fields of this cycle alone, never carried: status, lat, lon, alt_m
+        s = ""
+        if (R_st != "" && ((R_st + 1) in RST)) s = s ", \"status\": \"" RST[R_st + 1] "\""
+        if (R_lat != "" && R_lon != "") s = s ", \"lat\": " R_lat ", \"lon\": " R_lon
+        if (R_alt != "") s = s ", \"alt_m\": " R_alt
+        return s
+    }
+    function ridobj(a, pfrag,   n, f, s, k) {   # the identity string and the position fragment of this cycle -> the keys of remote_id, in their order
+        n = split(a, f, "|"); for (k = n + 1; k <= 6; k++) f[k] = ""
+        for (k = 1; k <= 6; k++) if (f[k] !~ /^[A-Za-z0-9._-]*$/) f[k] = ""   # a held field is ours, but only the characters the decoder writes pass
+        s = ""
+        if (f[1] != "") s = s ", \"ua_type\": \"" f[1] "\""
+        if (f[2] != "") s = s ", \"id_type\": \"" f[2] "\""
+        if (f[3] != "") s = s ", \"uas_id\": \"" f[3] "\""
+        s = s pfrag
+        if (f[4] ~ /^-?[0-9]+\.[0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/ && f[5] ~ /^-?[0-9]+\.[0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/) s = s ", \"operator_lat\": " f[4] ", \"operator_lon\": " f[5]
+        if (f[6] != "") s = s ", \"operator_id\": \"" f[6] "\""
+        return substr(s, 3)
+    }
+    function hexv(s,   i, d, v) {   # a string of upper-case hex digits -> its value; -1 when a character is none
+        v = 0
+        for (i = 1; i <= length(s); i++) { d = index("0123456789ABCDEF", substr(s, i, 1)); if (!d) return -1; v = v * 16 + d - 1 }
+        return v
+    }
+    # btclass: the class a record advertises, from the three cut columns of the blue5 source (the mfr head, appearance, svc16; see bt_blue5_sql)
+    # and the company of the record: a word of the tables in BEGIN, or "". The rank is the manufacturer message type first (the Continuity type
+    # byte of Apple, taken only when the company id of the head is the company of the row), then an unambiguous 16-bit service, then the
+    # appearance category (appearance / 64; the health categories and the barcode scanner are left out on purpose). It names what the
+    # advertisement claims to be, never a reading of ours, and a window line (no fields 11-13) gets none. (No apostrophe here: the awk text is a
+    # single-quoted shell string.)
+    function btclass(mh, ap, sv, co,   n, i, t, k) {
+        if (mh ~ /^[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]$/ && co ~ /^[0-9]+$/ && hexv(substr(mh, 3, 2) substr(mh, 1, 2)) == co + 0 && (mh in mcl)) return mcl[mh]
+        if (sv != "") { n = split(sv, t, /[^0-9A-F]+/); for (i = 1; i <= n; i++) if (length(t[i]) == 4 && (t[i] in scl)) return scl[t[i]] }
+        if (ap ~ /^[0-9]+$/ && ap + 0 >= 1 && ap + 0 <= 65535) { k = int(ap / 64); if (k in acl) return acl[k] }
+        return ""
+    }
+    # WIDS (STARCHORUS_WIDS=1): five more kinds of alert, from the document of this cycle, a memory of the access points (SC_WSH in, SC_WSN out) and
+    # the W-lines of the blue5 source; nothing is read from the air for them. secfam names the security family of a label, famrank orders the
+    # families, qlist reads the strings of a JSON array text, wcand keeps one candidate per address (the lower rank wins; an address with a deauth
+    # entry takes none), wbefore orders the candidates by rank, then newest, then address.
+    function secfam(s,   u) {
+        u = toupper(s)
+        if (u == "" || u == "UNKNOWN" || u == "SECURED") return ""
+        if (index(u, "ENTERPRISE") || index(u, "EAP") || index(u, "MGT") || index(u, "802.1X")) return "enterprise"
+        if (index(u, "OWE") || u == "OPEN" || u == "OPN" || u == "NONE") return "open"
+        if (index(u, "WEP")) return "wep"
+        if (index(u, "WPA2") || index(u, "WPA3") || index(u, "RSN") || index(u, "SAE")) return "psk"
+        if (index(u, "WPA")) return "legacy"
+        return ""
+    }
+    function famrank(f) { return f == "open" ? 0 : f == "wep" ? 1 : f == "legacy" ? 2 : f == "psk" ? 3 : f == "enterprise" ? 4 : -1 }
+    function qlist(s, out,   n, i, c, cur, inq, esc) {
+        n = 0; inq = 0; esc = 0; cur = ""
+        for (i = 1; i <= length(s); i++) {
+            c = substr(s, i, 1)
+            if (!inq) { if (c == "\"") { inq = 1; cur = "" }; continue }
+            if (esc) { cur = cur c; esc = 0; continue }
+            if (c == "\\") { cur = cur c; esc = 1; continue }
+            if (c == "\"") { out[++n] = cur; inq = 0; continue }
+            cur = cur c
+        }
+        return n
+    }
+    function wcand(ty, t, a, n, rk) {
+        if (a in isde) return
+        if (!(a in wcr)) wca[nwc++] = a
+        if (!(a in wcr) || rk < wcr[a]) { wcr[a] = rk; wct[a] = t; wcy[a] = ty; wcn[a] = n }
+    }
+    function wbefore(a, b) { if (wcr[a] != wcr[b]) return wcr[a] < wcr[b]; return albefore(wct[a], a, wct[b], b) }
     BEGIN {
         ts = ENVIRON["SC_TS"] + 0; hold = ENVIRON["SC_HOLD"] + 0; win = ENVIRON["SC_WIN"] + 0
         mode = ENVIRON["SC_BTMODE"] + 0; trf = ENVIRON["SC_TRAFFIC"] + 0; btsrc = ENVIRON["SC_BTSRC"]
         nrec = 0; added = 0; cdone = 0; adone = 0; btline = ""; actline = ""; tstat = "off"; nout = 0
         alline = ""; alent = 0; alskip = 0; alnap = 0
+        # the class tables (btclass): Apple Continuity message types by the mfr head (company 004C little-endian, then the type byte);
+        # 16-bit services (Fast Pair, Eddystone, HID, environmental sensing); appearance categories 1..21 without the health ones and 11
+        mcl["4C0012"] = "finder frame"; mcl["4C0007"] = "pairing frame"; mcl["4C0002"] = "beacon"
+        mcl["4C0010"] = "device message"; mcl["4C000F"] = "device message"; mcl["4C000C"] = "device message"; mcl["4C0005"] = "device message"
+        scl["FE2C"] = "pairing frame"; scl["FEAA"] = "beacon"; scl["1812"] = "input device"; scl["181A"] = "sensor"
+        acl[1] = "phone"; acl[2] = "computer"; acl[3] = "watch"; acl[5] = "display"; acl[6] = "remote control"; acl[8] = "tag"; acl[9] = "keyring"
+        acl[10] = "media player"; acl[15] = "input device"; acl[21] = "sensor"
+        # the Remote ID words (ridmerge, ridpos): the UA types 0-15, the status 0-4 and the id types 0-4 of ASTM F3411; rcand counts the decodes of a cycle
+        rcand = 0
+        split("none aeroplane multirotor gyroplane vtol ornithopter glider kite free-balloon captive-balloon airship free-fall rocket tethered obstacle other", RUA, " ")
+        split("undeclared ground airborne emergency failure", RST, " ")
+        split("none serial registration utm session", RIT, " ")
         alf = ENVIRON["SC_ALF"]
         if (alf != "" && ts > 0) {
             alwin = ENVIRON["SC_ALWIN"] + 0
@@ -1631,9 +1856,130 @@ AWK_LAYERS='
                 alst[alj] = ale; alsa[alj] = alp
                 if (alent < 20) alent++
             }
+            for (ali = 0; ali < alent; ali++) { alty[ali] = "deauth"; alnn[ali] = alcnt[alsa[ali]]; isde[alsa[ali]] = 1 }
+        }
+        wids = (ENVIRON["SC_WIDS"] == "1"); nwid = 0; nwc = 0
+        if (wids && ts > 0) {
+            alwin = ENVIRON["SC_ALWIN"] + 0
+            # the document: the own transmitters of center (STARCHORUS_OWN=1) and the access points, one line each as every source writes them
+            wdoc = ENVIRON["SC_DOC"]; wnap = 0; wnob = 0; wnos = 0
+            while ((getline line < wdoc) > 0) {
+                if (index(line, "  \"center\": {") == 1) {
+                    if ((wp = index(line, "\"own_bssids\": [")) > 0) { ws = substr(line, wp + 15); ws = substr(ws, 1, index(ws, "]") - 1); wnob = qlist(ws, wob) }
+                    if ((wp = index(line, "\"own_ssids\": [")) > 0) {
+                        ws = substr(line, wp + 14); wq = 0
+                        for (wk = length(ws); wk > 0; wk--) if (substr(ws, wk, 1) == "]") { wq = wk; break }
+                        if (wq) wnos = qlist(substr(ws, 1, wq - 1), wos)
+                    }
+                } else if (index(line, "    {\"bssid\": \"") == 1) {
+                    wb = ""; wsid = ""; wch = ""; wsec = ""; wr = -200
+                    if (match(line, /"bssid": "[^"]*"/)) wb = tolower(substr(line, RSTART + 10, RLENGTH - 11))
+                    if (match(line, /"ssid": "([^"\\]|\\.)*"/)) wsid = substr(line, RSTART + 9, RLENGTH - 10)
+                    if (match(line, /"channel": [0-9]+/)) wch = substr(line, RSTART + 11, RLENGTH - 11) ""
+                    if (match(line, /"rssi": -?[0-9]+/)) wr = substr(line, RSTART + 8, RLENGTH - 8) + 0
+                    if (match(line, /"security": "[^"]*"/)) wsec = substr(line, RSTART + 13, RLENGTH - 14)
+                    if (wb ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ && !(wb in wapx)) {
+                        wapx[wb] = 1; wapb[wnap] = wb; waps[wnap] = wsid; wapc[wnap] = wch; wapf[wnap] = secfam(wsec); wapr[wnap] = wr; wnap++
+                    }
+                }
+            }
+            close(wdoc)
+            # own_name: a name of the own transmitters sent by an address that is not one of them; one entry per name, at the strongest such address, n = how many
+            if (wnos > 0) {
+                for (wk = 1; wk <= wnob; wk++) wisob[tolower(wob[wk])] = 1
+                for (wk = 1; wk <= wnos; wk++) wisos[wos[wk]] = 1
+                for (wi = 0; wi < wnap; wi++) {
+                    if (waps[wi] == "" || !(waps[wi] in wisos) || (wapb[wi] in wisob)) continue
+                    wonc[waps[wi]]++
+                    if (!(waps[wi] in wonb) || wapr[wi] > wonr[waps[wi]]) { wonb[waps[wi]] = wapb[wi]; wonr[waps[wi]] = wapr[wi] }
+                }
+                for (wk in wonc) wcand("own_name", ts, wonb[wk], wonc[wk], 1)
+            }
+            # sec_profiles: one name, two or more security families (open, also OWE; wep; legacy WPA; psk WPA2/WPA3; enterprise); unknown labels and
+            # empty names say nothing; the entry sits at the weakest address, n = the families
+            for (wi = 0; wi < wnap; wi++) {
+                if (waps[wi] == "" || wapf[wi] == "") continue
+                wk = waps[wi] SUBSEP wapf[wi]
+                if (!(wk in wspf)) { wspf[wk] = 1; wspn[waps[wi]]++ }
+                if (!(waps[wi] in wspw) || famrank(wapf[wi]) < wspr[waps[wi]] || (famrank(wapf[wi]) == wspr[waps[wi]] && wapr[wi] > wsps[waps[wi]])) { wspw[waps[wi]] = wapb[wi]; wspr[waps[wi]] = famrank(wapf[wi]); wsps[waps[wi]] = wapr[wi] }
+            }
+            for (wk in wspn) if (wspn[wk] >= 2) wcand("sec_profiles", ts, wspw[wk], wspn[wk], 3)
+            # sec_weaker and chan_changed: the memory of the access points (family and channel, since when and until when; a pending profile and since
+            # when; the alarm, its time and count). A profile that stood for five minutes and gives way to another that holds for a minute is a change:
+            # to a weaker family (open, wep, legacy) sec_weaker, to another channel chan_changed; the first sight of an address says nothing, a profile
+            # that comes and goes within the minute says nothing (an address missing from the document of a cycle drops its pending profile), and an alarm lives for the alert window. An address not heard for a day is forgotten.
+            wsh = ENVIRON["SC_WSH"]; wnws = 0
+            while ((getline line < wsh) > 0) {
+                if (split(line, wz, "|") < 11 || wz[1] !~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ || wz[4] !~ /^[0-9]+$/ || wz[5] !~ /^[0-9]+$/) continue
+                if ((wz[1] in wsi) || wz[5] + 0 < ts - 86400) continue
+                wj = wnws++; wsi[wz[1]] = wj
+                wsb[wj] = wz[1]; wsf[wj] = wz[2]; wsc[wj] = wz[3]; wss[wj] = wz[4] + 0; wsl[wj] = wz[5] + 0; wpf[wj] = wz[6]; wpc[wj] = wz[7]
+                wps[wj] = (wz[8] ~ /^[0-9]+$/) ? wz[8] + 0 : 0; wat[wj] = wz[9]; wam[wj] = (wz[10] ~ /^[0-9]+$/) ? wz[10] + 0 : 0; wac[wj] = (wz[11] ~ /^[0-9]+$/) ? wz[11] + 0 : 0
+            }
+            close(wsh)
+            for (wi = 0; wi < wnap; wi++) {
+                if (wapf[wi] == "" && wapc[wi] == "") { if (wapb[wi] in wsi) wvis[wsi[wapb[wi]]] = 1; continue }   # no known profile is no evidence either way; the address is in the document, so its pending profile stays
+                wb = wapb[wi]; wf = wapf[wi]; wch = wapc[wi]
+                if (!(wb in wsi)) {   # a first sight says nothing; the memory holds at most 500 addresses, a new one waits until an old one is forgotten
+                    if (wnws >= 500) continue
+                    wj = wnws++; wsi[wb] = wj; wsb[wj] = wb; wsf[wj] = wf; wsc[wj] = wch; wss[wj] = ts; wsl[wj] = ts; wpf[wj] = ""; wpc[wj] = ""; wps[wj] = 0; wat[wj] = ""; wam[wj] = 0; wac[wj] = 0; wvis[wj] = 1
+                    continue
+                }
+                wj = wsi[wb]; wvis[wj] = 1
+                if (ts < wsl[wj]) { wsl[wj] = ts; if (ts < wss[wj]) wss[wj] = ts; if (wps[wj] > ts) wps[wj] = ts; if (wam[wj] > ts) { wat[wj] = ""; wam[wj] = 0; wac[wj] = 0 } }   # a clock that moved back: no span below zero, an alarm timed after now is void
+                wfd = (wf != "" && wsf[wj] != "" && wf != wsf[wj]); wcd = (wch != "" && wsc[wj] != "" && wch != wsc[wj])   # an unknown family or channel is no evidence of a change
+                if (!wfd && !wcd) { wsl[wj] = ts; if (wsf[wj] == "") wsf[wj] = wf; if (wsc[wj] == "") wsc[wj] = wch; wpf[wj] = ""; wpc[wj] = ""; wps[wj] = 0 }
+                else if (wps[wj] > 0 && wf == wpf[wj] && wch == wpc[wj]) {
+                    if (ts - wps[wj] >= 60) {
+                        wstable = (wsl[wj] - wss[wj] >= 300)
+                        if (wstable && wfd && famrank(wf) < famrank(wsf[wj]) && famrank(wf) <= 2) wty = "sec_weaker"
+                        else if (wstable && wcd) wty = "chan_changed"
+                        else wty = ""
+                        if (wty != "") { if (wat[wj] == wty && ts - wam[wj] <= alwin) wac[wj]++; else wac[wj] = 1; wat[wj] = wty; wam[wj] = ts }
+                        if (wf != "") wsf[wj] = wf; if (wch != "") wsc[wj] = wch; wss[wj] = wps[wj]; wsl[wj] = ts; wpf[wj] = ""; wpc[wj] = ""; wps[wj] = 0   # known values only: an unknown label at a confirmed channel change leaves the remembered family, so a later drop is still seen
+                    }
+                } else { wpf[wj] = wf; wpc[wj] = wch; wps[wj] = ts }
+                if (wat[wj] != "" && ts - wam[wj] <= alwin) wcand(wat[wj], wam[wj], wb, wac[wj], (wat[wj] == "sec_weaker") ? 2 : 4)
+            }
+            # bt_fixed_new: the W-lines of the blue5 source (bt_blue5_sql), t = the last row, n = the reports
+            if (mode == 1 && btsrc == "blue5") {
+                f = ENVIRON["SC_BTP"]
+                while ((getline line < f) > 0) {
+                    if (split(line, c, "\t") >= 6 && c[1] == "W" && c[2] ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ && c[4] ~ /^[0-9]+$/ && c[4] + 0 > 0 && c[6] ~ /^[0-9]+$/ && c[6] + 0 <= ts) wcand("bt_fixed_new", c[6] + 0, c[2], c[4] + 0, 5)
+                }
+                close(f)
+            }
+            # the eight best candidates by rank, then newest, then address (an insertion into eight slots: the cost stays linear in the candidates),
+            # never at the cost of a deauth entry; then the whole list newest first
+            nco = 0
+            for (wk = 0; wk < nwc; wk++) {
+                wa = wca[wk]
+                if (nco == 8 && !wbefore(wa, wco[7])) continue
+                wm = (nco < 8) ? nco : 7
+                while (wm > 0 && wbefore(wa, wco[wm - 1])) { wco[wm] = wco[wm - 1]; wm-- }
+                wco[wm] = wa; if (nco < 8) nco++
+            }
+            for (wk = 0; wk < nco && alent < 20 && nwid < 8; wk++) { wa = wco[wk]; alst[alent] = wct[wa]; alsa[alent] = wa; alty[alent] = wcy[wa]; alnn[alent] = wcn[wa]; alent++; nwid++ }
+            for (wk = 1; wk < alent; wk++) {
+                wt1 = alst[wk]; wa1 = alsa[wk]; wy1 = alty[wk]; wn1 = alnn[wk]; wm = wk
+                while (wm > 0 && albefore(wt1, wa1, alst[wm - 1], alsa[wm - 1])) { alst[wm] = alst[wm - 1]; alsa[wm] = alsa[wm - 1]; alty[wm] = alty[wm - 1]; alnn[wm] = alnn[wm - 1]; wm-- }
+                alst[wm] = wt1; alsa[wm] = wa1; alty[wm] = wy1; alnn[wm] = wn1
+            }
+            # the memory for the next cycle (at most 500 addresses: a new one is taken only while there is room, see above)
+            wsn = ENVIRON["SC_WSN"]
+            for (wk = 0; wk < wnws; wk++) if (!(wk in wvis)) { wpf[wk] = ""; wpc[wk] = ""; wps[wk] = 0 }   # an address not in the document of this cycle drops its pending profile: a change is a new profile held for a minute, cycle after cycle (the minute counts from its return)
+            for (wk = 0; wk < wnws; wk++) printf "%s|%s|%s|%d|%d|%s|%s|%d|%s|%d|%d\n", wsb[wk], wsf[wk], wsc[wk], wss[wk], wsl[wk], wpf[wk], wpc[wk], wps[wk], wat[wk], wam[wk], wac[wk] > wsn
+            close(wsn)
+        }
+        if (alent > 0) {
             alo = ""
-            for (ali = 0; ali < alent; ali++) alo = alo (ali ? ", " : "") sprintf("{\"type\": \"deauth\", \"t\": %d, \"ap\": \"%s\", \"n\": %d}", alst[ali], alsa[ali], alcnt[alsa[ali]])
-            if (alent > 0) alline = "  \"alerts\": [" alo "],"
+            for (ali = 0; ali < alent; ali++) alo = alo (ali ? ", " : "") sprintf("{\"type\": \"%s\", \"t\": %d, \"ap\": \"%s\", \"n\": %d}", alty[ali], alst[ali], alsa[ali], alnn[ali])
+            alline = "  \"alerts\": [" alo "],"
+        }
+        if (mode != 0) {   # the Remote ID identity held for an address (field 12 of a held line), merged when the address is heard again this cycle
+            f = ENVIRON["SC_BTH"]
+            while ((getline line < f) > 0) if (split(line, c, "\t") >= 12 && c[12] != "") hid[c[1]] = c[12]
+            close(f)
         }
         if (mode == 1) {
             f = ENVIRON["SC_BTP"]
@@ -1641,7 +1987,11 @@ AWK_LAYERS='
                 if (split(line, c, "\t") >= 9 && c[1] == "B") {
                     ls = (c[10] ~ /^[0-9]+$/) ? c[10] + 0 : ts   # a blue5 B-line carries the real last_seen in a 10th field; a window line has none (-> ts, heard now)
                     if (ls > ts) ls = ts                         # never later than the document that holds it (a clock that moved back)
-                    if (ls >= ts - hold) addrec(c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], ls, 0)
+                    if (ls >= ts - hold) {
+                        riA = (c[2] in hid) ? hid[c[2]] : ""; riP = ""
+                        if (c[14] != "" && rcand < 8 && ridec(c[14])) { rcand++; riA = ridmerge(riA); riP = ridpos() }   # field 14 (blue5 only): the Remote ID service data; eight decoded addresses a cycle, the strongest first
+                        addrec(c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], ls, 0, btclass(c[11], c[12], c[13], c[6]), riA, riP)   # fields 11-13 (blue5 only): the class columns, cut in SQL
+                    }
                 }
             }
             close(f)
@@ -1649,9 +1999,9 @@ AWK_LAYERS='
         if (mode != 0) {
             f = ENVIRON["SC_BTH"]
             while ((getline line < f) > 0) {
-                if (split(line, c, "\t") < 10 || (c[1] in have)) continue
+                if ((hfn = split(line, c, "\t")) < 10 || (c[1] in have)) continue
                 if (c[9] + 0 > ts || c[9] + 0 < ts - hold || c[10] + 1 > 4) continue
-                addrec(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10] + 1)
+                addrec(c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10] + 1, (hfn >= 11) ? c[11] : "", (hfn >= 12) ? c[12] : "", "")   # field 11 = the class, 12 = the Remote ID identity (0.2.7); a held line without them carries none, and a position is never carried
             }
             close(f)
             sortix(nrec, ix)
@@ -1665,8 +2015,10 @@ AWK_LAYERS='
                 if (cnm[i] != "") o = o ", \"company_name\": \"" jesc(cnm[i]) "\""
                 if (nmx[i] != "") o = o ", \"name\": \"" jesc(nmx[i]) "\""
                 if (cnx[i]) o = o ", \"connectable\": true"
+                if (cls[i] != "") o = o ", \"class\": \"" jesc(cls[i]) "\""   # only when set: a record without one is byte-identical to one of 0.2.6
+                if (rida[i] != "" || ridp[i] != "") { ro = ridobj(rida[i], ridp[i]); if (ro != "") o = o ", \"remote_id\": {" ro "}" }   # the last key, only with a field
                 o = o "}"
-                printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\n", ad[i], tp[i], rr[i], rp[i], cmp[i], cnm[i], nmx[i], cnx[i], lsn[i], car[i] > nf
+                printf "%s\t%s\t%d\t%d\t%s\t%s\t%s\t%d\t%d\t%d\t%s\t%s\n", ad[i], tp[i], rr[i], rp[i], cmp[i], cnm[i], nmx[i], cnx[i], lsn[i], car[i], cls[i], rida[i] > nf
             }
             close(nf)
             btline = "  \"bluetooth\": [" o "],"
@@ -1717,7 +2069,7 @@ AWK_LAYERS='
     }
     END {
         sf = ENVIRON["SC_STAT"]
-        printf "added %d\nbt %d\ntraffic %s\ncenter %d\nalerts %d\naskip %d\n", added, (mode != 0 ? nout : -1), tstat, cdone, alent, alskip > sf
+        printf "added %d\nbt %d\ntraffic %s\ncenter %d\nalerts %d\naskip %d\nwids %d\n", added, (mode != 0 ? nout : -1), tstat, cdone, alent, alskip, nwid > sf
         close(sf)
     }
 '
@@ -1743,7 +2095,12 @@ add_layers() {
     al_b="$TMPDIR_RAM/starchorus-bt-$$"
     al_um=$(umask); umask 077; : > "$al_b.held" 2>/dev/null; : > "$al_b.new" 2>/dev/null; umask "$al_um"   # addresses: for this process only
     if [ -n "$BT_HELD" ]; then printf '%s\n' "$BT_HELD" > "$al_b.held" 2>/dev/null; fi
+    if [ "$WIDS" = 1 ]; then   # the WIDS memory in, the new one out (AWK_LAYERS; run_layers keeps it): for this process only
+        umask 077; : > "$al_b.wseen" 2>/dev/null; : > "$al_b.wnew" 2>/dev/null; umask "$al_um"
+        [ -z "$WIDS_SEEN" ] || printf '%s\n' "$WIDS_SEEN" > "$al_b.wseen" 2>/dev/null
+    fi
     al_w=0; [ "$2" != 1 ] || al_w=$BT_WIN
+    al_doc=$1   # the document once more, for the WIDS block (getline over its lines before the pass); the pass itself reads it as stdin and writes $1.l
     al_f=""
     if [ "$AL_ON" = 1 ]; then
         umask 077; : > "$al_b.alog" 2>/dev/null; umask "$al_um"   # addresses again
@@ -1751,7 +2108,8 @@ add_layers() {
         else bt_issue alertsread "Alerts: $ALERT_DIR/alerts.log could not be read; no alerts this cycle"; fi
     fi
     SC_TS=$ts SC_HOLD=$BT_HOLD SC_WIN=$al_w SC_BTMODE=$2 SC_BTSRC="$3" SC_TRAFFIC=$TRAFFIC SC_BTP="$BT_F.out" SC_BTH="$al_b.held" SC_BTN="$al_b.new" \
-        SC_TRF="$TMPDIR_RAM/starchorus-traffic-$$.json" SC_ALF="$al_f" SC_ALWIN=$ALERT_WIN SC_STAT="$al_b.stat" LC_ALL=C awk "$AWK_JSON_HELPERS$AWK_LAYERS" < "$1" > "$1.l" 2>/dev/null
+        SC_TRF="$TMPDIR_RAM/starchorus-traffic-$$.json" SC_ALF="$al_f" SC_ALWIN=$ALERT_WIN SC_WIDS=$WIDS SC_DOC="$al_doc" SC_WSH="$al_b.wseen" SC_WSN="$al_b.wnew" \
+        SC_STAT="$al_b.stat" LC_ALL=C awk "$AWK_JSON_HELPERS$AWK_LAYERS" < "$1" > "$1.l" 2>/dev/null
     post_keep "$1" l $? "$(sed -n 's/^added //p' "$al_b.stat" 2>/dev/null)" || return 1
     al_k=$(sed -n 's/^askip //p' "$al_b.stat" 2>/dev/null)
     case $al_k in
@@ -1779,16 +2137,17 @@ run_layers() {
     fi
     if [ -n "$TR_PID" ]; then wait "$TR_PID" 2>/dev/null; TR_PID=""; fi
     rl_b="$TMPDIR_RAM/starchorus-bt-$$"
-    if [ "$rl_m" != 0 ] || [ "$TRAFFIC" = 1 ] || [ "$AL_ON" = 1 ]; then
+    if [ "$rl_m" != 0 ] || [ "$TRAFFIC" = 1 ] || [ "$AL_ON" = 1 ] || [ "$WIDS" = 1 ]; then
         if add_layers "$1" "$rl_m" "$rl_src"; then
             [ "$rl_m" = 0 ] || BT_HELD=$(cat "$rl_b.new" 2>/dev/null)
+            [ "$WIDS" != 1 ] || WIDS_SEEN=$(cat "$rl_b.wnew" 2>/dev/null)
         fi
         if [ "$TRAFFIC" = 1 ] && [ "$(sed -n 's/^traffic //p' "$rl_b.stat" 2>/dev/null)" != ok ] && [ "$(sed -n 's/^traffic //p' "$rl_b.stat" 2>/dev/null)" != none ]; then
             bt_issue traffic "Traffic: the AP service gave no usable channel list"
             TR_REUSE=0   # an answer that gave nothing is not carried to the next cycle: that one calls again
         fi
     fi
-    rm -f "$rl_b.held" "$rl_b.new" "$rl_b.stat" "$rl_b.alog" 2>/dev/null
+    rm -f "$rl_b.held" "$rl_b.new" "$rl_b.stat" "$rl_b.alog" "$rl_b.wseen" "$rl_b.wnew" 2>/dev/null
     # the answer file stays for the cycle that reads it again (TR_REUSE, run_cycle); in any other case it goes with the cycle
     [ "$TR_REUSE" = 1 ] || rm -f "$TMPDIR_RAM/starchorus-traffic-$$.json" 2>/dev/null
     [ -z "$BT_F" ] || rm -f "$BT_F.out" 2>/dev/null
@@ -1928,6 +2287,7 @@ find_btco_file() {
 }
 # setup_btco: choose the company list, where setup_vendor chooses the OUI file; it logs only when its state changes.
 setup_btco() {
+    BTCO_MEMO=""   # at start and at every re-check (120 cycles: an hour at the payload's interval of 30 s) the identifiers are looked up afresh, so a changed list is read by the next re-check
     BTCO_PATH=$(find_btco_file); bc_r=$?
     if [ -z "$BTCO_PATH" ]; then
         if [ "$bc_r" = 2 ]; then
@@ -1945,11 +2305,34 @@ setup_btco() {
 # btco_fill: stdin = the B-lines of the blue5 source, stdout = the same lines with the company name (field 7) filled from the
 # list where field 6 holds an identifier and the name is still blank; without a list the lines pass unchanged. The identifier is
 # looked up as four upper-case hex digits; the first line of an identifier wins; a name is cut to 48 characters, the page's own cap.
+# The identifiers earlier cycles looked up are held in BTCO_MEMO (id<TAB>name; an empty name = not in the list), and the list is read
+# only when a line carries an identifier the memo does not hold: on the device one pass over its 4,041 lines cost about 100 ticks of a
+# 520-tick cycle (1 November 2026), in every cycle, for a few dozen companies that do not change. The identifiers this pass looked up go to
+# $BT_F.co for btco_memo_take, which the caller runs after the pipeline (awk runs in a subshell here and cannot set the variable itself).
+# The list and the side file reach awk through the environment, never through -v, which reads backslash escapes in a path (the rule of
+# add_vendor). A list that cannot be read this cycle records nothing: its identifiers are looked up again next cycle.
 btco_fill() {
     if [ -z "$BTCO_PATH" ]; then cat; return 0; fi
-    awk -F"$RECON_TAB" -v OFS="$RECON_TAB" -v tbl="$BTCO_PATH" '
-        BEGIN { while ((getline l < tbl) > 0) { if (l ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][\t ]/) { k = toupper(substr(l, 1, 4)); v = substr(l, 6); sub(/^[\t ]+/, "", v); sub(/[\r\t ]+$/, "", v); if (v != "" && !(k in nm)) nm[k] = v } } close(tbl) }
-        { if (NF >= 7 && $6 ~ /^[0-9]+$/ && $7 == "") { k = sprintf("%04X", $6 + 0); if (k in nm) $7 = substr(nm[k], 1, 48) } print }'
+    SC_BTCO_MEMO=$BTCO_MEMO SC_BTCO_TBL=$BTCO_PATH SC_BTCO_CO="$BT_F.co" awk -F"$RECON_TAB" -v OFS="$RECON_TAB" '
+        BEGIN { tbl = ENVIRON["SC_BTCO_TBL"]; co = ENVIRON["SC_BTCO_CO"]; n = split(ENVIRON["SC_BTCO_MEMO"], M, "\n"); for (i = 1; i <= n; i++) if (M[i] ~ /^[0-9A-F][0-9A-F][0-9A-F][0-9A-F]\t/) nm[substr(M[i], 1, 4)] = substr(M[i], 6) }
+        { L[++nl] = $0; if (NF >= 7 && $6 ~ /^[0-9]+$/ && $7 == "") { k = sprintf("%04X", $6 + 0); if (!(k in nm) && !(k in miss)) { miss[k] = 1; nmiss++ } } }
+        END {
+            if (nmiss && (getline l < tbl) > 0) {   # a list that cannot be read this cycle records nothing
+                do { if (l ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][\t ]/) { k = toupper(substr(l, 1, 4)); if ((k in miss) && !(k in got)) { v = substr(l, 6); sub(/^[\t ]+/, "", v); sub(/[\r\t ]+$/, "", v); if (v != "") got[k] = substr(v, 1, 48) } } } while ((getline l < tbl) > 0)
+                close(tbl)
+                for (k in miss) { nm[k] = (k in got) ? got[k] : ""; print k "\t" nm[k] > co }
+                close(co)
+            }
+            for (i = 1; i <= nl; i++) { $0 = L[i]; if (NF >= 7 && $6 ~ /^[0-9]+$/ && $7 == "") { k = sprintf("%04X", $6 + 0); if ((k in nm) && nm[k] != "") $7 = nm[k] } print }
+        }'
+}
+# btco_memo_take: after the pipeline, fold the identifiers btco_fill looked up ($BT_F.co) into BTCO_MEMO, newest last and at most 512 lines;
+# a line that is not id<TAB>name is dropped. setup_btco empties the memo, so the list is read again at the re-check every 120 cycles.
+btco_memo_take() {
+    if [ -s "$BT_F.co" ]; then
+        BTCO_MEMO=$(printf '%s\n' "$BTCO_MEMO" | cat - "$BT_F.co" | grep -E "^[0-9A-F][0-9A-F][0-9A-F][0-9A-F]$RECON_TAB" | tail -n 512)
+    fi
+    rm -f "$BT_F.co" 2>/dev/null
 }
 
 # The OUI index. Without an index a new prefix costs a pass over the whole OUI file (38,959 lines on the device, about 14 s of its CPU in awk), and in a
@@ -1987,7 +2370,7 @@ oui_index_ok() {   # 0 = $CAPDIR/oui-index was built from the OUI file OUI_HDR n
     set -- $ovf
     ix_c=$((257 + 255 * $#))      # 256 octets and hdr, 255 more for each split octet
     set -- "$CAPDIR/oui-index"/*
-    [ $# -eq $ix_c ]
+    [ $# -eq "$ix_c" ]
 }
 oui_index() {   # sets OUI_IDX; builds the index when it is not there for this OUI file
     OUI_IDX=""
@@ -2452,7 +2835,7 @@ add_vendor() {
     elif [ "$1" != "defer" ]; then
         vendor_merge
     fi
-    return $arc
+    return "$arc"
 }
 # Merge the lines a deferred add_vendor gathered (VENDOR_NEWF) into the cache and drop the temp
 # file; with $1 = "discard" the lines are dropped unmerged (the pass's JSON was rejected).
@@ -3876,6 +4259,78 @@ rs_cfg() {   # RS_CFGNOW = what the document depends on besides recon.db: a chan
     RS_CFGNOW="$MAX_AGE|$INTERVAL|$VENDOR|$HOPINFO|$OUTFILE|$RECON_DB|$OUI_PATH|$CENTER_LABEL|$BLUETOOTH|$TRAFFIC"
 }
 homing_off() { [ -z "$HOMING_BSSID" ] && [ ! -e "$OUTDIR/homing.target" ]; }   # no target, no file: no process needed to know
+
+# The watch list (0.2.7): $OUTDIR/watch.list, or STARCHORUS_WATCH_FILE (tests). wl_look: three shell tests and no process (the file must be a readable
+# regular file with something in it; a directory, a pipe or an unreadable file is said once per episode). wl_apply: one awk over the finished document
+# (after the layers, on what is published) that marks the records whose address or name is listed with "watched": true right after the address: access
+# points by bssid or by ssid (never a probe, a Bluetooth name or a hidden network), their clients and the unassociated stations by mac, the Bluetooth records
+# by addr. The list is read with getline, its entries are only ever hash keys (never in a command, never in a regex), a name is compared after jesc so that
+# it meets the document's own escaping, and at most 64 entries are taken from at most 512 lines or 8 KiB. post_keep guards the shape: a pass that fails
+# leaves the document as it was. The list leaves the device never: not in the document, not in the log.
+wl_look() {
+    WL_ON=0; if [ -n "$WL_FILE" ]; then wl_f=$WL_FILE; else wl_f=$OUTDIR/watch.list; fi   # assigned, not substituted: no fork; wl_apply reads wl_f
+    [ -e "$wl_f" ] || return 0
+    if [ -f "$wl_f" ] && [ -r "$wl_f" ]; then [ -s "$wl_f" ] && WL_ON=1
+    else bt_issue wlread "Watch list: $wl_f is not a readable file; no marks this cycle"
+    fi
+    return 0
+}
+wl_apply() {   # $1 = the document; the marks in place (post_keep)
+    [ "$WL_ON" = 1 ] || return 0
+    wl_st="$TMPDIR_RAM/starchorus-wl-$$.stat"; wl_um=$(umask); umask 077; : > "$wl_st" 2>/dev/null; umask "$wl_um"
+    SC_WL="$wl_f" SC_WLS="$wl_st" LC_ALL=C awk "$AWK_JSON_HELPERS"'
+        function wl_mac(s,   t) {   # six hex pairs with : or -, or twelve hex digits -> lower-case xx:xx:xx:xx:xx:xx; "" when it is no address
+            t = tolower(s); gsub(/-/, ":", t)
+            if (t ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/) return t
+            if (t ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) return substr(t, 1, 2) ":" substr(t, 3, 2) ":" substr(t, 5, 2) ":" substr(t, 7, 2) ":" substr(t, 9, 2) ":" substr(t, 11, 2)
+            return ""
+        }
+        function wl_marks(line, key,   out, p, q, a, rest) {   # every KEY"xx:xx:xx:xx:xx:xx" whose address is listed gets , "watched": true after its value
+            out = ""; rest = line
+            while ((p = index(rest, key)) > 0) {
+                q = p + length(key); a = tolower(substr(rest, q, 17))
+                if (substr(rest, q + 17, 1) == "\"" && (a in wmac)) { out = out substr(rest, 1, q + 17) ", \"watched\": true"; rest = substr(rest, q + 18); nmk++ }
+                else { out = out substr(rest, 1, q - 1); rest = substr(rest, q) }
+            }
+            return out rest
+        }
+        BEGIN {
+            f = ENVIRON["SC_WL"]; nl = 0; nb = 0; ne = 0; bad = 0; over = 0; nmk = 0
+            while (nl < 512 && nb < 8192 && (getline line < f) > 0) {
+                nl++; nb += length(line) + 1
+                if (nl == 1 && substr(line, 1, 3) == "\357\273\277") line = substr(line, 4)
+                sub(/\r$/, "", line); sub(/^[ \t]+/, "", line)
+                if (line == "" || substr(line, 1, 1) == "#") continue
+                kind = ""; v = line
+                if (tolower(substr(line, 1, 4)) == "mac:") { kind = "mac"; v = substr(line, 5) } else if (tolower(substr(line, 1, 5)) == "ssid:") { kind = "ssid"; v = substr(line, 6) }
+                m = ""; if (kind != "ssid") m = wl_mac(v)
+                if (m == "" && kind == "" && (v ~ /^[0-9A-Fa-f][0-9A-Fa-f][:-][0-9A-Fa-f][0-9A-Fa-f][:-]/ || (length(v) > 12 && substr(v, 1, 12) ~ /^[0-9A-Fa-f]+$/ && substr(v, 13, 1) !~ /[0-9A-Fa-f]/))) { bad++; continue }   # begins like an address (two hex pairs with : or -, or twelve hex digits and then something else) and is not one: a bad line, said once, never a name; a name that begins so takes the prefix ssid:
+                if (m == "" && (kind == "mac" || length(v) < 1 || length(v) > 32)) { bad++; continue }   # judged before the cap: a bad line is said wherever it stands
+                if (ne >= 64) { over = 1; continue }
+                if (m != "") { if (!(m in wmac)) { wmac[m] = 1; ne++ } } else { k = jesc(v); if (!(k in wsid)) { wsid[k] = 1; ne++ } }
+            }
+            close(f)
+        }
+        {
+            if (index($0, "    {\"bssid\": \"") == 1) {
+                match($0, /^    \{"bssid": "[^"]*"/); hl = RLENGTH
+                a = tolower(substr($0, 16, hl - 16)); mark = (a in wmac)
+                if (!mark && match($0, /"ssid": "([^"\\]|\\.)*"/)) { s = substr($0, RSTART + 9, RLENGTH - 10); if (s != "" && (s in wsid)) mark = 1 }
+                if (mark) { $0 = substr($0, 1, hl) ", \"watched\": true" substr($0, hl + 1); nmk++ }
+                $0 = wl_marks($0, "\"mac\": \"")
+            } else if (index($0, "    {\"mac\": \"") == 1) $0 = wl_marks($0, "\"mac\": \"")
+            else if (index($0, "  \"bluetooth\": [") == 1) $0 = wl_marks($0, "\"addr\": \"")
+            print
+        }
+        END { sf = ENVIRON["SC_WLS"]; printf "entries %d\nbad %d\nover %d\nmarks %d\n", ne, bad, over, nmk > sf; close(sf) }
+    ' < "$1" > "$1.w" 2>/dev/null
+    wl_rc=$?
+    post_keep "$1" w "$wl_rc" 0 || { rm -f "$wl_st" 2>/dev/null; return 1; }
+    wl_b=$(sed -n 's/^bad //p' "$wl_st" 2>/dev/null); wl_o=$(sed -n 's/^over //p' "$wl_st" 2>/dev/null); rm -f "$wl_st" 2>/dev/null
+    case $wl_b in ''|0|*[!0-9]*) ;; *) bt_issue wlbad "Watch list: $wl_b line(s) are neither an address nor a name of 1 to 32 bytes, or begin like an address and are not one (a name that begins so takes the prefix ssid:); they are skipped" ;; esac
+    [ "$wl_o" != 1 ] || bt_issue wlover "Watch list: more than 64 entries; the first 64 are taken"
+    return 0
+}
 recon_unchanged() {   # $1 = now, RS_RAW = this cycle's sample. 0 = the document of the last full pass still stands
     [ "$SKIP_UNCHANGED" = 1 ] && [ -n "$RS_SIG" ] && [ "${1:-0}" -gt 0 ] 2>/dev/null || return 1
     [ "$RS_SKIPS" -lt "$SKIP_MAX" ] && [ -n "$RS_DOCV" ] && [ "$SURVEY" != 1 ] && [ "$OWN" != 1 ] || return 1
@@ -4008,7 +4463,8 @@ run_cycle() {
        && homing_off && rs_keepdoc "$tmp" "$DOC_N"; then rs_kept=1; fi
     # the layers of this cycle, on the document that is published (never on the base kept above)
     alerts_look
-    if [ "$BLUETOOTH" = 1 ] || [ "$TRAFFIC" = 1 ] || [ "$AL_ON" = 1 ]; then run_layers "$tmp"; fi
+    if [ "$BLUETOOTH" = 1 ] || [ "$TRAFFIC" = 1 ] || [ "$AL_ON" = 1 ] || [ "$WIDS" = 1 ]; then run_layers "$tmp"; fi
+    wl_look; if [ "$WL_ON" = 1 ] && [ "$rc_keep" != 1 ]; then wl_apply "$tmp"; fi   # the watch list marks what is published, after the layers (never the kept base)
     if [ "$rc_keep" = 1 ]; then rm -f "$tmp" 2>/dev/null
     elif ! mv -f "$tmp" "$OUTFILE" 2>/dev/null; then    # atomic replace
         rc_pub=1; rm -f "$tmp" 2>/dev/null
@@ -4529,14 +4985,14 @@ lay_selftest() {
     lay_get() { grep '^  "bluetooth"' "$LAY/doc.json" | sed 's/}, {/}\
 {/g' | grep "\"addr\": \"$1\""; }   # the record of an address, or nothing
     A=02:00:00:00:01:0a; B=02:00:00:00:01:0b; C=02:00:00:00:01:0c; t0=1789300000; TRAFFIC=0
-    lay_win $t0 1 $A -50 2 $B -60 1 $C -70 3
-    lay_r1=$(lay_get $A); lay_h1=$(printf '%s\n' "$BT_HELD" | grep -c .)
-    lay_win $((t0 + 44)) 1 $A -55 1
-    lay_a2=$(lay_get $A); lay_b2=$(lay_get $B); lay_c2=$(lay_get $C)
-    lay_win $((t0 + 88)) 1 $B -62 4
-    lay_a3=$(lay_get $A); lay_b3=$(lay_get $B); lay_c3=$(lay_get $C)
+    lay_win "$t0" 1 "$A" -50 2 "$B" -60 1 "$C" -70 3
+    lay_r1=$(lay_get "$A"); lay_h1=$(printf '%s\n' "$BT_HELD" | grep -c .)
+    lay_win $((t0 + 44)) 1 "$A" -55 1
+    lay_a2=$(lay_get "$A"); lay_b2=$(lay_get "$B"); lay_c2=$(lay_get "$C")
+    lay_win $((t0 + 88)) 1 "$B" -62 4
+    lay_a3=$(lay_get "$A"); lay_b3=$(lay_get "$B"); lay_c3=$(lay_get "$C")
     lay_win $((t0 + 132)) 1
-    lay_a4=$(lay_get $A); lay_b4=$(lay_get $B); lay_c4=$(lay_get $C)
+    lay_a4=$(lay_get "$A"); lay_b4=$(lay_get "$B"); lay_c4=$(lay_get "$C")
     if [ "$lay_h1" = 3 ] && printf '%s' "$lay_r1" | grep -q '"rssi": -50, "reports": 2, "last_seen": 1789300000' \
        && printf '%s' "$lay_a2" | grep -q '"rssi": -55, "reports": 1, "last_seen": 1789300044' \
        && printf '%s' "$lay_b2" | grep -q '"rssi": -60, "reports": 1, "last_seen": 1789300000' && printf '%s' "$lay_c2" | grep -q '"reports": 3, "last_seen": 1789300000' \
@@ -4545,23 +5001,23 @@ lay_selftest() {
         st_pass "hold: addresses that go and come back keep their own window's rssi, reports and last_seen; a record is carried while it is at most 120 s old and then dropped"
     else st_fail "hold: [$lay_a2] [$lay_b2] [$lay_c2] [$lay_a3] [$lay_b3] [$lay_c3] [$lay_a4] [$lay_b4] [$lay_c4]"; fi
     # at most 4 carries, whatever the age (a window every 10 s: the fifth carry would be at 50 s)
-    BT_HELD=""; lay_win $t0 1 $A -50 1; lay_k=""
-    lay_i=1; while [ "$lay_i" -le 6 ]; do lay_win $((t0 + 10 * lay_i)) 1; if [ -n "$(lay_get $A)" ]; then lay_k="$lay_k$lay_i"; fi; lay_i=$((lay_i + 1)); done
+    BT_HELD=""; lay_win "$t0" 1 "$A" -50 1; lay_k=""
+    lay_i=1; while [ "$lay_i" -le 6 ]; do lay_win $((t0 + 10 * lay_i)) 1; if [ -n "$(lay_get "$A")" ]; then lay_k="$lay_k$lay_i"; fi; lay_i=$((lay_i + 1)); done
     if [ "$lay_k" = 1234 ]; then st_pass "hold: at most 4 carries (the record survives 4 empty windows 10 s apart, not a fifth, though it is only 50 s old)"; else st_fail "hold: carries survived [$lay_k], want 1234"; fi
     # a clock that went back: a held line from the future is dropped, not kept alive
-    BT_HELD=""; lay_win $((t0 + 500)) 1 $A -50 1; lay_win $t0 1 $B -60 1
-    if [ -z "$(lay_get $A)" ] && [ -n "$(lay_get $B)" ]; then st_pass "hold: a window end earlier than the held lines (the clock went back) drops those lines"; else st_fail "hold: clock back [$(lay_get $A)]"; fi
+    BT_HELD=""; lay_win $((t0 + 500)) 1 "$A" -50 1; lay_win "$t0" 1 "$B" -60 1
+    if [ -z "$(lay_get "$A")" ] && [ -n "$(lay_get "$B")" ]; then st_pass "hold: a window end earlier than the held lines (the clock went back) drops those lines"; else st_fail "hold: clock back [$(lay_get "$A")]"; fi
     # a void window carries the held lines and says bt_window 0; no held lines gives an empty array, never none
-    BT_HELD=""; lay_win $t0 1 $A -50 1 $B -60 1; lay_win $((t0 + 30)) 2
-    if [ -n "$(lay_get $A)" ] && [ -n "$(lay_get $B)" ] && grep -q '^  "center": {.*"bt_window": 0, "bt_hold": 120}' "$LAY/doc.json" && json_ok < "$LAY/doc.json"; then
+    BT_HELD=""; lay_win "$t0" 1 "$A" -50 1 "$B" -60 1; lay_win $((t0 + 30)) 2
+    if [ -n "$(lay_get "$A")" ] && [ -n "$(lay_get "$B")" ] && grep -q '^  "center": {.*"bt_window": 0, "bt_hold": 120}' "$LAY/doc.json" && json_ok < "$LAY/doc.json"; then
         st_pass "hold: a void window carries the held records, center.bt_window is 0, the layer does not blink"
     else st_fail "hold: void window"; fi
-    BT_HELD=""; lay_win $t0 2
+    BT_HELD=""; lay_win "$t0" 2
     if grep -q '^  "bluetooth": \[\],$' "$LAY/doc.json" && grep -q '"bt_window": 0' "$LAY/doc.json"; then st_pass "hold: a void window with nothing held writes the empty array"; else st_fail "hold: empty array"; fi
     # 300 addresses: the strongest 256, order rssi descending then address
     lay_i=0; : > "$LAY/b300"
     while [ "$lay_i" -lt 300 ]; do printf 'B\t02:00:00:00:%02x:%02x\trandom-static\t-%s\t1\t\t\t\t0\n' $((lay_i / 100)) $((lay_i % 100)) $((30 + (lay_i * 7) % 61)) >> "$LAY/b300"; lay_i=$((lay_i + 1)); done
-    ts=$t0; BT_HELD=""; cp "$LAY/b300" "$BT_F.out"; lay_doc $t0 > "$LAY/doc.json"; add_layers "$LAY/doc.json" 1
+    ts=$t0; BT_HELD=""; cp "$LAY/b300" "$BT_F.out"; lay_doc "$t0" > "$LAY/doc.json"; add_layers "$LAY/doc.json" 1
     sed -n 's/^  "bluetooth": //p' "$LAY/doc.json" | sed 's/}, {/}\
 {/g' | sed -n 's/.*"addr": "\([^"]*\)".*"rssi": \(-[0-9]*\),.*/\2 \1/p' > "$LAY/b300.out"
     lay_cnt=$(wc -l < "$LAY/b300.out" | tr -d ' '); LC_ALL=C sort -k1,1nr -k2,2 "$LAY/b300.out" > "$LAY/b300.sorted"
@@ -4576,7 +5032,7 @@ lay_selftest() {
         b5_sBL=$BLUE5_DB; b5_sTR=$TMPDIR_RAM; b5_sBF=$BT_F; b5_sMX=$BT5_MAX; b5_sH=$BT_HELD
         BLUE5_DB="$b5_db"; TMPDIR_RAM="$LAY/ram"; BT5_MAX=4194304; BT_HELD=""; ts=$b5_ts
         if bt_blue5_read "$b5_ts"; then b5_rc=0; else b5_rc=1; fi
-        lay_doc $b5_ts > "$b5/doc.json"; add_layers "$b5/doc.json" 1 blue5; b5_ar=$?
+        lay_doc "$b5_ts" > "$b5/doc.json"; add_layers "$b5/doc.json" 1 blue5; b5_ar=$?
         b5_line=$(grep '^  "bluetooth": ' "$b5/doc.json")
         b5_cnt=$(printf '%s' "$b5_line" | grep -o '"addr":' | grep -c .)
         b5_src=0; grep -q '"bt_source": "blue5"' "$b5/doc.json" && b5_src=1
@@ -4590,16 +5046,157 @@ lay_selftest() {
         else st_fail "blue5 read: rc $b5_rc ar $b5_ar cnt $b5_cnt src $b5_src win $b5_win dup $b5_dup sub $b5_sub nm $b5_nm ex $b5_ex"; fi
         # the company list names the identifier the database holds (76 = 004C): that record gets company_name; an identifier the list lacks (12) stays bare
         printf '0000\tEricsson AB\n004C\tApple, Inc.\n0076\tCreative Technology Ltd.\n' > "$b5/companies.txt"; b5_sCP=$BTCO_PATH; BTCO_PATH="$b5/companies.txt"; BT_HELD=""
-        bt_blue5_read "$b5_ts"; b5_nrc=$?; lay_doc $b5_ts > "$b5/doc2.json"; add_layers "$b5/doc2.json" 1 blue5
+        bt_blue5_read "$b5_ts"; b5_nrc=$?; lay_doc "$b5_ts" > "$b5/doc2.json"; add_layers "$b5/doc2.json" 1 blue5
         b5_l2=$(grep '^  "bluetooth": ' "$b5/doc2.json")
         b5_apl=0; printf '%s' "$b5_l2" | grep -q '"addr": "aa:bb:cc:00:00:0a", "addr_type": "public", "rssi": -40, "reports": 7, "last_seen": [0-9]*, "company": 76, "company_name": "Apple, Inc."' && b5_apl=1
         b5_bare=0; printf '%s' "$b5_l2" | grep -q '"addr": "c0:aa:bb:00:00:02"[^}]*"company": 12,' && ! printf '%s' "$b5_l2" | grep -q '"addr": "c0:aa:bb:00:00:02"[^}]*"company_name"' && b5_bare=1
-        BTCO_PATH=$b5_sCP
+        # the memo (1 November 2026): the read with the list leaves the three identifiers it looked up in BTCO_MEMO (76 named, 12 and 46517 bare) and no side file; a read
+        # with the list gone still names 76 from the memo alone (the wiring of btco_memo_take in bt_blue5_read, which the direct cases of the memo cannot see)
+        b5_mm=$(printf '%s\n' "$BTCO_MEMO" | sort | tr '\t\n' '=|'); b5_mf=$([ -e "$BT_F.co" ] && echo yes || echo no)
+        BTCO_PATH="$b5/none-such-companies.txt"; BT_HELD=""; bt_blue5_read "$b5_ts"; b5_mrc=$?; lay_doc "$b5_ts" > "$b5/doc3.json"; add_layers "$b5/doc3.json" 1 blue5
+        b5_mapl=0; grep '^  "bluetooth": ' "$b5/doc3.json" | grep -q '"company": 76, "company_name": "Apple, Inc."' && b5_mapl=1
+        if [ "$b5_mm" = "000C=|004C=Apple, Inc.|B5B5=|" ] && [ "$b5_mf" = no ] && [ "$b5_mrc" = 0 ] && [ "$b5_mapl" = 1 ]; then
+            st_pass "blue5: bt_blue5_read leaves the identifiers it looked up in the memo (004C named, 000C and B5B5 bare) and no side file, and a read with the list gone still names 76 from the memo"
+        else st_fail "blue5 memo: memo [$b5_mm], side file $b5_mf, rc $b5_mrc, named from the memo $b5_mapl"; fi
+        BTCO_MEMO=""; BTCO_PATH=$b5_sCP
         if [ "$b5_nrc" = 0 ] && [ "$b5_apl" = 1 ] && [ "$b5_bare" = 1 ] && json_ok < "$b5/doc2.json"; then
             st_pass "blue5: the company list names an identifier the database holds (76 -> Apple, Inc.) and leaves one it lacks (12) bare"
         else st_fail "blue5 companies: rc $b5_nrc apple $b5_apl bare $b5_bare"; fi
         BLUE5_DB="$b5/none-such.db"; bt_blue5_read "$b5_ts"; b5_fc=$?
         if [ "$b5_fc" != 0 ]; then st_pass "blue5: a missing blue5.db -> bt_blue5_read fails closed (no Bluetooth this cycle, the live file is never read)"; else st_fail "blue5: fail-closed rc $b5_fc"; fi
+
+        # 25c) the class columns of the 2.0 schema (the fixture's second set, clock 2000000): one word per record from the tables in AWK_LAYERS, ranked
+        # mfr > svc16 > appearance; a record without a class is byte-identical to 0.2.6's; nothing raw (hex heads, service ids, column names) reaches the document
+        b5c_sCP=$BTCO_PATH; BTCO_PATH=""; b5c_ts=2000000; BLUE5_DB="$b5_db"; BT_HELD=""; ts=$b5c_ts; BT5_SV=""; BT5_SVLOG=0
+        bt_blue5_read "$b5c_ts" 2> "$b5/c.log"; b5c_rc=$?; lay_doc "$b5c_ts" > "$b5/c.json"; add_layers "$b5/c.json" 1 blue5; b5c_ar=$?
+        BT_HELD=$(cat "$LAY/ram/starchorus-bt-$$.new" 2>/dev/null)
+        b5c_l=$(grep '^  "bluetooth": ' "$b5/c.json"); b5c_cnt=$(printf '%s' "$b5c_l" | grep -o '"addr":' | grep -c .)
+        b5c_cls() {   # $1 = the last octet of an address of the class set -> its class, or - without one
+            b5c_r=$(printf '%s' "$b5c_l" | sed 's/}, {/}\
+{/g' | grep "\"addr\": \"aa:bb:cc:00:01:$1\"")
+            case $b5c_r in *'"class": "'*) b5c_r=${b5c_r#*\"class\": \"}; printf '%s' "${b5c_r%%\"*}" ;; *) printf '%s' - ;; esac
+        }
+        b5c_j() { b5c_o=""; for b5c_a in "$@"; do b5c_o="$b5c_o$(b5c_cls "$b5c_a")|"; done; printf '%s' "$b5c_o"; }
+        b5c_m=$(b5c_j 01 02 03 04 05 06 07 08)
+        if [ "$b5c_rc/$b5c_ar/$b5c_cnt" = 0/0/43 ] && [ "$b5c_m" = "finder frame|pairing frame|beacon|device message|device message|device message|device message|-|" ] && json_ok < "$b5/c.json"; then
+            st_pass "blue5 class: Apple message types from the mfr head (12 finder frame, 07 pairing frame, 02 beacon, 10/0F/0C/05 device message, an unlisted type none); 43 records, valid JSON"
+        else st_fail "blue5 class: Apple types (rc $b5c_rc ar $b5c_ar cnt $b5c_cnt: $b5c_m)"; fi
+        b5c_s=$(b5c_j 09 0a 0b 0c 0d 26 27)
+        if [ "$b5c_s" = "pairing frame|beacon|input device|sensor|-|pairing frame|pairing frame|" ]; then
+            st_pass "blue5 class: 16-bit services (FE2C pairing frame, FEAA beacon, 1812 input device, 181A sensor, an unlisted FD59 none, a list's second token, lower case)"
+        else st_fail "blue5 class: services ($b5c_s)"; fi
+        b5c_p=$(b5c_j 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 2a 2b)
+        if [ "$b5c_p" = "phone|computer|watch|display|remote control|tag|keyring|media player|input device|sensor|-|-|-|-|-|-|-|-|" ]; then
+            st_pass "blue5 class: appearance categories (1 phone to 21 sensor); 0, 70000 and the thermometer, heart-rate, pulse-oximeter, barcode-scanner, glucose-meter and hearing-aid categories give none"
+        else st_fail "blue5 class: appearance ($b5c_p)"; fi
+        b5c_k=$(b5c_j 1e 1f 20 28)
+        if [ "$b5c_k" = "finder frame|pairing frame|phone|pairing frame|" ]; then
+            st_pass "blue5 class: the rank is mfr, then svc16, then appearance, and the newest row of an address names it"
+        else st_fail "blue5 class: rank ($b5c_k)"; fi
+        b5c_n=$(b5c_j 21 22 23 24 25 29)
+        b5c_raw=$(printf '%s' "$b5c_l" | grep -c -i -e '4c00' -e 'fe2c' -e 'mfr' -e 'svc16' -e 'appearance' -e 'fd59')
+        if [ "$b5c_n" = "-|-|-|-|-|-|" ] && [ "$b5c_raw" = 0 ]; then
+            st_pass "blue5 class: refusals (a head whose company is not the row's, in both directions: company 76 with a Microsoft head, company 6 with an Apple head; mfr as text, two bytes, a quote or a TAB in svc16) and no raw column reaches the document"
+        else st_fail "blue5 class: refusals ($b5c_n raw $b5c_raw)"; fi
+        # the class survives hold (a void window carries it, the last key of the record) and the window source (9 fields) never has one
+        ts=$((b5c_ts + 30)); lay_doc "$ts" > "$b5/c2.json"; add_layers "$b5/c2.json" 2 blue5
+        b5c_h=$(grep -c '"addr": "aa:bb:cc:00:01:01", "addr_type": "public", "rssi": -50, "reports": 1, "last_seen": 2000000, "company": 76, "connectable": true, "class": "finder frame"}' "$b5/c2.json")
+        BT_HELD=""; ts=$b5c_ts; printf 'B\taa:bb:cc:00:01:01\tpublic\t-50\t1\t76\t\t\t1\n' > "$BT_F.out"; lay_doc "$b5c_ts" > "$b5/c3.json"; add_layers "$b5/c3.json" 1
+        b5c_w=$(grep -c '"class"' "$b5/c3.json"); b5c_w1=$(grep -c '"addr": "aa:bb:cc:00:01:01"' "$b5/c3.json")
+        if [ "$b5c_h/$b5c_w/$b5c_w1" = 1/0/1 ] && json_ok < "$b5/c2.json" && json_ok < "$b5/c3.json"; then
+            st_pass "blue5 class: the class survives hold (a void window carries it as the record's last key) and a window line gives none"
+        else st_fail "blue5 class: hold $b5c_h window $b5c_w/$b5c_w1"; fi
+        # a database without the class columns (the 0.2.6 schema): the full query gives no sentinel, the narrow one answers; BT5_SV holds until the re-check
+        # clears it; the records are byte-identical to the 2.0 fixture's at the same clock (no class there either); the switch is logged once each way
+        BLUE5_DB="$LAY_BLUE5_OLD"; BT_HELD=""; ts=$b5_ts; BT5_SV=""; BT5_SVLOG=0
+        bt_blue5_read "$b5_ts" 2> "$b5/o.log"; b5o_rc=$?; b5o_sv=$BT5_SV; lay_doc "$b5_ts" > "$b5/o.json"; add_layers "$b5/o.json" 1 blue5
+        b5o_l=$(grep '^  "bluetooth": ' "$b5/o.json")
+        bt_blue5_read "$b5_ts" 2>> "$b5/o.log"; b5o_rc2=$?; b5o_sv2=$BT5_SV; b5o_n=$(grep -c 'has no mfr, appearance, svc16 or svcd column' "$b5/o.log")
+        BLUE5_DB="$b5_db"; bt_blue5_read "$b5_ts" 2> "$b5/o2.log"; b5o_rc3=$?; b5o_sv3=$BT5_SV; b5o_n3=$(grep -c . "$b5/o2.log")   # the full query waits for the re-check...
+        BT5_SV=""; bt_blue5_read "$b5_ts" 2> "$b5/o3.log"; b5o_rc4=$?; b5o_sv4=$BT5_SV; b5o_b=$(grep -c 'answers the full query again' "$b5/o3.log")   # ...which clears BT5_SV
+        lay_doc "$b5_ts" > "$b5/o4.json"; add_layers "$b5/o4.json" 1 blue5; b5o_l4=$(grep '^  "bluetooth": ' "$b5/o4.json")
+        b5o_same=0; [ "$b5o_l" = "$b5_line" ] && [ "$b5o_l4" = "$b5_line" ] && b5o_same=1
+        if [ "$b5o_rc/$b5o_sv/$b5o_rc2/$b5o_sv2/$b5o_n/$b5o_rc3/$b5o_sv3/$b5o_n3/$b5o_rc4/$b5o_sv4/$b5o_b/$b5o_same" = 0/1/0/1/1/0/1/0/0//1/1 ] && ! grep -q '"class"' "$b5/o.json"; then
+            st_pass "blue5 class: a database without the columns (the 0.2.6 schema) answers the narrow query, logged once, BT5_SV until the re-check clears it; its records are byte-identical to the 2.0 fixture's at the same clock"
+        else st_fail "blue5 class: narrow schema (rc/sv $b5o_rc/$b5o_sv then $b5o_rc2/$b5o_sv2, logged $b5o_n; rich with BT5_SV $b5o_rc3/$b5o_sv3 logged $b5o_n3; cleared $b5o_rc4/$b5o_sv4 back $b5o_b; same lines $b5o_same)"; fi
+        # 25d) Remote ID (ASTM F3411) from svcd: the fixture's third set (clock 3000000) holds single messages, packs and refusals (eight candidates, the cap), the
+        # one at 3200000 the ranges and ids, the one at 4000000 twenty candidates
+        b5r_ts=3000000; BLUE5_DB="$b5_db"; BT_HELD=""; ts=$b5r_ts; BT5_SV=""; BT5_SVLOG=0
+        bt_blue5_read "$b5r_ts" 2> "$b5/r.log"; b5r_rc=$?; lay_doc "$b5r_ts" > "$b5/r.json"; add_layers "$b5/r.json" 1 blue5; b5r_ar=$?
+        BT_HELD=$(cat "$LAY/ram/starchorus-bt-$$.new" 2>/dev/null)
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r.json"); b5r_cnt=$(printf '%s' "$b5r_l" | grep -o '"addr":' | grep -c .)
+        b5r_rid() {   # $1 = the last octet of an address of the Remote ID set -> the keys of its remote_id object, or - without one
+            b5r_r=$(printf '%s' "$b5r_l" | sed 's/}, {/}\
+{/g' | grep "\"addr\": \"aa:bb:cc:00:02:$1\"")
+            case $b5r_r in *'"remote_id": {'*) b5r_r=${b5r_r#*\"remote_id\": \{}; printf '%s' "${b5r_r%%\}*}" ;; *) printf '%s' - ;; esac
+        }
+        b5r_full='"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001", "status": "airborne", "lat": 0.5000000, "lon": -30.2500000, "alt_m": 120.5, "operator_lat": 0.7500000, "operator_lon": -30.5000000, "operator_id": "OP-TEST_01"'
+        b5r_ok=1
+        [ "$(b5r_rid 01)" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001"' ] || b5r_ok=0
+        [ "$(b5r_rid 02)" = '"status": "airborne", "lat": 0.5000000, "lon": -30.2500000, "alt_m": 120.5' ] || b5r_ok=0
+        [ "$(b5r_rid 03)" = '"operator_lat": 0.7500000, "operator_lon": -30.5000000' ] || b5r_ok=0
+        [ "$(b5r_rid 04)" = '"operator_id": "OP-TEST_01"' ] || b5r_ok=0
+        [ "$(b5r_rid 05)" = "$b5r_full" ] && [ "$(b5r_rid 06)" = "$b5r_full" ] || b5r_ok=0
+        if [ "$b5r_rc/$b5r_ar/$b5r_cnt/$b5r_ok" = 0/0/12/1 ] && json_ok < "$b5/r.json"; then
+            st_pass "remote id: the single messages Basic ID, Location, System and Operator ID, and a pack of all four, also behind an AD type byte, give the keys in their order; 12 records, valid JSON"
+        else st_fail "remote id: messages (rc $b5r_rc ar $b5r_ar cnt $b5r_cnt ok $b5r_ok: 01 $(b5r_rid 01) | 02 $(b5r_rid 02) | 05 $(b5r_rid 05))"; fi
+        b5r_n="$(b5r_rid 07)$(b5r_rid 08)$(b5r_rid 09)$(b5r_rid 11)$(b5r_rid 12)$(b5r_rid 13)"
+        b5r_raw=$(printf '%s' "$b5r_l" | grep -c -i -e 'faff0d' -e 'svcd')
+        b5r_plain=$(grep -c '{"addr": "aa:bb:cc:00:02:13", "addr_type": "public", "rssi": -68, "reports": 1, "last_seen": 3000000}' "$b5/r.json")
+        if [ "$b5r_n/$b5r_raw/$b5r_plain" = ------/0/1 ]; then
+            st_pass "remote id: refusals (the app code 0C, a pack count beyond its bytes, a message size other than 25, svcd as text, a blob over 232 bytes, NULL); no raw bytes reach the document and a record without Remote ID is unchanged"
+        else st_fail "remote id: refusals ($b5r_n raw $b5r_raw plain $b5r_plain)"; fi
+        # cycle 2 (30 s on): the address of the Basic ID now broadcasts a Location: identity carried, position from this cycle; cycle 3 (void): identity, operator fields, never a position
+        ts=$((b5r_ts + 30)); bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r2.json"; add_layers "$b5/r2.json" 1 blue5; BT_HELD=$(cat "$LAY/ram/starchorus-bt-$$.new" 2>/dev/null)
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r2.json"); b5r_m1=$(b5r_rid 01); b5r_m3=$(b5r_rid 03)
+        ts=$((b5r_ts + 60)); lay_doc "$ts" > "$b5/r3.json"; add_layers "$b5/r3.json" 2 blue5
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r3.json"); b5r_h1=$(b5r_rid 01); b5r_h2=$(b5r_rid 02); b5r_h3=$(b5r_rid 03); b5r_h4=$(b5r_rid 04); b5r_h5=$(b5r_rid 05)
+        if [ "$b5r_m1" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001", "status": "airborne", "lat": 0.5000000, "lon": -30.2500000, "alt_m": 120.5' ] \
+           && [ "$b5r_h1" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001"' ] && [ "$b5r_h2" = - ] && [ "$b5r_h3" = '"operator_lat": 0.7500000, "operator_lon": -30.5000000' ] \
+           && [ "$b5r_h4" = '"operator_id": "OP-TEST_01"' ] && [ "$b5r_h5" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001", "operator_lat": 0.7500000, "operator_lon": -30.5000000, "operator_id": "OP-TEST_01"' ] \
+           && [ "$b5r_m3" = '"operator_lat": 0.7500000, "operator_lon": -30.5000000' ] && json_ok < "$b5/r2.json" && json_ok < "$b5/r3.json"; then
+            st_pass "remote id: the identity and the operator fields carry through hold and merge with a later message of the same address, also when its newest row carries no Remote ID at all; a position is never carried"
+        else st_fail "remote id: hold (merged $b5r_m1 | 03 without a decode $b5r_m3 | held 01 $b5r_h1 | 02 $b5r_h2 | 03 $b5r_h3 | 05 $b5r_h5)"; fi
+        # the ranges and ids (clock 3200000, seven candidates)
+        ts=3200000; BT_HELD=""; bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r5.json"; add_layers "$b5/r5.json" 1 blue5
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r5.json"); b5r_c5=$(printf '%s' "$b5r_l" | grep -o '"addr":' | grep -c .)
+        b5r_v=1
+        [ "$(b5r_rid 0a)" = '"status": "airborne", "alt_m": 120.5' ] || b5r_v=0
+        [ "$(b5r_rid 0b)" = '"status": "airborne"' ] || b5r_v=0
+        [ "$(b5r_rid 0c)" = '"ua_type": "multirotor", "id_type": "serial"' ] && [ "$(b5r_rid 0d)" = '"ua_type": "multirotor", "id_type": "serial"' ] || b5r_v=0
+        [ "$(b5r_rid 0e)" = '"ua_type": "aeroplane", "id_type": "registration", "uas_id": "D-REG.42"' ] || b5r_v=0
+        [ "$(b5r_rid 0f)" = '"ua_type": "gyroplane", "id_type": "utm"' ] || b5r_v=0
+        [ "$(b5r_rid 10)" = - ] || b5r_v=0
+        if [ "$b5r_v/$b5r_c5" = 1/7 ] && json_ok < "$b5/r5.json"; then
+            st_pass "remote id: a latitude beyond 90 drops the position and keeps the altitude; 0/0 and an altitude of 0 are unknown; an id with a quote or non-ASCII is dropped and a UTM id is no text; a registration id passes; a message too short gives nothing"
+        else st_fail "remote id: ranges and ids (records $b5r_c5; 0a $(b5r_rid 0a) | 0b $(b5r_rid 0b) | 0c $(b5r_rid 0c) | 0e $(b5r_rid 0e) | 0f $(b5r_rid 0f) | 10 $(b5r_rid 10))"; fi
+        # twenty candidates in one cycle: the strongest eight are decoded
+        ts=4000000; BT_HELD=""; bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r4.json"; add_layers "$b5/r4.json" 1 blue5
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r4.json"); b5r_c4=$(printf '%s' "$b5r_l" | grep -o '"addr":' | grep -c .); b5r_d4=$(printf '%s' "$b5r_l" | grep -o '"remote_id"' | grep -c .)
+        b5r_s8=$(printf '%s' "$b5r_l" | sed 's/}, {/}\
+{/g' | grep '"addr": "aa:bb:cc:00:03:08"' | grep -c '"remote_id"'); b5r_s9=$(printf '%s' "$b5r_l" | sed 's/}, {/}\
+{/g' | grep '"addr": "aa:bb:cc:00:03:09"' | grep -c '"remote_id"')
+        if [ "$b5r_c4/$b5r_d4/$b5r_s8/$b5r_s9" = 20/8/1/0 ] && json_ok < "$b5/r4.json"; then
+            st_pass "remote id: of twenty candidates in one cycle the strongest eight are decoded, the rest keep their records without it"
+        else st_fail "remote id: cap ($b5r_c4 records, $b5r_d4 decoded, eighth $b5r_s8, ninth $b5r_s9)"; fi
+        # the ranges and ids once more (clock 3400000, eight candidates): the operator id of one address never leaks into the next decode; a longitude
+        # beyond 180 drops the pair, the bounds -90/-180 pass; an operator position 0/0 gives nothing; a NUL inside an id drops it; a 20-character id
+        # passes; in a pack a serial id is not overwritten by a later session id
+        ts=3400000; BT_HELD=""; bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r6.json"; add_layers "$b5/r6.json" 1 blue5
+        b5r_l=$(grep '^  "bluetooth": ' "$b5/r6.json"); b5r_c6=$(printf '%s' "$b5r_l" | grep -o '"addr":' | grep -c .)
+        b5r_x=1
+        [ "$(b5r_rid 21)" = '"operator_id": "OP-TEST_01"' ] || b5r_x=0
+        [ "$(b5r_rid 22)" = '"status": "airborne", "lat": 0.5000000, "lon": -30.2500000, "alt_m": 120.5' ] || b5r_x=0
+        [ "$(b5r_rid 23)" = '"status": "airborne", "alt_m": 120.5' ] || b5r_x=0
+        [ "$(b5r_rid 24)" = '"status": "airborne", "lat": -90.0000000, "lon": -180.0000000, "alt_m": 120.5' ] || b5r_x=0
+        [ "$(b5r_rid 25)" = - ] || b5r_x=0
+        [ "$(b5r_rid 26)" = '"ua_type": "multirotor", "id_type": "serial"' ] || b5r_x=0
+        [ "$(b5r_rid 27)" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "ABCDEFGHIJKLMNOPQRST"' ] || b5r_x=0
+        [ "$(b5r_rid 28)" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001"' ] || b5r_x=0
+        if [ "$b5r_x/$b5r_c6" = 1/8 ] && json_ok < "$b5/r6.json"; then
+            st_pass "remote id: an operator id never leaks into the next decode; a longitude beyond 180 drops the pair while -90 and -180 pass; an operator position 0/0 says nothing; a NUL inside an id drops it; a 20-character id passes; a serial id in a pack is not overwritten by a later session id"
+        else st_fail "remote id: second ranges (records $b5r_c6; 21 $(b5r_rid 21) | 22 $(b5r_rid 22) | 23 $(b5r_rid 23) | 24 $(b5r_rid 24) | 25 $(b5r_rid 25) | 26 $(b5r_rid 26) | 27 $(b5r_rid 27) | 28 $(b5r_rid 28))"; fi
+        BT5_SV=""; BT5_SVLOG=0; BTCO_PATH=$b5c_sCP
         BLUE5_DB=$b5_sBL; TMPDIR_RAM=$b5_sTR; BT_F=$b5_sBF; BT5_MAX=$b5_sMX; BT_HELD=$b5_sH
     fi
 
@@ -4722,16 +5319,16 @@ lay_selftest() {
     # ten lines, three APs: seven count; one has no epoch, one is a second older than the window, one is 61 s ahead. P1 and P2 end on the same t, so the address orders them;
     # the newest line of P1 is not its first or last
     {
-        lal_l 1789299990 $lal_p1
-        lal_l 1789299700 $lal_p3
-        lal_l 1789299800 $lal_p1
-        lal_l 1789299995 $lal_p3
-        lal_l 1789299600 $lal_p1
-        lal_l 1789299990 $lal_p2
-        lal_l 1789299900 $lal_p2
+        lal_l 1789299990 "$lal_p1"
+        lal_l 1789299700 "$lal_p3"
+        lal_l 1789299800 "$lal_p1"
+        lal_l 1789299995 "$lal_p3"
+        lal_l 1789299600 "$lal_p1"
+        lal_l 1789299990 "$lal_p2"
+        lal_l 1789299900 "$lal_p2"
         printf 'not-an-epoch\tdeauth\t%s\n' "$lal_p3"
-        lal_l 1789299399 $lal_p1
-        lal_l 1789300061 $lal_p2
+        lal_l 1789299399 "$lal_p1"
+        lal_l 1789300061 "$lal_p2"
     } > "$lal_ad/alerts.log"
     lal_run; cp "$LAY/al.log" "$LAY/al.log1"; lal_run
     lal_w='  "alerts": [{"type": "deauth", "t": 1789299995, "ap": "02:00:00:00:0a:03", "n": 2}, {"type": "deauth", "t": 1789299990, "ap": "02:00:00:00:0a:01", "n": 3}, {"type": "deauth", "t": 1789299990, "ap": "02:00:00:00:0a:02", "n": 2}],'
@@ -4743,17 +5340,17 @@ lay_selftest() {
     # the rules one by one: not deauth, no AP, a short or non-hex address, an epoch of letters, blanks for tabs, two fields (seven skipped, and the ninth is a blank line, which is nothing);
     # the edge of the window counts (upper-case address, joined with the lower-case form of the same AP), 60 s ahead counts, 61 s ahead is the eighth skipped line
     {
-        printf '%s\tdisassoc\t%s\n' 1789299990 $lal_p1
+        printf '%s\tdisassoc\t%s\n' 1789299990 "$lal_p1"
         printf '%s\tdeauth\t-\n' 1789299990
         printf '%s\tdeauth\t02:00:00:00:0a\n' 1789299990
         printf '%s\tdeauth\t02:00:00:00:0a:0g\n' 1789299990
-        printf 'abc\tdeauth\t%s\n' $lal_p1
-        printf '1789299990 deauth %s\n' $lal_p1
+        printf 'abc\tdeauth\t%s\n' "$lal_p1"
+        printf '1789299990 deauth %s\n' "$lal_p1"
         printf '%s\tdeauth\n' 1789299990
         printf '\n'
         lal_l 1789299400 02:00:00:00:0A:01
-        lal_l 1789300060 $lal_p1
-        lal_l 1789300061 $lal_p1
+        lal_l 1789300060 "$lal_p1"
+        lal_l 1789300061 "$lal_p1"
     } > "$lal_ad/alerts.log"
     BT_LOGGED=" "; lal_run
     if grep -qxF '  "alerts": [{"type": "deauth", "t": 1789300060, "ap": "02:00:00:00:0a:01", "n": 2}],' "$LAY/al.json" && [ "$(wc -l < "$LAY/al.json" | tr -d ' ')" = 9 ] && json_ok < "$LAY/al.json" \
@@ -4778,7 +5375,7 @@ lay_selftest() {
     lal_ok=1
     rm -f "$lal_ad/alerts.log"; lal_run; cmp -s "$LAY/al.json" "$LAY/al.pristine" && [ ! -s "$LAY/al.log" ] || lal_ok=0
     : > "$lal_ad/alerts.log"; lal_run; cmp -s "$LAY/al.json" "$LAY/al.pristine" && [ ! -s "$LAY/al.log" ] || lal_ok=0
-    lal_l 1789299399 $lal_p1 > "$lal_ad/alerts.log"; lal_run; cmp -s "$LAY/al.json" "$LAY/al.pristine" && [ ! -s "$LAY/al.log" ] || lal_ok=0
+    lal_l 1789299399 "$lal_p1" > "$lal_ad/alerts.log"; lal_run; cmp -s "$LAY/al.json" "$LAY/al.pristine" && [ ! -s "$LAY/al.log" ] || lal_ok=0
     if [ "$lal_ok" = 1 ]; then st_pass "alerts: no file, an empty file, and a file with only old lines write no key at all and log nothing"; else st_fail "alerts: nothing to write (ok $lal_ok, log [$(cat "$LAY/al.log")])"; fi
 
     # a name that is no readable regular file (a directory here; a pipe would hold `tail` for ever): read as no file, said once per episode
@@ -4791,7 +5388,7 @@ lay_selftest() {
     else st_fail "alerts: a directory ($lal_cmp1$lal_cmp2, log [$(cat "$LAY/al.log1")] [$(cat "$LAY/al.log")])"; fi
 
     # a regular file that `tail` cannot read at the moment although it looked readable (a stand-in `tail` that fails): no key, the document as it came, one log line, once per episode
-    lal_l 1789299990 $lal_p1 > "$lal_ad/alerts.log"; BT_LOGGED=" "
+    lal_l 1789299990 "$lal_p1" > "$lal_ad/alerts.log"; BT_LOGGED=" "
     tail() { return 1; }
     lal_run; cp "$LAY/al.log" "$LAY/al.log1"; lal_cmp1=0; cmp -s "$LAY/al.json" "$LAY/al.pristine" && lal_cmp1=1
     lal_run; lal_cmp2=0; cmp -s "$LAY/al.json" "$LAY/al.pristine" && lal_cmp2=1
@@ -4803,7 +5400,7 @@ lay_selftest() {
     # the switch, through whole cycles (capture source, the sample CSV of the first case): on = the line is there, in front of aps, the capture is intact; off = the document of a
     # cycle without any file, byte for byte (the same second, so even generated is the same)
     RESOLVED=capture; CAP_METHOD=airodump; OUTFILE="$lal_ad/cycle.json"; VENDOR=0
-    { lal_l 1789299970 $lal_p1; lal_l 1789299980 $lal_p1; lal_l 1789299995 $lal_p2; } > "$lal_ad/alerts.log"
+    { lal_l 1789299970 "$lal_p1"; lal_l 1789299980 "$lal_p1"; lal_l 1789299995 "$lal_p2"; } > "$lal_ad/alerts.log"
     ALERTS=1; run_cycle 2>/dev/null >/dev/null; cp "$OUTFILE" "$LAY/al.on"
     ALERTS=0; run_cycle 2>/dev/null >/dev/null; cp "$OUTFILE" "$LAY/al.off"
     rm -f "$lal_ad/alerts.log"; ALERTS=1; run_cycle 2>/dev/null >/dev/null; cp "$OUTFILE" "$LAY/al.none"
@@ -4814,7 +5411,7 @@ lay_selftest() {
     RESOLVED=$lal_srs; CAP_METHOD=$lal_scm; OUTFILE=$lal_sof; VENDOR=$lal_sve
 
     # with Traffic on in the same pass: both arrays, activity first, two lines added and nothing else touched
-    { lal_l 1789299990 $lal_p1; lal_l 1789299995 $lal_p3; } > "$lal_ad/alerts.log"
+    { lal_l 1789299990 "$lal_p1"; lal_l 1789299995 "$lal_p3"; } > "$lal_ad/alerts.log"
     TRAFFIC=1; printf '{"2412":600,"2437":400}\n' > "$LAY/ram/starchorus-traffic-$$.json"; lal_run; TRAFFIC=0
     if json_ok < "$LAY/al.json" && [ "$(wc -l < "$LAY/al.json" | tr -d ' ')" = 10 ] \
        && [ "$(sed -n '/"activity"/{n;p;}' "$LAY/al.json")" = '  "alerts": [{"type": "deauth", "t": 1789299995, "ap": "02:00:00:00:0a:03", "n": 1}, {"type": "deauth", "t": 1789299990, "ap": "02:00:00:00:0a:01", "n": 1}],' ] \
@@ -4867,7 +5464,7 @@ lay_selftest() {
     if [ "$ivs_ok" = 1 ]; then st_pass "STARCHORUS_INTERVAL: the log line: 0, abc, 5s, 3601, -5 and 1.5 are named once at start and the document says 5 (the number the loop sleeps), 5, 30, 3600, 0030 and 007 say nothing and the document agrees"; else st_fail "STARCHORUS_INTERVAL: the log line"; fi
 
     # the window works: a line 5 minutes old and one 2 hours old
-    { lal_l 1789299700 $lal_p1; lal_l 1789292800 $lal_p2; } > "$lal_ad/alerts.log"
+    { lal_l 1789299700 "$lal_p1"; lal_l 1789292800 "$lal_p2"; } > "$lal_ad/alerts.log"
     lal_ok=1
     ALERT_WIN=60; lal_run; grep -q '"alerts"' "$LAY/al.json" && lal_ok=0
     ALERT_WIN=600; lal_run; grep -qxF '  "alerts": [{"type": "deauth", "t": 1789299700, "ap": "02:00:00:00:0a:01", "n": 1}],' "$LAY/al.json" || lal_ok=0
@@ -4877,6 +5474,250 @@ lay_selftest() {
     unset -f date lal_l lal_doc lal_run
     OUTDIR=$lal_so; ALERT_DIR=$lal_sad; ALERTS=$lal_sa; ALERT_WIN=$lal_sw; ALERT_WIN_BAD=$lal_sb; TRAFFIC=$lal_str; BLUETOOTH=$lal_sbl; BT_RC=$lal_sbr; TR_PID=$lal_stp; AL_ON=0
     unset lal_p1 lal_p2 lal_p3 lal_w
+
+    # 31) wids: five more kinds of alert from the document (own_name, sec_profiles, sec_weaker, chan_changed) and the Bluetooth database (bt_fixed_new) with
+    # STARCHORUS_WIDS=1 (the default); off, a document that would speak stays byte-identical. lw_add adds an access-point line as the sources write them, lw_doc
+    # writes the document (the text after center.label as $1), lw_run = alerts_look and run_layers on it (Bluetooth and Traffic off, no alert log unless a case
+    # writes one), lw_al = the alerts line without its key. Every address and name is made up.
+    lw_d="$LAY/wids"; mkdir -p "$lw_d"
+    lw_sw=$WIDS; lw_ss=$WIDS_SEEN; lw_sa=$ALERTS; lw_str=$TRAFFIC; lw_sbl=$BLUETOOTH; lw_sbr=$BT_RC; lw_stp=$TR_PID; lw_sad=$ALERT_DIR; lw_swin=$ALERT_WIN; lw_sts=$ts
+    lw_sbs=$BT_SRC; lw_sbl5=$BLUE5_DB; lw_sram=$TMPDIR_RAM; lw_sbf=$BT_F; lw_sh=$BT_HELD; lw_smx=$BT5_MAX
+    BLUETOOTH=0; TRAFFIC=0; BT_RC=3; TR_PID=""; ALERTS=0; ALERT_DIR="$lw_d/none"; ALERT_WIN=600; WIDS=1; WIDS_SEEN=""; BT_CUR=" "; BT_LOGGED=" "
+    lw_body=""
+    lw_add() { lw_body="${lw_body}${lw_body:+,$NL}    {\"bssid\": \"$1\", \"ssid\": \"$2\", \"channel\": $3, \"band\": \"2.4 GHz\", \"freq\": 2437, \"rssi\": $4, \"security\": \"$5\", \"clients\": []}"; }
+    lw_doc() { printf '{\n  "generated": %s,\n  "center": {"label": "x"%s},\n  "aps": [\n%s\n  ],\n  "unassociated": [\n  ]\n}\n' "$ts" "$1" "$lw_body" > "$lw_d/doc.json"; lw_body=""; }
+    lw_run() { BT_CUR=" "; alerts_look; run_layers "$lw_d/doc.json" 2> "$lw_d/log"; }
+    lw_al() { sed -n 's/^  "alerts": //p' "$lw_d/doc.json"; }
+    # the switch: off, a document that would speak is untouched; on, a document with nothing to say is untouched too
+    ts=1789300000
+    lw_add 02:00:5e:b0:00:02 HomeNet 6 -60 WPA2/PSK/CCMP; lw_doc ', "own_bssids": ["02:00:5e:b0:00:01"], "own_ssids": ["HomeNet"]'; cp "$lw_d/doc.json" "$lw_d/a.before"
+    WIDS=0; lw_run; lw_a0=0; cmp -s "$lw_d/doc.json" "$lw_d/a.before" && lw_a0=1
+    WIDS=1; lw_add 02:00:5e:b0:00:02 Meadow 6 -60 WPA2/PSK/CCMP; lw_doc ''; cp "$lw_d/doc.json" "$lw_d/a.quiet"; lw_run; lw_a1=0; cmp -s "$lw_d/doc.json" "$lw_d/a.quiet" && lw_a1=1
+    lw_a2=$(grep -c . "$lw_d/log")
+    # the awk's own guard: with the alert log alone the layers pass runs, and with the switch off it writes no WIDS entry beside the deauth one
+    mkdir -p "$lw_d/al0"; printf '%s\tdeauth\t02:00:5e:b0:00:09\t02:00:00:00:0b:01\t02:00:00:00:0c:01\t02:00:00:00:0c:02\n' 1789299990 > "$lw_d/al0/alerts.log"
+    WIDS=0; ALERTS=1; ALERT_DIR="$lw_d/al0"; lw_add 02:00:5e:b0:00:02 HomeNet 6 -60 WPA2/PSK/CCMP; lw_doc ', "own_bssids": ["02:00:5e:b0:00:01"], "own_ssids": ["HomeNet"]'; lw_run; lw_a3=$(lw_al)
+    ALERTS=0; ALERT_DIR="$lw_d/none"; WIDS=1
+    if [ "$lw_a0/$lw_a1/$lw_a2" = 1/1/0 ] && [ "$lw_a3" = '[{"type": "deauth", "t": 1789299990, "ap": "02:00:5e:b0:00:09", "n": 1}],' ]; then
+        st_pass "wids: the switch: off, a document that would speak stays byte-identical, and when the alert log makes the layers pass run anyway the awk writes the deauth entry alone; on, a document with nothing to say stays byte-identical too, and nothing is logged"
+    else st_fail "wids: the switch ($lw_a0/$lw_a1/$lw_a2, guard [$lw_a3], log [$(cat "$lw_d/log")])"; fi
+    # the rank for one address: own_name beats sec_profiles when both land on the same address
+    WIDS_SEEN=""
+    lw_add 02:00:5e:b0:00:41 Meadow 6 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:42 Meadow 6 -40 Open
+    lw_doc ', "own_bssids": ["02:00:5e:b0:00:ff"], "own_ssids": ["Meadow"]'; lw_run; lw_r=$(lw_al)
+    if [ "$lw_r" = '[{"type": "own_name", "t": 1789300000, "ap": "02:00:5e:b0:00:42", "n": 2}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: the rank for one address: a name that is both an own name sent by others and a name with two security families gives its strongest, weakest-family address one entry, own_name, and the other address none"
+    else st_fail "wids: rank ($lw_r)"; fi
+    # own_name
+    WIDS_SEEN=""
+    lw_add 02:00:5e:b0:00:01 HomeNet 6 -40 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:02 HomeNet 6 -60 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:03 HomeNet 11 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:04 Meadow 1 -55 WPA2/PSK/CCMP
+    lw_doc ', "own_bssids": ["02:00:5e:b0:00:01"], "own_ssids": ["HomeNet"]'; lw_run; lw_b=$(lw_al)
+    if [ "$lw_b" = '[{"type": "own_name", "t": 1789300000, "ap": "02:00:5e:b0:00:03", "n": 2}],' ] && json_ok < "$lw_d/doc.json" && [ "$(sed -n '/"alerts"/{n;p;}' "$lw_d/doc.json")" = '  "aps": [' ]; then
+        st_pass "wids: own_name: a name of the own transmitters sent by two addresses that are not one of them -> one entry at the stronger of the two, n 2, in front of aps; the own transmitter and another name say nothing"
+    else st_fail "wids: own_name ($lw_b)"; fi
+    # sec_profiles
+    WIDS_SEEN=""
+    lw_add 02:00:5e:b0:00:11 Meadow 1 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:12 Meadow 1 -70 Open; lw_add 02:00:5e:b0:00:13 Orchard 6 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:14 Orchard 6 -60 WPA3/SAE/CCMP
+    lw_add 02:00:5e:b0:00:15 Brook 11 -50 Open; lw_add 02:00:5e:b0:00:16 Brook 11 -60 OWE; lw_add 02:00:5e:b0:00:17 "" 1 -50 Open; lw_add 02:00:5e:b0:00:18 "" 1 -50 WPA2/PSK/CCMP
+    lw_add 02:00:5e:b0:00:19 Lane 6 -50 Secured; lw_add 02:00:5e:b0:00:1a Lane 6 -60 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:1b Mill 6 -50 WPA2-Enterprise; lw_add 02:00:5e:b0:00:1c Mill 6 -40 WEP
+    lw_doc ''; lw_run; lw_c=$(lw_al)
+    if [ "$lw_c" = '[{"type": "sec_profiles", "t": 1789300000, "ap": "02:00:5e:b0:00:12", "n": 2}, {"type": "sec_profiles", "t": 1789300000, "ap": "02:00:5e:b0:00:1c", "n": 2}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: sec_profiles: a name with WPA2 and Open and one with enterprise and WEP -> an entry each at the weaker address, n 2; WPA2 beside WPA3, Open beside OWE, empty names and a Secured label say nothing"
+    else st_fail "wids: sec_profiles ($lw_c)"; fi
+    # sec_weaker and chan_changed over ten runs: the profiles of 21 to 29 (label@channel, - = absent), two broken memory lines in front. 21 psk -> open,
+    # 22 channel 1 -> 11, 23 a flap within the minute, 24 a young profile, 25 psk -> legacy WPA, 26 enterprise -> psk (no weaker family by the rule),
+    # 27 legacy WPA -> WEP, 28 two channel changes (the second within the window counts 2), 29 psk -> an unknown label (no evidence)
+    WIDS_SEEN="garbage|x|y${NL}02:00:5e:b0:00:99|psk|6|notanumber|1|||0||0|0"
+    lw_t0=1789300000
+    lw_seq() { ts=$1; shift; lw_body=""; lw_n=21; for lw_p in "$@"; do [ "$lw_p" = - ] || lw_add "02:00:5e:b0:00:$lw_n" "Net$lw_n" "${lw_p#*@}" -50 "${lw_p%@*}"; lw_n=$((lw_n + 1)); done; lw_doc ''; lw_run; }
+    lw_seq "$lw_t0"            WPA2@6 WPA2@1  WPA2@6 -      WPA2@6         WPA2-Enterprise@6 WPA/PSK/TKIP@6 WPA2@1  WPA2@6;    lw_d1=$(lw_al)
+    lw_seq $((lw_t0 + 300))  WPA2@6 WPA2@1  WPA2@6 -      WPA2@6         WPA2-Enterprise@6 WPA/PSK/TKIP@6 WPA2@1  WPA2@6;    lw_d1="$lw_d1$(lw_al)"; lw_s1=$(printf '%s\n' "$WIDS_SEEN" | grep -c .)
+    lw_seq $((lw_t0 + 400))  Open@6 WPA2@11 Open@6 WPA2@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@6  Secured@6; lw_d2=$(lw_al)
+    lw_seq $((lw_t0 + 430))  Open@6 WPA2@11 WPA2@6 WPA2@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@6  Secured@6; lw_d3=$(lw_al)
+    lw_seq $((lw_t0 + 460))  Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@6  Secured@6; lw_d4=$(lw_al)
+    lw_seq $((lw_t0 + 770))  Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@6  Secured@6; lw_d4="$lw_d4$(lw_al)"
+    lw_seq $((lw_t0 + 800))  Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@11 Secured@6; lw_d5=$(lw_al)
+    lw_seq $((lw_t0 + 860))  Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@11 Secured@6; lw_d6=$(lw_al)
+    lw_seq $((lw_t0 + 1061)) Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@11 Secured@6; lw_d7=$(lw_al)
+    lw_seq $((lw_t0 + 1461)) Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@11 Secured@6; lw_d8=$(lw_al)
+    lw_seq "$lw_t0"            Open@6 WPA2@11 WPA2@6 Open@6 WPA/PSK/TKIP@6 WPA2@6            WEP@6          WPA2@11 Secured@6; lw_d9=$(lw_al); lw_s9=$(printf '%s\n' "$WIDS_SEEN" | grep -c .)
+    lw_w4='[{"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:21", "n": 1}, {"type": "chan_changed", "t": 1789300460, "ap": "02:00:5e:b0:00:22", "n": 1}, {"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:25", "n": 1}, {"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:27", "n": 1}, {"type": "chan_changed", "t": 1789300460, "ap": "02:00:5e:b0:00:28", "n": 1}],'
+    lw_w6='[{"type": "chan_changed", "t": 1789300860, "ap": "02:00:5e:b0:00:28", "n": 2}, {"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:21", "n": 1}, {"type": "chan_changed", "t": 1789300460, "ap": "02:00:5e:b0:00:22", "n": 1}, {"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:25", "n": 1}, {"type": "sec_weaker", "t": 1789300460, "ap": "02:00:5e:b0:00:27", "n": 1}],'
+    lw_w7='[{"type": "chan_changed", "t": 1789300860, "ap": "02:00:5e:b0:00:28", "n": 2}],'
+    if [ -z "$lw_d1$lw_d2$lw_d3" ] && [ "$lw_d4" = "$lw_w4$lw_w4" ] && [ "$lw_d5" = "$lw_w4" ] && [ "$lw_d6" = "$lw_w6" ] && [ "$lw_d7" = "$lw_w7" ] && [ -z "$lw_d8$lw_d9" ] && [ "$lw_s1/$lw_s9" = 8/9 ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: sec_weaker and chan_changed: a profile of exactly 300 s gives way to open, legacy WPA, WEP or another channel, held for exactly 60 s -> one entry each at the time of the change; enterprise to WPA2 and a label that becomes unknown say nothing, nor does a flap within the minute or a young profile; the entries live for exactly the window; a second confirmed change within it, after the new profile stood 310 s, counts 2 and starts the time anew; a clock that moves back and two broken memory lines break nothing"
+    else st_fail "wids: sequence (1 [$lw_d1] 2 [$lw_d2] 3 [$lw_d3] 4 [$lw_d4] 5 [$lw_d5] 6 [$lw_d6] 7 [$lw_d7] 8 [$lw_d8] 9 [$lw_d9] memory $lw_s1/$lw_s9)"; fi
+    # a pending profile does not outlive the access point's absence (21 changes, 22 stands throughout): 21 WPA2@6 stands 300 s, goes to channel 11 at 330, is
+    # missing at 360 (its pending profile is dropped), comes back on 11 at 3670 (no entry: the minute counts from its return), stays at 3700, is confirmed at 3760
+    WIDS_SEEN=""
+    lw_seq "$lw_t0"            WPA2@6  WPA2@6; lw_e1=$(lw_al)
+    lw_seq $((lw_t0 + 300))  WPA2@6  WPA2@6; lw_e1="$lw_e1$(lw_al)"
+    lw_seq $((lw_t0 + 330))  WPA2@11 WPA2@6; lw_e1="$lw_e1$(lw_al)"
+    lw_seq $((lw_t0 + 360))  -       WPA2@6; lw_e1="$lw_e1$(lw_al)"
+    lw_seq $((lw_t0 + 3670)) WPA2@11 WPA2@6; lw_e2=$(lw_al)
+    lw_seq $((lw_t0 + 3700)) WPA2@11 WPA2@6; lw_e2="$lw_e2$(lw_al)"
+    lw_seq $((lw_t0 + 3760)) WPA2@11 WPA2@6; lw_e3=$(lw_al)
+    if [ -z "$lw_e1$lw_e2" ] && [ "$lw_e3" = '[{"type": "chan_changed", "t": 1789303760, "ap": "02:00:5e:b0:00:21", "n": 1}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: a pending profile does not outlive the access point's absence: a change seen once, missing for a cycle and seen again an hour later is confirmed only once held for a minute from its return (one entry at the confirmation, nothing before)"
+    else st_fail "wids: a pending profile across an absence (1 [$lw_e1] 2 [$lw_e2] 3 [$lw_e3])"; fi
+    # a change confirmed under an unknown label keeps the remembered family: 21 WPA2@6 stands 300 s, goes to Secured@11 at 330, is confirmed at 400 (chan_changed; the
+    # family stays psk), stands to 700, drops to Open@11 at 730 and is confirmed at 800: sec_weaker, which takes the address's one entry
+    WIDS_SEEN=""
+    lw_seq "$lw_t0"            WPA2@6;     lw_e4=$(lw_al)
+    lw_seq $((lw_t0 + 300))  WPA2@6;     lw_e4="$lw_e4$(lw_al)"
+    lw_seq $((lw_t0 + 330))  Secured@11; lw_e4="$lw_e4$(lw_al)"
+    lw_seq $((lw_t0 + 400))  Secured@11; lw_e5=$(lw_al)
+    lw_seq $((lw_t0 + 700))  Secured@11; lw_e5="$lw_e5$(lw_al)"
+    lw_seq $((lw_t0 + 730))  Open@11;    lw_e5="$lw_e5$(lw_al)"
+    lw_seq $((lw_t0 + 800))  Open@11;    lw_e6=$(lw_al)
+    lw_w5='[{"type": "chan_changed", "t": 1789300400, "ap": "02:00:5e:b0:00:21", "n": 1}],'
+    if [ -z "$lw_e4" ] && [ "$lw_e5" = "$lw_w5$lw_w5$lw_w5" ] && [ "$lw_e6" = '[{"type": "sec_weaker", "t": 1789300800, "ap": "02:00:5e:b0:00:21", "n": 1}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: a channel change confirmed under an unknown label keeps the remembered security family: the later drop to open is sec_weaker (the address's one entry, in place of the chan_changed)"
+    else st_fail "wids: an unknown label at a confirmed change (4 [$lw_e4] 5 [$lw_e5] 6 [$lw_e6])"; fi
+    # a security change confirmed on a row without a channel keeps the remembered channel: 21 WPA2@6 stands 300 s, drops to Open with no channel at 330 ("channel": null
+    # reads as none), is confirmed at 400 (sec_weaker; the channel stays 6), stands to 700, moves to channel 11 at 730 and is confirmed at 800: chan_changed, the one entry
+    WIDS_SEEN=""
+    lw_seq "$lw_t0"            WPA2@6;    lw_e7=$(lw_al)
+    lw_seq $((lw_t0 + 300))  WPA2@6;    lw_e7="$lw_e7$(lw_al)"
+    lw_seq $((lw_t0 + 330))  Open@null; lw_e7="$lw_e7$(lw_al)"
+    lw_seq $((lw_t0 + 400))  Open@null; lw_e8=$(lw_al)
+    lw_seq $((lw_t0 + 700))  Open@null; lw_e8="$lw_e8$(lw_al)"
+    lw_seq $((lw_t0 + 730))  Open@11;   lw_e8="$lw_e8$(lw_al)"
+    lw_seq $((lw_t0 + 800))  Open@11;   lw_e9=$(lw_al)
+    lw_w8='[{"type": "sec_weaker", "t": 1789300400, "ap": "02:00:5e:b0:00:21", "n": 1}],'
+    if [ -z "$lw_e7" ] && [ "$lw_e8" = "$lw_w8$lw_w8$lw_w8" ] && [ "$lw_e9" = '[{"type": "chan_changed", "t": 1789300800, "ap": "02:00:5e:b0:00:21", "n": 1}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: a security change confirmed on a row without a channel keeps the remembered channel: the later move to channel 11 is chan_changed (the address's one entry, in place of the sec_weaker)"
+    else st_fail "wids: a confirmed change on a row without a channel (7 [$lw_e7] 8 [$lw_e8] 9 [$lw_e9])"; fi
+    # the memory: 499 fresh lines and one a day old, plus a new address -> 500 lines, the stale one gone; a 501st address is not taken while there is no room
+    WIDS_SEEN=$(lw_i=1; while [ "$lw_i" -le 499 ]; do printf '02:00:5e:b1:%02x:%02x|psk|6|1789290000|1789299000|||0||0|0\n' $((lw_i / 256)) $((lw_i % 256)); lw_i=$((lw_i + 1)); done; printf '02:00:5e:b2:00:01|psk|6|1789200000|1789213599|||0||0|0\n')
+    ts=1789300000; lw_body=""; lw_add 02:00:5e:b0:00:51 Lane 6 -50 WPA2/PSK/CCMP; lw_doc ''; lw_run
+    lw_mc1=$(printf '%s\n' "$WIDS_SEEN" | grep -c .); lw_mc1a=$(printf '%s\n' "$WIDS_SEEN" | grep -c '^02:00:5e:b0:00:51|'); lw_mc1s=$(printf '%s\n' "$WIDS_SEEN" | grep -c '^02:00:5e:b2:00:01|')
+    lw_body=""; lw_add 02:00:5e:b0:00:51 Lane 6 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:52 Lane 6 -50 WPA2/PSK/CCMP; lw_doc ''; lw_run
+    lw_mc2=$(printf '%s\n' "$WIDS_SEEN" | grep -c .); lw_mc2b=$(printf '%s\n' "$WIDS_SEEN" | grep -c '^02:00:5e:b0:00:52|')
+    if [ "$lw_mc1/$lw_mc1a/$lw_mc1s/$lw_mc2/$lw_mc2b" = 500/1/0/500/0 ]; then
+        st_pass "wids: the memory: 499 fresh lines and one a day old plus a new address give 500 lines without the stale one; a 501st address is not taken while there is no room"
+    else st_fail "wids: memory ($lw_mc1/$lw_mc1a/$lw_mc1s/$lw_mc2/$lw_mc2b)"; fi
+    # the ceiling: twenty deauth entries leave no room for a WIDS entry
+    WIDS_SEEN=""; mkdir -p "$lw_d/al20"; : > "$lw_d/al20/alerts.log"; lw_i=1
+    while [ "$lw_i" -le 20 ]; do printf '%s\tdeauth\t02:00:5e:b0:00:%02x\t02:00:00:00:0b:01\t02:00:00:00:0c:01\t02:00:00:00:0c:02\n' $((1789299900 + lw_i)) $((96 + lw_i)) >> "$lw_d/al20/alerts.log"; lw_i=$((lw_i + 1)); done
+    lw_add 02:00:5e:b0:00:02 HomeNet 6 -60 WPA2/PSK/CCMP; ALERTS=1; ALERT_DIR="$lw_d/al20"; lw_doc ', "own_bssids": ["02:00:5e:b0:00:01"], "own_ssids": ["HomeNet"]'; lw_run; ALERTS=0; ALERT_DIR="$lw_d/none"
+    lw_c=$(lw_al); lw_cn=$(printf '%s' "$lw_c" | grep -o '"type": "deauth"' | grep -c .); lw_co=$(printf '%s' "$lw_c" | grep -o '"type": "own_name"' | grep -c .)
+    if [ "$lw_cn/$lw_co" = 20/0 ] && json_ok < "$lw_d/doc.json"; then st_pass "wids: the ceiling: twenty deauth entries leave no room, a WIDS candidate is left out"
+    else st_fail "wids: ceiling ($lw_cn/$lw_co)"; fi
+    # bt_fixed_new: through the blue5 fixture (its eighth set, clock 5000000)
+    if [ -n "$LAY_BLUE5_FIX" ] && [ -e "$LAY_BLUE5_FIX" ]; then
+        WIDS_SEEN=""; BLUETOOTH=1; BT_SRC=blue5; BLUE5_DB="$LAY_BLUE5_FIX"; TMPDIR_RAM="$LAY/ram"; BT5_MAX=4194304; BT_HELD=""; BT5_SV=""; ts=5000000
+        lw_body=""; lw_doc ''; lw_run; lw_e1=$(lw_al); lw_e1b=$(grep -c '"addr": "aa:bb:cc:00:04:01"' "$lw_d/doc.json")
+        WIDS=0; BT_HELD=""; lw_doc ''; lw_run; lw_e0=$(lw_al); WIDS=1
+        if [ "$lw_e1" = '[{"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:01", "n": 5}, {"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:08", "n": 3}, {"type": "bt_fixed_new", "t": 5000000, "ap": "c0:aa:bb:00:04:02", "n": 3}],' ] && [ "$lw_e1b" = 1 ] && [ -z "$lw_e0" ] && json_ok < "$lw_d/doc.json"; then
+            st_pass "wids: bt_fixed_new: of ten addresses of the blue5 source a public, a random-static and one exactly ten minutes old with exactly three reports, strong, from a database older than an hour -> three entries, n = the reports; a resolvable address, an older first row, a weak signal, exactly -50 dBm, a signal of 0 and two reports say nothing; with the switch off the query asks for none"
+        else st_fail "wids: bt_fixed_new ([$lw_e1] off [$lw_e0] record $lw_e1b)"; fi
+        BLUETOOTH=0; BT_SRC=window
+    fi
+    # caps and rank: ten own_name candidates and a deauth report on the first
+    WIDS_SEEN=""; ts=1789300000; lw_x=""; lw_i=1
+    while [ "$lw_i" -le 10 ]; do lw_h=$(printf '%02x' "$lw_i"); lw_add "02:00:5e:b0:00:$lw_h" "Own$lw_i" 6 -50 WPA2/PSK/CCMP; lw_x="$lw_x${lw_x:+, }\"Own$lw_i\""; lw_i=$((lw_i + 1)); done
+    mkdir -p "$lw_d/al"; printf '%s\tdeauth\t02:00:5e:b0:00:01\t02:00:00:00:0b:01\t02:00:00:00:0c:01\t02:00:00:00:0c:02\n' 1789299990 > "$lw_d/al/alerts.log"
+    ALERTS=1; ALERT_DIR="$lw_d/al"; lw_doc ", \"own_bssids\": [\"02:00:5e:b0:00:ff\"], \"own_ssids\": [$lw_x]"; lw_run; ALERTS=0; ALERT_DIR="$lw_d/none"
+    lw_f=$(lw_al); lw_fn=$(printf '%s' "$lw_f" | grep -o '"type": "own_name"' | grep -c .); lw_fd=$(printf '%s' "$lw_f" | grep -o '"type": "deauth"' | grep -c .)
+    lw_f1=0; printf '%s' "$lw_f" | grep -q '{"type": "deauth", "t": 1789299990, "ap": "02:00:5e:b0:00:01", "n": 1}' && ! printf '%s' "$lw_f" | grep -q '"own_name", "t": 1789300000, "ap": "02:00:5e:b0:00:01"' && lw_f1=1
+    lw_f2=0; printf '%s' "$lw_f" | grep -q '"ap": "02:00:5e:b0:00:09"' && ! printf '%s' "$lw_f" | grep -q '"ap": "02:00:5e:b0:00:0a"' && lw_f2=1
+    lw_fo=0; case $lw_f in '[{"type": "own_name", "t": 1789300000,'*) lw_fo=1 ;; esac
+    if [ "$lw_fn/$lw_fd/$lw_f1/$lw_f2/$lw_fo" = 8/1/1/1/1 ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: ten own_name candidates and a deauth report on the first of them -> the deauth entry stands and that address gets no second entry, eight WIDS entries by address and the tenth is left out; newest first, so the entries of this cycle come before the older deauth entry"
+    else st_fail "wids: caps ($lw_fn own_name, $lw_fd deauth, deauth wins $lw_f1, eighth/tenth $lw_f2, order $lw_fo: $lw_f)"; fi
+    # hostile names: an escaped quote, a backslash and a bracket inside names and own names
+    WIDS_SEEN=""; ts=1789300000
+    lw_add 02:00:5e:b0:00:31 'Ho\"me\\Net]' 6 -50 WPA2/PSK/CCMP; lw_add 02:00:5e:b0:00:32 'Ho\"me\\Net]' 6 -70 Open; lw_add 02:00:5e:b0:00:33 plain 6 -50 Open
+    lw_doc ', "own_bssids": ["02:00:5e:b0:00:ff"], "own_ssids": ["Ho\"me\\Net]", "x]y"]'; lw_run; lw_g=$(lw_al)
+    if [ "$lw_g" = '[{"type": "own_name", "t": 1789300000, "ap": "02:00:5e:b0:00:31", "n": 2}, {"type": "sec_profiles", "t": 1789300000, "ap": "02:00:5e:b0:00:32", "n": 2}],' ] && json_ok < "$lw_d/doc.json"; then
+        st_pass "wids: hostile names: an escaped quote, a backslash and a bracket in a name and in the own names are read as they stand -> own_name at the stronger foreign address and sec_profiles at the weaker family, one entry each"
+    else st_fail "wids: hostile names ($lw_g)"; fi
+    WIDS=$lw_sw; WIDS_SEEN=$lw_ss; ALERTS=$lw_sa; TRAFFIC=$lw_str; BLUETOOTH=$lw_sbl; BT_RC=$lw_sbr; TR_PID=$lw_stp; ALERT_DIR=$lw_sad; ALERT_WIN=$lw_swin; ts=$lw_sts
+    BT_SRC=$lw_sbs; BLUE5_DB=$lw_sbl5; TMPDIR_RAM=$lw_sram; BT_F=$lw_sbf; BT_HELD=$lw_sh; BT5_MAX=$lw_smx; BT5_SV=""; AL_ON=0
+    unset -f lw_add lw_doc lw_run lw_al lw_seq; unset lw_body lw_x
+
+    # 32) watch list: marks from $OUTDIR/watch.list (STARCHORUS_WATCH_FILE) on access points, clients, stations and Bluetooth records, byte for byte; the forms a line
+    # may take; the limits; no file, an empty one, a directory and an unreadable one leave the document byte-identical; names match aps[].ssid alone; hostile
+    # entries; a whole cycle. Every address and name is made up. wl_doc writes the document as a cycle leaves it before the marks (homing on the generated line,
+    # the bluetooth and alerts lines before aps); wl_run = wl_look and wl_apply on it, the log in $wl_d/log, the episode carried like a cycle does.
+    wl_d="$LAY/wl"; mkdir -p "$wl_d"
+    wl_sf=$WL_FILE; wl_so=$OUTDIR; wl_sts=$ts; wl_srs=$RESOLVED; wl_scm=$CAP_METHOD; wl_sof=$OUTFILE; wl_sve=$VENDOR
+    wl_sbl=$BLUETOOTH; wl_str=$TRAFFIC; wl_sbr=$BT_RC; wl_stp=$TR_PID; wl_sbs=$BT_SRC
+    WL_FILE="$wl_d/watch.list"; OUTDIR="$wl_d"; ts=1789300000; BT_CUR=" "; BT_LOGGED=" "
+    BLUETOOTH=0; TRAFFIC=0; BT_RC=3; TR_PID=""; BT_SRC=window   # the whole-cycle case must start no window and no AP service call, whatever an earlier block left
+    wl_doc() {
+        printf '{\n  "generated": %s, "homing": {"bssid": "02:00:5e:b0:00:21", "dbm": -50, "peak": -50, "t": %s},\n  "center": {"label": "x"},\n' "$ts" "$ts"
+        printf '  "bluetooth": [{"addr": "aa:bb:cc:00:00:01", "addr_type": "public", "rssi": -50, "reports": 1, "last_seen": %s, "name": "Meadow"}, {"addr": "aa:bb:cc:00:00:02", "addr_type": "public", "rssi": -60, "reports": 1, "last_seen": %s}],\n' "$ts" "$ts"
+        printf '  "alerts": [{"type": "deauth", "t": %s, "ap": "02:00:5e:b0:00:22", "n": 1}],\n  "aps": [\n' "$ts"
+        printf '    {"bssid": "02:00:5e:b0:00:01", "ssid": "HomeNet", "channel": 6, "band": "2.4 GHz", "freq": 2437, "rssi": -50, "security": "WPA2/PSK/CCMP", "clients": [{"mac": "02:00:5e:b0:00:02", "rssi": -60}, {"mac": "02:00:5e:b0:00:12", "rssi": -61, "probes": ["Meadow"]}]},\n'
+        printf '    {"bssid": "02:00:5e:b0:00:04", "ssid": "Meadow", "channel": 1, "band": "2.4 GHz", "freq": 2412, "rssi": -55, "security": "Open", "clients": []},\n'
+        printf '    {"bssid": "02:00:5e:b0:00:05", "ssid": "Ho\\"me\\\\Net]", "channel": 11, "band": "2.4 GHz", "freq": 2462, "rssi": -65, "security": "Open", "clients": []},\n'
+        printf '    {"bssid": "02:00:5e:b0:00:21", "ssid": "", "channel": 11, "band": "2.4 GHz", "freq": 2462, "rssi": -70, "security": "WPA2/PSK/CCMP", "clients": []}\n  ],\n  "unassociated": [\n'
+        printf '    {"mac": "02:00:5e:b0:00:03", "rssi": -70, "probes": ["HomeNet"]},\n    {"mac": "02:00:5e:b0:00:22", "rssi": -72}\n  ]\n}\n'
+    }
+    wl_run() { wl_doc > "$wl_d/doc.json"; BT_CUR=" "; { wl_look; wl_apply "$wl_d/doc.json"; } 2> "$wl_d/log"; BT_LOGGED=$BT_CUR; }
+    # the forms: six pairs with - or :, twelve hex, the prefixes mac: and ssid:, a comment, CRLF, a BOM, leading blanks, a duplicate, blank lines
+    printf '\357\273\277# the list\r\nAA-BB-CC-00-00-01\r\n\r\n02005eb00002\r\nmac:02:00:5E:B0:00:03\r\nssid:HomeNet\r\n  Meadow\r\nMeadow\r\n' > "$WL_FILE"
+    wl_run; wl_doc > "$wl_d/before.json"
+    wl_m1=$(grep -c '{"bssid": "02:00:5e:b0:00:01", "watched": true, "ssid": "HomeNet"' "$wl_d/doc.json")
+    wl_m2=$(grep -c '{"mac": "02:00:5e:b0:00:02", "watched": true, "rssi": -60}' "$wl_d/doc.json")
+    wl_m3=$(grep -c '^    {"mac": "02:00:5e:b0:00:03", "watched": true, "rssi": -70' "$wl_d/doc.json")
+    wl_m4=$(grep -c '{"bssid": "02:00:5e:b0:00:04", "watched": true, "ssid": "Meadow"' "$wl_d/doc.json")
+    wl_m5=$(grep -c '{"addr": "aa:bb:cc:00:00:01", "watched": true, "addr_type"' "$wl_d/doc.json")
+    wl_mn=$(grep -o '"watched": true' "$wl_d/doc.json" | grep -c .)
+    wl_u1=$(grep -c '"mac": "02:00:5e:b0:00:12", "rssi": -61, "probes": \["Meadow"\]' "$wl_d/doc.json")
+    wl_u2=$(grep -c '"addr": "aa:bb:cc:00:00:02", "addr_type"' "$wl_d/doc.json")
+    wl_u3=$(grep -c '"bssid": "02:00:5e:b0:00:05", "ssid"' "$wl_d/doc.json")
+    wl_u4=$(grep -c '"last_seen": 1789300000, "name": "Meadow"}' "$wl_d/doc.json")
+    if [ "$wl_m1/$wl_m2/$wl_m3/$wl_m4/$wl_m5/$wl_mn/$wl_u1/$wl_u2/$wl_u3/$wl_u4" = 1/1/1/1/1/5/1/1/1/1 ] && json_ok < "$wl_d/doc.json" && [ ! -s "$wl_d/log" ] \
+       && [ "$(wc -l < "$wl_d/doc.json" | tr -d ' ')" = "$(wc -l < "$wl_d/before.json" | tr -d ' ')" ]; then
+        st_pass "watch list: the forms (six pairs with - or :, twelve hex, the prefixes mac: and ssid:, a comment, CRLF, a BOM, leading blanks, a duplicate, blank lines) mark an access point by name, a client, a station and a Bluetooth record by address, byte for byte right after the address; a probe for a listed name, a Bluetooth name and unlisted records stay as they are"
+    else st_fail "watch list: forms ($wl_m1/$wl_m2/$wl_m3/$wl_m4/$wl_m5 marks $wl_mn, untouched $wl_u1/$wl_u2/$wl_u3/$wl_u4, log [$(cat "$wl_d/log")])"; fi
+    # an address that is also the homing target or an alert's access point: its own record is marked, homing, alerts and center are never touched
+    printf '02:00:5e:b0:00:21\n02:00:5e:b0:00:22\n' > "$WL_FILE"; wl_run
+    wl_h=$(grep -c '"homing": {"bssid": "02:00:5e:b0:00:21", "dbm"' "$wl_d/doc.json"); wl_a=$(grep -c '"ap": "02:00:5e:b0:00:22", "n": 1}' "$wl_d/doc.json")
+    wl_hid=$(grep -c '{"bssid": "02:00:5e:b0:00:21", "watched": true, "ssid": ""' "$wl_d/doc.json"); wl_st2=$(grep -c '{"mac": "02:00:5e:b0:00:22", "watched": true, "rssi": -72}' "$wl_d/doc.json")
+    wl_mn=$(grep -o '"watched": true' "$wl_d/doc.json" | grep -c .)
+    if [ "$wl_h/$wl_a/$wl_hid/$wl_st2/$wl_mn" = 1/1/1/1/2 ] && json_ok < "$wl_d/doc.json"; then
+        st_pass "watch list: an address that is also the homing target or an alert's access point marks its own record (a hidden network by address, a station) and nothing in homing, alerts or center"
+    else st_fail "watch list: homing and alerts ($wl_h/$wl_a/$wl_hid/$wl_st2/$wl_mn)"; fi
+    # the limits: 70 entries (the first 64 count), five lines that are neither (three of them begin like an address), 603 lines (read to 512); said once per episode
+    { printf '02:00:5e:b0:00:01\n'; wl_i=2; while [ "$wl_i" -le 69 ]; do printf '02:00:5e:b0:01:%02x\n' "$wl_i"; wl_i=$((wl_i + 1)); done
+      printf '02:00:5e:b0:00:04\nmac:notamac\nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn\n02:00:5e:b0:00:05 \n02:00:5e:b0:00:06 # phone\n02005eb00007 # tag\n'; wl_i=73; while [ "$wl_i" -lt 600 ]; do printf '#\n'; wl_i=$((wl_i + 1)); done; printf '02:00:5e:b0:00:03\n'; } > "$WL_FILE"
+    BT_LOGGED=" "; wl_run; cp "$wl_d/log" "$wl_d/log1"; wl_run
+    wl_l1=$(grep -c '{"bssid": "02:00:5e:b0:00:01", "watched": true' "$wl_d/doc.json"); wl_l4=$(grep -c '"bssid": "02:00:5e:b0:00:04", "ssid"' "$wl_d/doc.json"); wl_l3=$(grep -c '^    {"mac": "02:00:5e:b0:00:03", "rssi"' "$wl_d/doc.json")
+    wl_lo=$(grep -c 'Watch list: more than 64 entries' "$wl_d/log1"); wl_lb=$(grep -c 'Watch list: 5 line(s) are neither an address nor a name' "$wl_d/log1"); wl_l2=$(grep -c . "$wl_d/log")
+    if [ "$wl_l1/$wl_l4/$wl_l3/$wl_lo/$wl_lb/$wl_l2" = 1/1/1/1/1/0 ] && [ "$(wc -l < "$WL_FILE" | tr -d ' ')" = 603 ]; then
+        st_pass "watch list: limits: of 70 entries the first 64 are taken (the 70th marks nothing) and said once, five lines that are neither an address nor a name (three begin like an address: a trailing blank, a comment after it, the twelve-digit form with a comment) are said once, a 603-line file is read to line 512 (an address on line 603 marks nothing); the same episode is not said again"
+    else st_fail "watch list: limits ($wl_l1/$wl_l4/$wl_l3 over $wl_lo bad $wl_lb second run $wl_l2 lines; file $(wc -l < "$WL_FILE" | tr -d ' ') lines)"; fi
+    # no file, an empty file, a directory, an unreadable file
+    wl_doc > "$wl_d/ref.json"
+    rm -f "$WL_FILE"; wl_run; wl_n1=0; cmp -s "$wl_d/doc.json" "$wl_d/ref.json" && [ ! -s "$wl_d/log" ] && wl_n1=1
+    : > "$WL_FILE"; wl_run; wl_n2=0; cmp -s "$wl_d/doc.json" "$wl_d/ref.json" && [ ! -s "$wl_d/log" ] && wl_n2=1
+    rm -f "$WL_FILE"; mkdir "$WL_FILE"; BT_LOGGED=" "; wl_run; wl_n3=0; cmp -s "$wl_d/doc.json" "$wl_d/ref.json" && [ "$(grep -c 'Watch list: .* is not a readable file' "$wl_d/log")" = 1 ] && wl_n3=1; rmdir "$WL_FILE"
+    printf 'HomeNet\n' > "$WL_FILE"; chmod 000 "$WL_FILE"
+    if [ -r "$WL_FILE" ]; then rm -f "$WL_FILE"; mkfifo "$WL_FILE"; fi   # root reads a mode-000 file (the self-test on the Pager): a pipe is no readable file to root either, and wl_look never opens it
+    BT_LOGGED=" "; wl_run; wl_n4=0; cmp -s "$wl_d/doc.json" "$wl_d/ref.json" && [ "$(grep -c 'is not a readable file' "$wl_d/log")" = 1 ] && wl_n4=1; rm -f "$WL_FILE"
+    if [ "$wl_n1/$wl_n2/$wl_n3/$wl_n4" = 1/1/1/1 ]; then st_pass "watch list: no file, an empty file, a directory and an unreadable file (as root, a pipe) leave the document byte-identical; the directory and the unreadable file are said once, the others not at all"
+    else st_fail "watch list: absence ($wl_n1/$wl_n2/$wl_n3/$wl_n4, log [$(cat "$wl_d/log")])"; fi
+    # hostile entries: a name with a quote, a backslash and a bracket; a JSON-shaped line; ssid: before an address text; mac: before a name
+    printf 'Ho"me\\Net]\n", "x": 1\nssid:02:00:5e:b0:00:02\nmac:HomeNet\n' > "$WL_FILE"; BT_LOGGED=" "; wl_run
+    wl_x1=$(grep -c -F '{"bssid": "02:00:5e:b0:00:05", "watched": true, "ssid": "Ho\"me\\Net]"' "$wl_d/doc.json")
+    wl_xn=$(grep -o '"watched": true' "$wl_d/doc.json" | grep -c .); wl_xb=$(grep -c 'Watch list: 1 line(s) are neither' "$wl_d/log")
+    if [ "$wl_x1/$wl_xn/$wl_xb" = 1/1/1 ] && json_ok < "$wl_d/doc.json"; then
+        st_pass "watch list: hostile entries: a name with a quote, a backslash and a bracket matches the network written with them escaped; a JSON-shaped line is a name that matches nothing; ssid: before an address text makes it a name that marks no station; mac: before a name is said as neither"
+    else st_fail "watch list: hostile ($wl_x1/$wl_xn/$wl_xb: $(grep 'b0:00:05' "$wl_d/doc.json" | cut -c1-120))"; fi
+    # a whole cycle (capture source, the sample CSV): the default place $OUTDIR/watch.list; with the file the published document carries the marks, without it none
+    RESOLVED=capture; CAP_METHOD=airodump; OUTFILE="$wl_d/cycle.json"; VENDOR=0; WL_FILE=""; rm -f "$wl_d/watch.list"
+    printf 'HomeNet\n' > "$wl_d/watch.list"; run_cycle 2>/dev/null >/dev/null; wl_c1=$(grep -c '"watched": true' "$OUTFILE"); wl_c1h=$(grep -c '"watched": true, "ssid": "HomeNet"' "$OUTFILE")
+    rm -f "$wl_d/watch.list"; run_cycle 2>/dev/null >/dev/null; wl_c0=$(grep -c '"watched": true' "$OUTFILE")
+    if [ "$wl_c1" -ge 1 ] 2>/dev/null && [ "$wl_c1" = "$wl_c1h" ] && [ "$wl_c0" = 0 ] && json_ok < "$OUTFILE"; then
+        st_pass "watch list: a whole cycle reads the default place and marks the listed name on the published document; without the file the next cycle publishes none"
+    else st_fail "watch list: a whole cycle (marks $wl_c1, of them HomeNet $wl_c1h, without the file $wl_c0)"; fi
+    WL_FILE=$wl_sf; OUTDIR=$wl_so; ts=$wl_sts; RESOLVED=$wl_srs; CAP_METHOD=$wl_scm; OUTFILE=$wl_sof; VENDOR=$wl_sve; WL_ON=0; BT_CUR=" "; BT_LOGGED=" "
+    BLUETOOTH=$wl_sbl; TRAFFIC=$wl_str; BT_RC=$wl_sbr; TR_PID=$wl_stp; BT_SRC=$wl_sbs
+    unset -f wl_doc wl_run
 
     TMPDIR_RAM=$lsv_ram; BT_F=$lsv_bf; ts=$lsv_ts; BT_HELD=$lsv_held; BT_WIN=$lsv_win; TRAFFIC=$lsv_tr; BLUETOOTH=$lsv_bl; BT_CUR=$lsv_cur; BT_LOGGED=$lsv_lg
     unset -f lay_doc lay_win lay_get lay_tr; unset A B C t0
@@ -5337,6 +6178,10 @@ BTWIN
     # live window (rc 5, no call, no file of its own left: two starts at one moment cannot both run), and once that collector is gone the file is no window and the sweep removes it
     bts_reap; printf 'silent\n' > "$BTS/cfg/M.mode"; printf 'parent\n' > "$BTS/cfg/T.mode"
     if bts_child 15 '^P [0-9]'; then
+        # the stand-in collector writes its marker line and then starts its monitor, whose stand-in logs its argv as it starts: on the Pager that start trails the
+        # marker by a tenth of a second (1 November 2026: the first run of 0.2.7 on the device read 0 calls before and 1 after, a line the child wrote, not bt_begin).
+        # The baseline is taken once the child's own call is on record, so that the count below measures bt_begin alone; the window stays live for BT_T_READY.
+        bts_x=0; while [ "$bts_x" -lt 20 ] && [ ! -s "$BTS/log/argv.M" ]; do sleep 0.1 2>/dev/null || sleep 1; bts_x=$((bts_x + 1)); done
         bts_mk=$(cat "$BTS_CF" 2>/dev/null); bts_c0=$(cat "$BTS/log/argv.M" "$BTS/log/argv.S" 2>/dev/null | wc -l | tr -d ' ')
         bt_busy; bts_b1=$?
         bt_begin 2>/dev/null; bts_rc=$?
@@ -5460,14 +6305,14 @@ selftest() {
     # block (bt_env, the apcli stubs, a child's own environment). The alert log is out of reach too: a device that has logged an alert has a non-empty
     # alerts.log, which would put a layer (and a recent line) into every document and fail the cycle and vendor cases for a reason that is no fault of the collector.
     STARCHORUS_BLUETOOTH=0; STARCHORUS_TRAFFIC=0; STARCHORUS_APCLI_RO=0; STARCHORUS_ALLOW_ACTIVE=0; STARCHORUS_SYSFS_BT=/nonexistent/starchorus-selftest-bt
-    STARCHORUS_ALERTS=0; STARCHORUS_ALERT_DIR=/nonexistent/starchorus-selftest-alerts
+    STARCHORUS_ALERTS=0; STARCHORUS_ALERT_DIR=/nonexistent/starchorus-selftest-alerts; STARCHORUS_WATCH_FILE=/nonexistent/starchorus-selftest-watch.list; STARCHORUS_WIDS=0
     # The Bluetooth source is pinned to the window, and the firmware's database and the company list to paths that do not exist: on a 2.0 Pager
     # /root/recon/blue5.db is there, and `auto` would read the device's real database (real addresses in a test's output) where the cases
     # expect their own stand-ins. A case that reads blue5.db or a company list sets BLUE5_DB or BTCO_PATH itself, inside its block.
     STARCHORUS_BT_SOURCE=window; STARCHORUS_BLUE5_DB=/nonexistent/starchorus-selftest-blue5.db; STARCHORUS_BT_COMPANIES_FILE=/nonexistent/starchorus-selftest-bt-companies.txt
-    export STARCHORUS_BLUETOOTH STARCHORUS_TRAFFIC STARCHORUS_APCLI_RO STARCHORUS_ALLOW_ACTIVE STARCHORUS_SYSFS_BT STARCHORUS_ALERTS STARCHORUS_ALERT_DIR
+    export STARCHORUS_BLUETOOTH STARCHORUS_TRAFFIC STARCHORUS_APCLI_RO STARCHORUS_ALLOW_ACTIVE STARCHORUS_SYSFS_BT STARCHORUS_ALERTS STARCHORUS_ALERT_DIR STARCHORUS_WATCH_FILE STARCHORUS_WIDS
     export STARCHORUS_BT_SOURCE STARCHORUS_BLUE5_DB STARCHORUS_BT_COMPANIES_FILE
-    BLUETOOTH=0; TRAFFIC=0; APCLI_RO=0; ALLOW_ACTIVE=0; BT_SYSFS=$STARCHORUS_SYSFS_BT; ALERTS=0; ALERT_DIR=$STARCHORUS_ALERT_DIR
+    BLUETOOTH=0; TRAFFIC=0; APCLI_RO=0; ALLOW_ACTIVE=0; BT_SYSFS=$STARCHORUS_SYSFS_BT; ALERTS=0; ALERT_DIR=$STARCHORUS_ALERT_DIR; WL_FILE=$STARCHORUS_WATCH_FILE; WIDS=0
     BT_SOURCE=window; BLUE5_DB=$STARCHORUS_BLUE5_DB; BT_SRC=window; BTCO_FILE=$STARCHORUS_BT_COMPANIES_FILE; BTCO_PATH=""
     tdir=$(mktemp -d 2>/dev/null || echo /tmp/starchorus-selftest.$$)
     mkdir -p "$tdir"
@@ -5488,6 +6333,46 @@ selftest() {
     check() {  # desc, haystack, needle (basic regex)
         if printf '%s' "$2" | grep -q -- "$3"; then st_pass "$1"; else st_fail "$1  (missing: $3)"; fi
     }
+    # ---- the company list and its memo (btco_fill, btco_memo_take, setup_btco; 1 November 2026). One list of three lines for two identifiers (a
+    # lower-case id, a second line for the same id that must not win, a name past 48 characters) and a line of another shape; B-lines with an id the
+    # list names, an id it does not, a name already set and no id. The first pass reads the list and writes the identifiers it looked up to BT_F.co;
+    # the memo takes them, the unknown one with an empty name; a pass with the list gone fills the same names from the memo alone and looks nothing
+    # up; a pass with one new id looks up that one only; the memo keeps its newest 512 lines and drops a line that is not id<TAB>name; setup_btco empties it.
+    co_bp=$BTCO_PATH; co_bm=$BTCO_MEMO; co_bf=$BT_F; co_bs=$BTCO_STATE; co_bfl=$BTCO_FILE
+    mkdir -p "$tdir/co"; BT_F="$tdir/co/bt"; BTCO_MEMO=""; BTCO_PATH="$tdir/co/list.txt"
+    co_long="Nordic Semiconductor ASA with a name that runs on and on past the forty-eighth character"; co_cut=$(printf '%s' "$co_long" | cut -c1-48)
+    printf '004c\tApple, Inc.\n004C\tNot Apple\n0059\t%s\nnot a line\n' "$co_long" > "$BTCO_PATH"
+    co_in=$(printf 'B\t02:00:00:00:00:11\tpublic\t-50\t1\t76\t\t\t1\nB\t02:00:00:00:00:12\tpublic\t-51\t1\t89\t\t\t1\nB\t02:00:00:00:00:13\tpublic\t-52\t1\t4660\t\t\t1\nB\t02:00:00:00:00:14\tpublic\t-53\t1\t65535\tMaker A\t\t1\nB\t02:00:00:00:00:15\tpublic\t-54\t1\t\t\t\t1')
+    co_want=$(printf 'B\t02:00:00:00:00:11\tpublic\t-50\t1\t76\tApple, Inc.\t\t1\nB\t02:00:00:00:00:12\tpublic\t-51\t1\t89\t%s\t\t1\nB\t02:00:00:00:00:13\tpublic\t-52\t1\t4660\t\t\t1\nB\t02:00:00:00:00:14\tpublic\t-53\t1\t65535\tMaker A\t\t1\nB\t02:00:00:00:00:15\tpublic\t-54\t1\t\t\t\t1' "$co_cut")
+    co_o1=$(printf '%s\n' "$co_in" | btco_fill); co_co=$(sort "$BT_F.co" 2>/dev/null | tr '\t\n' '=|'); btco_memo_take
+    if [ "$co_o1" = "$co_want" ]; then st_pass "btco_fill: the list names the identifiers (a lower-case id matched, the first line of an id wins, a name cut to 48, an unknown id, a set name and a line without an id untouched)"
+    else st_fail "btco_fill: list pass [$(printf '%s' "$co_o1" | tr '\t\n' '=|' | cut -c1-200)]"; fi
+    co_m=$(printf '%s\n' "$BTCO_MEMO" | sort | tr '\t\n' '=|')
+    if [ "$co_co" = "004C=Apple, Inc.|0059=$co_cut|1234=|" ] && [ "$co_m" = "$co_co" ] && [ ! -e "$BT_F.co" ]; then st_pass "btco_memo_take: the pass wrote the three identifiers it looked up (the unknown one with an empty name), the memo holds them, the side file is gone"
+    else st_fail "btco_memo_take: side file [$co_co], memo [$co_m], file left $([ -e "$BT_F.co" ] && echo yes || echo no)"; fi
+    BTCO_PATH="$tdir/co/gone.txt"
+    co_o2=$(printf '%s\n' "$co_in" | btco_fill)
+    if [ "$co_o2" = "$co_want" ] && [ ! -e "$BT_F.co" ]; then st_pass "btco_fill: with the list gone the memo alone names the same identifiers and nothing is looked up (no side file)"
+    else st_fail "btco_fill: memo pass [$(printf '%s' "$co_o2" | tr '\t\n' '=|' | cut -c1-200)], side file $([ -e "$BT_F.co" ] && echo yes || echo no)"; fi
+    BTCO_PATH="$tdir/co/list.txt"
+    co_o3=$(printf 'B\t02:00:00:00:00:16\tpublic\t-55\t1\t76\t\t\t1\nB\t02:00:00:00:00:17\tpublic\t-56\t1\t2748\t\t\t1\n' | btco_fill | tr '\t\n' '=|'); co_co3=$(tr '\t\n' '=|' < "$BT_F.co" 2>/dev/null); btco_memo_take
+    if [ "$co_o3" = "B=02:00:00:00:00:16=public=-55=1=76=Apple, Inc.==1|B=02:00:00:00:00:17=public=-56=1=2748===1|" ] && [ "$co_co3" = "0ABC=|" ] && [ "$(printf '%s\n' "$BTCO_MEMO" | grep -c .)" = 4 ]; then st_pass "btco_fill: a pass with one new identifier looks up that one only (the memo serves the known one) and the memo grows by it"
+    else st_fail "btco_fill: new-id pass [$co_o3], side file [$co_co3], memo lines $(printf '%s\n' "$BTCO_MEMO" | grep -c .)"; fi
+    BTCO_MEMO=$(awk 'BEGIN { for (i = 0; i < 600; i++) printf "%04X\tn%d\n", i, i }'); printf 'FFFF\tLast\n' > "$BT_F.co"; btco_memo_take
+    if [ "$(printf '%s\n' "$BTCO_MEMO" | grep -c .)" = 512 ] && [ "$(printf '%s\n' "$BTCO_MEMO" | head -n 1)" = "$(printf '0059\tn89')" ] && [ "$(printf '%s\n' "$BTCO_MEMO" | tail -n 1)" = "$(printf 'FFFF\tLast')" ]; then st_pass "btco_memo_take: the memo keeps its newest 512 lines"
+    else st_fail "btco_memo_take: bound ($(printf '%s\n' "$BTCO_MEMO" | grep -c .) lines, first [$(printf '%s\n' "$BTCO_MEMO" | head -n 1)], last [$(printf '%s\n' "$BTCO_MEMO" | tail -n 1)])"; fi
+    BTCO_MEMO=""; printf 'garbage\n004C\tApple, Inc.\n00zz\tx\n' > "$BT_F.co"; btco_memo_take
+    if [ "$BTCO_MEMO" = "$(printf '004C\tApple, Inc.')" ]; then st_pass "btco_memo_take: a line that is not id<TAB>name is dropped"
+    else st_fail "btco_memo_take: garbage kept [$(printf '%s' "$BTCO_MEMO" | tr '\t\n' '=|')]"; fi
+    BTCO_MEMO=""; BTCO_PATH="$tdir/co/gone.txt"
+    co_o4=$(printf 'B\t02:00:00:00:00:18\tpublic\t-57\t1\t76\t\t\t1\n' | btco_fill | tr '\t\n' '=|'); co_f4=$([ -e "$BT_F.co" ] && echo yes || echo no); btco_memo_take; co_m4=$BTCO_MEMO
+    BTCO_PATH="$tdir/co/list.txt"; co_o5=$(printf 'B\t02:00:00:00:00:18\tpublic\t-57\t1\t76\t\t\t1\n' | btco_fill | tr '\t\n' '=|'); btco_memo_take
+    if [ "$co_o4" = "B=02:00:00:00:00:18=public=-57=1=76===1|" ] && [ "$co_f4" = no ] && [ -z "$co_m4" ] && [ "$co_o5" = "B=02:00:00:00:00:18=public=-57=1=76=Apple, Inc.==1|" ] && [ "$BTCO_MEMO" = "$(printf '004C\tApple, Inc.')" ]; then st_pass "btco_fill: a list that cannot be read this cycle names nothing and records nothing (no side file, the memo untouched), so the next cycle with the list names the identifier"
+    else st_fail "btco_fill: unreadable list: pass [$co_o4], side file $co_f4, memo [$(printf '%s' "$co_m4" | tr '\t\n' '=|')], then [$co_o5], memo [$(printf '%s' "$BTCO_MEMO" | tr '\t\n' '=|')]"; fi
+    BTCO_MEMO="0001${RECON_TAB}x"; BTCO_FILE="$tdir/co/list.txt"; BTCO_STATE=""; setup_btco 2>/dev/null
+    if [ -z "$BTCO_MEMO" ] && [ "$BTCO_PATH" = "$tdir/co/list.txt" ]; then st_pass "setup_btco: the memo is emptied with the (hourly) choice of the list"
+    else st_fail "setup_btco: memo [$BTCO_MEMO], path [$BTCO_PATH]"; fi
+    BTCO_PATH=$co_bp; BTCO_MEMO=$co_bm; BT_F=$co_bf; BTCO_STATE=$co_bs; BTCO_FILE=$co_bfl; rm -rf "$tdir/co"
     checkf() {  # desc, haystack, FIXED-string needle (for needles containing \ or ")
         if printf '%s' "$2" | grep -qF -- "$3"; then st_pass "$1"; else st_fail "$1  (missing: $3)"; fi
     }
@@ -5551,15 +6436,90 @@ CSV
 
     # ---- 1b) Bluetooth, the per-cycle layers and the traffic call: the text of a window (no process), the layers (files), a window against stand-ins
     bt_parse_selftest "$tdir"
-    # blue5 fixture for the layers selftest, built here where a non-read-only sqlite3 is a test fixture (not a production read); lay_selftest reads it
-    LAY_BLUE5_FIX="$tdir/blue5-fix.db"
-    if have sqlite3; then rm -f "$LAY_BLUE5_FIX"; sqlite3 "$LAY_BLUE5_FIX" "CREATE TABLE bt_device(scan INT,mac TEXT,first_seen INT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,packets INT,name BLOB,name_complete INT,PRIMARY KEY(scan,mac));
-INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name) VALUES
+    # blue5 fixtures for the layers selftest, built here where a non-read-only sqlite3 is a test fixture (not a production read); lay_selftest reads them.
+    # Two schemas with the same first rows (scans 1 and 2, clock 1000000): the device's 2.0 schema (device-notes §2c: ad_flags, appearance, svc16,
+    # svc_other, mfr, svcd beside the 0.2.6 columns), whose second set (scans 3 and 4, clock 2000000) carries the class columns, and the 0.2.6
+    # schema without them, the control for the narrow query. Every address is made up.
+    LAY_BLUE5_FIX="$tdir/blue5-fix.db"; LAY_BLUE5_OLD="$tdir/blue5-old.db"
+    if have sqlite3; then
+        rm -f "$LAY_BLUE5_FIX" "$LAY_BLUE5_OLD"
+        b5x_rows="INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name) VALUES
  (1,'AABBCC000001',1000000,1,0,1,-50,10,76,'Pub'),(1,'C0AABB000002',1000000,1,1,1,-60,5,12,'Stat'),
  (1,'40AABB000003',1000000,1,1,0,-70,1,46517,'Res'),(1,'AABBCC000005',1000000,1,0,1,-55,0,65535,'t'||char(9)||'n'),
  (1,'AABBCC000006',1000000,1,0,1,NULL,10,76,'x'),(1,'AABBCC000007',999800,1,0,1,-50,10,76,'old'),
  (1,'AABBCC000009',1000000,2,0,1,-50,10,76,'cls'),(1,'AABBCC00000A',999990,1,0,1,-90,3,76,'o'),
- (2,'AABBCC00000A',1000000,1,0,1,-40,7,76,'n');" 2>/dev/null; else LAY_BLUE5_FIX=""; fi
+ (2,'AABBCC00000A',1000000,1,0,1,-40,7,76,'n');"
+        sqlite3 "$LAY_BLUE5_OLD" "CREATE TABLE bt_device(scan INT,mac TEXT,first_seen INT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,packets INT,name BLOB,name_complete INT,PRIMARY KEY(scan,mac));
+$b5x_rows" 2>/dev/null
+        # the class set: Apple types 12/07/02/10/0F/0C/05 and an unlisted 99; services FE2C/FEAA/1812/181A and the unlisted FD59; the appearance categories
+        # 1,2,3,5,6,8,9,10,15,21 (64 each) and the refused 0, 70000, 12, 13, 49, 11; the rank (1E-20); the refusals (21-25: a Microsoft head under
+        # company 76, mfr as text, two bytes, a quote, a TAB); a list and lower case (26, 27); an address whose newest row changes its class (28)
+        sqlite3 "$LAY_BLUE5_FIX" "CREATE TABLE bt_device(scan INT,mac TEXT,first_seen INT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,packets INT,name BLOB,name_complete INT,ad_flags INT,appearance INT,svc16 TEXT,svc_other INT,mfr BLOB,svcd BLOB,PRIMARY KEY(scan,mac) ON CONFLICT REPLACE);
+$b5x_rows
+INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name,mfr,appearance,svc16) VALUES
+ (3,'AABBCC000101',2000000,1,0,1,-50,1,76,'',X'4C001219AABBCCDD',NULL,NULL),(3,'AABBCC000102',2000000,1,0,1,-51,1,76,'',X'4C00071900',NULL,NULL),
+ (3,'AABBCC000103',2000000,1,0,1,-52,1,76,'',X'4C000215',NULL,NULL),(3,'AABBCC000104',2000000,1,0,1,-53,1,76,'',X'4C001005',NULL,NULL),
+ (3,'AABBCC000105',2000000,1,0,1,-54,1,76,'',X'4C000F05',NULL,NULL),(3,'AABBCC000106',2000000,1,0,1,-55,1,76,'',X'4C000C0E',NULL,NULL),
+ (3,'AABBCC000107',2000000,1,0,1,-56,1,76,'',X'4C000512',NULL,NULL),(3,'AABBCC000108',2000000,1,0,1,-57,1,76,'',X'4C009901',NULL,NULL),
+ (3,'AABBCC000109',2000000,1,0,1,-58,1,224,'',NULL,NULL,'FE2C'),(3,'AABBCC00010A',2000000,1,0,1,-59,1,NULL,'',NULL,NULL,'FEAA'),
+ (3,'AABBCC00010B',2000000,1,0,1,-60,1,NULL,'',NULL,NULL,'1812'),(3,'AABBCC00010C',2000000,1,0,1,-61,1,NULL,'',NULL,NULL,'181A'),
+ (3,'AABBCC00010D',2000000,1,0,1,-62,1,NULL,'',NULL,NULL,'FD59'),
+ (3,'AABBCC00010E',2000000,1,0,1,-63,1,NULL,'',NULL,64,NULL),(3,'AABBCC00010F',2000000,1,0,1,-64,1,NULL,'',NULL,128,NULL),
+ (3,'AABBCC000110',2000000,1,0,1,-65,1,NULL,'',NULL,192,NULL),(3,'AABBCC000111',2000000,1,0,1,-66,1,NULL,'',NULL,320,NULL),
+ (3,'AABBCC000112',2000000,1,0,1,-67,1,NULL,'',NULL,384,NULL),(3,'AABBCC000113',2000000,1,0,1,-68,1,NULL,'',NULL,512,NULL),
+ (3,'AABBCC000114',2000000,1,0,1,-69,1,NULL,'',NULL,576,NULL),(3,'AABBCC000115',2000000,1,0,1,-70,1,NULL,'',NULL,640,NULL),
+ (3,'AABBCC000116',2000000,1,0,1,-71,1,NULL,'',NULL,961,NULL),(3,'AABBCC000117',2000000,1,0,1,-72,1,NULL,'',NULL,1344,NULL),
+ (3,'AABBCC000118',2000000,1,0,1,-73,1,NULL,'',NULL,0,NULL),(3,'AABBCC000119',2000000,1,0,1,-74,1,NULL,'',NULL,70000,NULL),
+ (3,'AABBCC00011A',2000000,1,0,1,-75,1,NULL,'',NULL,768,NULL),(3,'AABBCC00011B',2000000,1,0,1,-76,1,NULL,'',NULL,832,NULL),
+ (3,'AABBCC00011C',2000000,1,0,1,-77,1,NULL,'',NULL,3136,NULL),(3,'AABBCC00011D',2000000,1,0,1,-78,1,NULL,'',NULL,704,NULL),
+ (3,'AABBCC00011E',2000000,1,0,1,-79,1,76,'',X'4C001219',64,'FE2C'),(3,'AABBCC00011F',2000000,1,0,1,-80,1,76,'',X'4C009901',64,'FE2C'),
+ (3,'AABBCC000120',2000000,1,0,1,-81,1,NULL,'',NULL,64,'FD59'),
+ (3,'AABBCC000121',2000000,1,0,1,-82,1,76,'',X'06000109',NULL,NULL),(3,'AABBCC000122',2000000,1,0,1,-83,1,76,'','4c001219',NULL,NULL),
+ (3,'AABBCC000123',2000000,1,0,1,-84,1,76,'',X'4C00',NULL,NULL),(3,'AABBCC000124',2000000,1,0,1,-85,1,NULL,'',NULL,NULL,'FE2C\"'),
+ (3,'AABBCC000125',2000000,1,0,1,-86,1,NULL,'',NULL,NULL,'FE2C'||char(9)||'1812'),
+ (3,'AABBCC000126',2000000,1,0,1,-87,1,NULL,'',NULL,NULL,'FCB2, FE2C'),(3,'AABBCC000127',2000000,1,0,1,-88,1,NULL,'',NULL,NULL,'fe2c'),
+ (3,'AABBCC000128',1999990,1,0,1,-89,1,76,'',X'4C001219',NULL,NULL),(4,'AABBCC000128',2000000,1,0,1,-45,1,76,'',X'4C00071900',NULL,NULL),
+ (3,'AABBCC000129',2000000,1,0,1,-90,1,6,'',X'4C001219',NULL,NULL),(3,'AABBCC00012A',2000000,1,0,1,-91,1,NULL,'',NULL,1024,NULL),(3,'AABBCC00012B',2000000,1,0,1,-92,1,NULL,'',NULL,2624,NULL);
+INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name,svcd) VALUES
+ (5,'AABBCC000201',3000000,1,0,0,-50,1,NULL,'',X'FAFF0D010212544553542D49442E303030310000000000000000000000'),
+ (5,'AABBCC000202',3000000,1,0,0,-51,1,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
+ (5,'AABBCC000203',3000000,1,0,0,-52,1,NULL,'',X'FAFF0D014201E0707200C011D2ED010000000000000000000000000000'),
+ (5,'AABBCC000204',3000000,1,0,0,-53,1,NULL,'',X'FAFF0D0152004F502D544553545F303100000000000000000000000000'),
+ (5,'AABBCC000205',3000000,1,0,0,-54,1,NULL,'',X'FAFF0D01F219040212544553542D49442E3030303100000000000000000000001220000000404B4C006037F8ED0000C10800000000000000004201E0707200C011D2ED01000000000000000000000000000052004F502D544553545F303100000000000000000000000000'),
+ (5,'AABBCC000206',3000000,1,0,0,-55,1,NULL,'',X'16FAFF0D01F219040212544553542D49442E3030303100000000000000000000001220000000404B4C006037F8ED0000C10800000000000000004201E0707200C011D2ED01000000000000000000000000000052004F502D544553545F303100000000000000000000000000'),
+ (5,'AABBCC000207',3000000,1,0,0,-56,1,NULL,'',X'FAFF0C010212544553542D49442E303030310000000000000000000000'),
+ (5,'AABBCC000208',3000000,1,0,0,-57,1,NULL,'',X'FAFF0D01F219090212544553542D49442E303030310000000000000000000000'),
+ (5,'AABBCC000209',3000000,1,0,0,-58,1,NULL,'',X'FAFF0D01F218010212544553542D49442E303030310000000000000000000000'),
+ (5,'AABBCC00020A',3200000,1,0,0,-59,1,NULL,'',X'FAFF0D011220000000807F3D3600E1F5050000C1080000000000000000'),
+ (5,'AABBCC00020B',3200000,1,0,0,-60,1,NULL,'',X'FAFF0D0112200000000000000000000000000000000000000000000000'),
+ (5,'AABBCC00020C',3200000,1,0,0,-61,1,NULL,'',X'FAFF0D01021254452253543C783E000000000000000000000000000000'),
+ (5,'AABBCC00020D',3200000,1,0,0,-62,1,NULL,'',X'FAFF0D010212434146C389000000000000000000000000000000000000'),
+ (5,'AABBCC00020E',3200000,1,0,0,-63,1,NULL,'',X'FAFF0D010221442D5245472E3432000000000000000000000000000000'),
+ (5,'AABBCC00020F',3200000,1,0,0,-64,1,NULL,'',X'FAFF0D010233000102030405060708090A0B0C0D0E0F00000000000000'),
+ (5,'AABBCC000210',3200000,1,0,0,-65,1,NULL,'',X'FAFF0D010212544553542D49442E'),
+ (5,'AABBCC000211',3000000,1,0,0,-66,1,NULL,'','FAFF0D010212544553542D49442E303030310000000000000000000000'),
+ (5,'AABBCC000212',3000000,1,0,0,-67,1,NULL,'',X'FAFF0D01'||zeroblob(300)),
+ (5,'AABBCC000213',3000000,1,0,0,-68,1,NULL,'',NULL),
+ (6,'AABBCC000201',3000030,1,0,0,-50,2,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
+ (6,'AABBCC000203',3000030,1,0,0,-52,2,NULL,'',NULL),
+ (9,'AABBCC000221',3400000,1,0,0,-50,1,NULL,'',X'FAFF0D0152004F502D544553545F303100000000000000000000000000'),
+ (9,'AABBCC000222',3400000,1,0,0,-51,1,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
+ (9,'AABBCC000223',3400000,1,0,0,-52,1,NULL,'',X'FAFF0D0112200000008074D21A009435770000C1080000000000000000'),
+ (9,'AABBCC000224',3400000,1,0,0,-53,1,NULL,'',X'FAFF0D01122000000000175BCA002EB6940000C1080000000000000000'),
+ (9,'AABBCC000225',3400000,1,0,0,-54,1,NULL,'',X'FAFF0D0142010000000000000000010000000000000000000000000000'),
+ (9,'AABBCC000226',3400000,1,0,0,-55,1,NULL,'',X'FAFF0D0102125445005354000000000000000000000000000000000000'),
+ (9,'AABBCC000227',3400000,1,0,0,-56,1,NULL,'',X'FAFF0D0102124142434445464748494A4B4C4D4E4F5051525354000000'),
+ (9,'AABBCC000228',3400000,1,0,0,-57,1,NULL,'',X'FAFF0D01F219020212544553542D49442E30303031000000000000000000000002420102030405060708090A0B0C0D0E0F1011121314000000');
+WITH RECURSIVE s(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM s WHERE i<20)
+INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name,svcd)
+ SELECT 7,'AABBCC0003'||printf('%02X',i),4000000,1,0,0,-39-i,1,NULL,'',X'FAFF0D01F219040212544553542D49442E3030303100000000000000000000001220000000404B4C006037F8ED0000C10800000000000000004201E0707200C011D2ED01000000000000000000000000000052004F502D544553545F303100000000000000000000000000' FROM s;
+INSERT INTO bt_device(scan,mac,first_seen,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name) VALUES
+ (8,'AABBCC000401',4999900,5000000,1,0,1,-45,5,NULL,''),(8,'C0AABB000402',4999950,5000000,1,1,1,-40,3,NULL,''),
+ (8,'40AABB000403',4999900,5000000,1,1,1,-40,5,NULL,''),(8,'AABBCC000404',4999000,5000000,1,0,1,-40,5,NULL,''),
+ (8,'AABBCC000405',4999900,5000000,1,0,1,-55,5,NULL,''),(8,'AABBCC000406',4999900,5000000,1,0,1,-40,2,NULL,''),
+ (8,'AABBCC000407',4000000,5000000,1,0,1,-50,5,NULL,''),(8,'AABBCC000408',4999400,5000000,1,0,1,-49,3,NULL,''),
+ (8,'AABBCC000409',4999900,5000000,1,0,1,-50,5,NULL,''),(8,'AABBCC00040A',4999900,5000000,1,0,1,0,5,NULL,'');" 2>/dev/null
+    else LAY_BLUE5_FIX=""; LAY_BLUE5_OLD=""; fi
     lay_selftest "$tdir"
     printf '%s\n' "$out" > "$tdir/emit-csv.json"; lay_check "airodump-csv document" "$tdir/emit-csv.json"
     write_empty 1710000000 "no data" > "$tdir/emit-empty.json"; lay_check "write_empty document" "$tdir/emit-empty.json"
@@ -6434,8 +7394,8 @@ INSERT INTO ssid VALUES (13,504,2,4,'FFFFFFFFFFFF','S',0,$((lt - 5)),-65,0,0,0);
 INSERT INTO wifi_device VALUES (504,2,'020000020203',$((lt - 5)),-65,0,0);
 SQL
         RECON_DB="$ldb"; HAS_TIME=""; RDB_PATH=""; MAX_AGE=0; : > "$SHIM_LOG"
-        TRAFFIC=1; build_from_recondb $lt > "$rpt/lp1.json" 2>/dev/null; lp_c1=$(calls); TRAFFIC=0
-        build_from_recondb $lt > "$rpt/lp0.json" 2>/dev/null
+        TRAFFIC=1; build_from_recondb "$lt" > "$rpt/lp1.json" 2>/dev/null; lp_c1=$(calls); TRAFFIC=0
+        build_from_recondb "$lt" > "$rpt/lp0.json" 2>/dev/null
         if [ "$lp_c1" = 1 ] && json_ok < "$rpt/lp1.json" \
            && grep -q '"mac": "02:00:00:02:02:01", "rssi": -60, "last_seen": 1789999990, "packets": 40, "probes": \["Q"\]}' "$rpt/lp1.json" \
            && ! grep '02:00:00:02:02:02' "$rpt/lp1.json" | grep -q packets && grep -q '"mac": "02:00:00:02:02:03".*"packets": 0' "$rpt/lp1.json"; then
@@ -6451,7 +7411,7 @@ INSERT INTO ssid VALUES (1,0,1,8,'020000030101','OnlyAP',0,$((lt - 100)),-50,243
 INSERT INTO ssid VALUES (2,601,1,4,'FFFFFFFFFFFF','Q',0,$((lt - 10)),-60,0,0,0);
 INSERT INTO wifi_device VALUES (601,1,'020000020301',-60);
 SQL
-        RECON_DB="$npdb"; HAS_TIME=""; RDB_PATH=""; TRAFFIC=1; build_from_recondb $lt > "$rpt/lp2.json" 2>/dev/null; TRAFFIC=0
+        RECON_DB="$npdb"; HAS_TIME=""; RDB_PATH=""; TRAFFIC=1; build_from_recondb "$lt" > "$rpt/lp2.json" 2>/dev/null; TRAFFIC=0
         if grep -q '"mac": "02:00:00:02:03:01"' "$rpt/lp2.json" && ! grep -q packets "$rpt/lp2.json" && json_ok < "$rpt/lp2.json"; then st_pass "station packets: a schema without wifi_device.packets or .time -> CLI1 claims the group, the stations come without the counter"; else st_fail "station packets: schema without packets ($(grep '"mac"' "$rpt/lp2.json"))"; fi
         # hidden networks: ssid stays "" whatever name the row holds (the 0.1 convention; on the device a hidden beacon holds zero bytes only, device-notes 4a); the NEWEST beacon decides
         RECON_DB="$ldb"; HAS_TIME=""; RDB_PATH=""
@@ -6512,7 +7472,7 @@ SQL
         # pnb BINDIR TS: one cycle's document into $pn (no command substitution around the build: its state, PSEC_T, must survive)
         : > "$ppt/e.log"
         pnb() { PATH="$1:$p_path2"; build_from_apcli "$2" > "$ppt/o.json" 2>>"$ppt/e.log"; pnrc=$?; PATH=$p_path2; pn=$(cat "$ppt/o.json"); }
-        pnb "$ppt/bin" $pt0
+        pnb "$ppt/bin" "$pt0"
         if [ "$pnrc" = 0 ] && printf '%s\n' "$pn" | json_ok; then st_pass "pineap: valid JSON from RECON APS + RECON DEVICES fixtures"; else st_fail "pineap: document (rc $pnrc)"; fi
         printf '%s\n' "$pn" > "$ppt/emit.json"; lay_check "pineap document" "$ppt/emit.json"
         if [ "$(cat "$ppt/log")" = "RECON APS format=json
@@ -6528,14 +7488,14 @@ RECON DEVICES format=json" ]; then st_pass "pineap: exactly the two read-only li
         if [ "$pnl/$pnc" = 4/3 ]; then st_pass "pineap: 4 APs, 3 stations without a window"; else st_fail "pineap: counts $pnl/$pnc"; fi
         # no AP carries an empty or a missing security: the page and the Overview both read a missing field as Open (an unresolved one is "Unknown")
         if [ "$pnl" = "$(printf '%s\n' "$pn" | grep -c '"security": "[^"]')" ] && ! printf '%s\n' "$pn" | grep -q '"security": ""'; then st_pass "pineap: every AP carries a non-empty security (Unknown until recon.db names it, never empty or absent)"; else st_fail "pineap: security field missing or empty"; fi
-        MAX_AGE=3600; pnb "$ppt/bin" $pt0; MAX_AGE=0
+        MAX_AGE=3600; pnb "$ppt/bin" "$pt0"; MAX_AGE=0
         pnl=$(printf '%s\n' "$pn" | grep -c '"bssid"'); pnc=$(printf '%s\n' "$pn" | grep -c '"mac"')
         if [ "$pnl/$pnc" = 3/2 ] && ! printf '%s\n' "$pn" | grep -q 'Gone'; then st_pass "pineap: STARCHORUS_MAX_AGE applies to time (the AP and the station from 2 h ago are gone)"; else st_fail "pineap: window counts $pnl/$pnc"; fi
         # a hidden beacon: ssid stays empty (the 0.1 convention), whatever name its record holds
         printf '[{"mac": "AA:BB:CC:00:00:51", "freq": 2412, "signal": -50, "time": %s, "beacon": {"1": {"ssid": "Garden", "channel": 1, "freq": 2412, "signal": -50, "time": %s, "hidden": true}}},\n {"mac": "AA:BB:CC:00:00:52", "freq": 2412, "signal": -60, "time": %s, "beacon": {"2": {"ssid": "  Pad  ", "channel": 1, "freq": 2412, "signal": -60, "time": %s, "hidden": true}}},\n {"mac": "AA:BB:CC:00:00:53", "freq": 2412, "signal": -61, "time": %s, "beacon": {"3": {"ssid": "", "channel": 1, "freq": 2412, "signal": -61, "time": %s, "hidden": true}}},\n {"mac": "AA:BB:CC:00:00:54", "freq": 2412, "signal": -62, "time": %s, "beacon": {"4": {"ssid": "Open", "channel": 1, "freq": 2412, "signal": -62, "time": %s, "hidden": false}}}]\n' \
             $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) $((pt0 - 5)) > "$ppt/aps12.json"
         printf '[]\n' > "$ppt/dev12.json"; apcli_stub "$ppt/bin12" "$ppt/log12" "$ppt/aps12.json" "$ppt/dev12.json"
-        pnb "$ppt/bin12" $pt0; pn12=$pn
+        pnb "$ppt/bin12" "$pt0"; pn12=$pn
         if [ "$(pl_of "$pn12" 'aa:bb:cc:00:00:51' | grep -c '"ssid": ""')" = 1 ] && pl_of "$pn12" 'aa:bb:cc:00:00:52' | grep -q '"ssid": ""' && pl_of "$pn12" 'aa:bb:cc:00:00:53' | grep -q '"ssid": ""' \
            && pl_of "$pn12" 'aa:bb:cc:00:00:54' | grep -q '"ssid": "Open"' && ! printf '%s\n' "$pn12" | grep -q -e Garden -e Pad -e ssid_recorded && printf '%s\n' "$pn12" | json_ok; then
             st_pass "pineap: a hidden beacon gives ssid \"\" whatever name its record holds (no other field carries it); a plain network keeps its name"
@@ -6543,23 +7503,23 @@ RECON DEVICES format=json" ]; then st_pass "pineap: exactly the two read-only li
         # the same lists, pretty-printed and with the key order reversed in one object: the tokeniser does not care about layout
         sed -e 's/, "/,\
  "/g' "$ppt/aps.json" > "$ppt/aps2.json"; apcli_stub "$ppt/bin2" "$ppt/log2" "$ppt/aps2.json" "$ppt/dev.json"
-        pnb "$ppt/bin2" $pt0; pn2=$pn
+        pnb "$ppt/bin2" "$pt0"; pn2=$pn
         if [ "$(printf '%s\n' "$pn2" | grep -c '"bssid"')" = 4 ] && printf '%s\n' "$pn2" | json_ok; then st_pass "pineap: a differently laid-out list gives the same APs"; else st_fail "pineap: layout"; fi
         # failures: no JSON array from RECON APS -> no document; a bad RECON DEVICES -> APs only
         printf 'error: not running\n' > "$ppt/aps3.json"; apcli_stub "$ppt/bin3" "$ppt/log3" "$ppt/aps3.json" "$ppt/dev.json"
-        pnb "$ppt/bin3" $pt0
+        pnb "$ppt/bin3" "$pt0"
         if [ "$pnrc" != 0 ]; then st_pass "pineap: no JSON from RECON APS -> no document (the cycle publishes the explicit empty one)"; else st_fail "pineap: garbage accepted"; fi
         printf '%s\n' '[]' > "$ppt/aps4.json"; apcli_stub "$ppt/bin4" "$ppt/log4" "$ppt/aps4.json" "$ppt/aps3.json"
-        pnb "$ppt/bin4" $pt0; pn4=$pn
+        pnb "$ppt/bin4" "$pt0"; pn4=$pn
         if [ "$pnrc" = 2 ] && [ -z "$pn4" ]; then st_pass "pineap: an empty AP list is no answer (rc 2: run_cycle falls back to recon.db)"; else st_fail "pineap: empty lists (rc $pnrc)"; fi
         # "recent": one bounded RECON DEVICES, no RECON APS; the APs come from the beacon records, the document is the same
-        : > "$ppt/log"; PINEAP_CALLS=recent; pnb "$ppt/bin" $pt0; pnr=$pn; PINEAP_CALLS=full
+        : > "$ppt/log"; PINEAP_CALLS=recent; pnb "$ppt/bin" "$pt0"; pnr=$pn; PINEAP_CALLS=full
         if [ "$(cat "$ppt/log")" = "RECON DEVICES format=json bytime=true limit=400" ] && printf '%s\n' "$pnr" | json_ok \
            && [ "$(printf '%s\n' "$pnr" | grep -c '"bssid"')" = 4 ] && [ "$(printf '%s\n' "$pnr" | grep -c '"mac"')" = 3 ]; then
             st_pass "pineap recent: one bounded RECON DEVICES call, the same 4 APs and 3 stations without RECON APS"
         else st_fail "pineap recent: [$(cat "$ppt/log")]"; fi
         printf 'error\n' > "$ppt/dev9.json"; apcli_stub "$ppt/bin9" "$ppt/log9" "$ppt/aps.json" "$ppt/dev9.json"
-        PINEAP_CALLS=recent; pnb "$ppt/bin9" $pt0; PINEAP_CALLS=full
+        PINEAP_CALLS=recent; pnb "$ppt/bin9" "$pt0"; PINEAP_CALLS=full
         if [ "$pnrc" != 0 ]; then st_pass "pineap recent: no JSON array from the one call -> no document"; else st_fail "pineap recent: garbage accepted"; fi
         # security from recon.db: ONE query for unknown BSSIDs, none while nothing is new, one retry for BSSIDs the database did not know
         sqlite3 "$tdir/recon_pn.db" >/dev/null 2>&1 <<'SQL'
@@ -6569,7 +7529,7 @@ INSERT INTO ssid VALUES (1,0,1,8,'AABBCC000001','Guest',0,0,-40,2437,6,171840637
 INSERT INTO ssid VALUES (2,0,1,8,'02BBCC000003','x',0,0,-66,5955,1,6597073961232);
 SQL
         RECON_DB="$tdir/recon_pn.db"; RDB_PATH=""; PSEC_T=0; rm -f "$ppt/ram/starchorus-sec.txt"; : > "$SHIM_LOG"
-        pnb "$ppt/bin" $pt0; pc1=$(calls)
+        pnb "$ppt/bin" "$pt0"; pc1=$(calls)
         checkf  "pineap: security (and akm/cipher) of a known BSSID from recon.db"  "$(pl_of "$pn" 'aa:bb:cc:00:00:01')" '"security": "WPA2", "last_seen": 1709999990, "akm": ["psk"], "cipher": {"group": "ccmp128", "pairwise": ["ccmp128"]}, "responded_ssids": 2'
         checkf  "pineap: SAE from recon.db is WPA3" "$(pl_of "$pn" '02:bb:cc:00:00:03')" '"security": "WPA3"'
         checkf  "pineap: a BSSID the database does not know stays Unknown" "$(pl_of "$pn" 'aa:bb:cc:00:00:02')" '"security": "Unknown"'
@@ -6617,10 +7577,10 @@ SQL
         checkf  "pineap 2.0: a bitmask above 2^53 is read exactly (WPA3/WPA2 with the SAE auth bit), where double-precision awk would round" "$(pl_of "$(cat "$ppt/enc.json")" '02:00:00:00:00:14')" '"security": "WPA3/WPA2", "last_seen": '"$et3"', "auth": ["sae"]'
         # a crowd: 120 APs and 400 stations in scrambled order come out sorted by MAC, every one of them there
         awk 'BEGIN{ n=401; printf "["
-            for(i=0;i<120;i++){ v=(i*53)%131; printf "%s{\"mac\": \"%s\", \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"beacon\": {\"%d\": {\"ssid\": \"Crowd%d\", \"channel\": 6, \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"hidden\": false}}}", (i?",":""), sprintf("02:aa:00:00:%02x:%02x", int(v/256), v%256), 40+i%40, '$pt0' - 5, i, i, 40+i%40, '$pt0' - 5 }
+            for(i=0;i<120;i++){ v=(i*53)%131; printf "%s{\"mac\": \"%s\", \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"beacon\": {\"%d\": {\"ssid\": \"Crowd%d\", \"channel\": 6, \"freq\": 2437, \"signal\": -%d, \"time\": %d, \"hidden\": false}}}", (i?",":""), sprintf("02:aa:00:00:%02x:%02x", int(v/256), v%256), 40+i%40, '"$pt0"' - 5, i, i, 40+i%40, '"$pt0"' - 5 }
             printf "]\n" }' > "$ppt/aps11.json"
         awk 'BEGIN{ n=401; printf "["
-            for(i=0;i<n;i++){ v=(i*389)%n; printf "%s{\"mac\": \"%s\", \"freq\": 2412, \"signal\": -60, \"time\": %d, \"probe\": {\"%d\": {\"ssid\": \"Q%d\", \"channel\": 1, \"freq\": 2412, \"signal\": -60, \"time\": %d}}}", (i?",":""), sprintf("10:bb:00:00:%02x:%02x", int(v/256), v%256), '$pt0' - 5, i, i, '$pt0' - 5 }
+            for(i=0;i<n;i++){ v=(i*389)%n; printf "%s{\"mac\": \"%s\", \"freq\": 2412, \"signal\": -60, \"time\": %d, \"probe\": {\"%d\": {\"ssid\": \"Q%d\", \"channel\": 1, \"freq\": 2412, \"signal\": -60, \"time\": %d}}}", (i?",":""), sprintf("10:bb:00:00:%02x:%02x", int(v/256), v%256), '"$pt0"' - 5, i, i, '"$pt0"' - 5 }
             printf "]\n" }' > "$ppt/dev11.json"
         apcli_stub "$ppt/bin11" "$ppt/log11" "$ppt/aps11.json" "$ppt/dev11.json"
         pnb "$ppt/bin11" $((pt0 + 1100))
@@ -7672,7 +8632,7 @@ KLRL
 usage() {
     # the USAGE/CONFIG block of the header, selected by its first and last line (not by line numbers)
     sed -n '/^# USAGE:$/,/one log line\.  (default auto)$/p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'
-    # The header goes on from there under a heading that calls every flag default OFF, and the alert log is not (default 1), so the rest is
+    # The header goes on from there under a heading that calls every flag default OFF, and the alert log and the derived alerts are not (default 1), so the rest is
     # set out here with the true defaults: the same flags as the entries of that part of the header, one line each (the pin in operator-tools.sh lists them).
     printf '%s\n' '  ./starchorus-collect.sh -h         # the same as --help'
     printf '%s\n' 'Opt-in layers, each off by default; none of them transmits (each reads, or listens):'
@@ -7693,6 +8653,7 @@ usage() {
     printf '%s\n' '  STARCHORUS_ALERTS          0 = do not read alerts.log (the companion alert payload) from STARCHORUS_ALERT_DIR,'
     printf '%s\n' '                             default /root/loot/starchorus-alerts.  (default 1)'
     printf '%s\n' '  STARCHORUS_ALERT_WINDOW    the seconds an alert is kept, 60 to 86400.  (default 600)'
+    printf '%s\n' '  STARCHORUS_WIDS            0 = none of the five derived kinds of alert in alerts[] (the header names them).  (default 1)'
     printf '%s\n' 'Tests only: STARCHORUS_SYSFS_BT, STARCHORUS_PROC_BT and STARCHORUS_SYSFS_NET name another root for sysfs and /proc.'
     printf '%s\n' 'Everything here is receive-only except the active scan opt-in, STARCHORUS_ALLOW_ACTIVE=1 (default 0: off).'
 }
@@ -7789,7 +8750,7 @@ while :; do
     cycle_step
     # Every 120 cycles (10 min at the default interval) re-check the OUI file: a replaced /
     # rewritten file (firmware update, swapped USB stick) restarts the cache. Cheap: a few stats.
-    cyc=$((cyc+1)); if [ "$cyc" -ge 120 ]; then cyc=0; setup_vendor; [ "$BLUETOOTH" = 1 ] && setup_btco; fi
+    cyc=$((cyc+1)); if [ "$cyc" -ge 120 ]; then cyc=0; setup_vendor; [ "$BLUETOOTH" = 1 ] && setup_btco; BT5_SV=""; fi   # BT5_SV: the full blue5 query is tried again (bt_blue5_read)
     # A plain foreground sleep: under busybox ash a caught INT/TERM is handled after the current
     # sleep returns, so --stop takes effect within at most the longer of one INTERVAL and the backoff below (3600 s at most). Backgrounding the sleep and
     # `wait`-ing on it does NOT deliver the trap sooner under ash.

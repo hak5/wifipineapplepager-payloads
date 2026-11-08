@@ -5,7 +5,7 @@
 #               uhttpd, BusyBox httpd or python3 (offline, nothing to install). Serves ONLY
 #               index.html and starchorus.json from STARCHORUS_DIR over GNU netcat, one connection at a
 #               time. Read-only and passive: it just hands out two local files.
-# Version:      0.2.6.2
+# Version:      0.2.7
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # USAGE:  ./starchorus-serve.sh [start]   # serve on STARCHORUS_BIND:STARCHORUS_PORT (auto:8199), foreground

@@ -2,8 +2,8 @@
 # Title: Starchorus
 # Author: Starchorus
 # Description: Strictly passive, receive-only Wi-Fi observation tool; visualises the radio environment and never transmits.
-# Version: 0.2.6.2
-# Contract: 3
+# Version: 0.2.7
+# Contract: 4
 # Category: reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
@@ -33,9 +33,10 @@
 # Precedence: environment, then file, then default. Keys (menu and CLI share one validator and one writer):
 #   window 0|60-86400 (STARCHORUS_MAX_AGE), interval 5-3600 (STARCHORUS_INTERVAL), port 1024-65535 but not 1471
 #   (STARCHORUS_PORT), bind auto|all|IPv4 address (STARCHORUS_BIND; CLI only, no menu entry), vendor/survey on|off
-#   (STARCHORUS_VENDOR/_SURVEY 1|0), traffic/bluetooth on|off (STARCHORUS_TRAFFIC/_BLUETOOTH 1|0: the channel activity the
-#   AP service reports and the frame counts of stations; the passive Bluetooth LE scan; both off by default, both read by the
-#   collector only), page on|off (STARCHORUS_PAGE 1|0, read by this payload only). Three switches are environment only, with
+#   (STARCHORUS_VENDOR/_SURVEY 1|0), traffic/bluetooth/wids on|off (STARCHORUS_TRAFFIC/_BLUETOOTH/_WIDS 1|0: the channel activity
+#   the AP service reports and the frame counts of stations; the passive Bluetooth LE scan; five more kinds of alert derived from
+#   what the collector already holds; the first two off by default, wids on; all three read by the collector only), page on|off (STARCHORUS_PAGE
+#   1|0, read by this payload only). Three switches are environment only, with
 #   no key and no menu row: STARCHORUS_OWN (own interface MACs), STARCHORUS_DASHBOARD (0 = the
 #   Overview does not open after Start) and STARCHORUS_COLLECTOR (0 = no collector; the menu then refuses to run). One more
 #   belongs to the collector and is passed through untouched, like STARCHORUS_OWN: STARCHORUS_BT_WINDOW (the length of the
@@ -71,6 +72,8 @@
 #   its own directories, and the only action it takes on the alert tree: it never switches an alert on or off in the
 #   firmware. The row is "(locked)" while STARCHORUS_ALERTS is set in the environment to anything but 1 (the collector then
 #   ignores the alert log, so an installed companion would feed nothing); STARCHORUS_ALERTS=1 or unset leaves the row free.
+#   Alert Rules: the collector's wids key as an ON/OFF row after Alerts, flipped and applied like Traffic and Bluetooth (L8h on
+#   switching on); STARCHORUS_WIDS in the environment locks it, STARCHORUS_ALERTS does not (two variables, two locks).
 #   Debounce: right after a spinner or the Overview, a Start, Stop or B that comes back within 0.6 s (/proc/uptime) is
 #   taken for a queued press and ignored; the menu is drawn again. At most three in a row: a picker that keeps failing
 #   at once ends the payload instead of being drawn for ever.
@@ -131,6 +134,7 @@ PL_ENV=""
 [ -z "${STARCHORUS_SURVEY:+x}" ] || PL_ENV="$PL_ENV survey"
 [ -z "${STARCHORUS_BLUETOOTH:+x}" ] || PL_ENV="$PL_ENV bluetooth"
 [ -z "${STARCHORUS_TRAFFIC:+x}" ] || PL_ENV="$PL_ENV traffic"
+[ -z "${STARCHORUS_WIDS:+x}" ] || PL_ENV="$PL_ENV wids"
 [ -z "${STARCHORUS_PAGE:+x}" ] || PL_ENV="$PL_ENV page"
 [ "${STARCHORUS_ALERTS:-1}" = 1 ] || PL_ENV="$PL_ENV alerts"   # no settings key behind it: the collector's read switch (only 1 reads the log); anything else locks the Alerts row
 STARCHORUS_PORT=${STARCHORUS_PORT:-8199}
@@ -144,11 +148,12 @@ export STARCHORUS_OWN="${STARCHORUS_OWN:-0}"              # 1 = own interface MA
 export STARCHORUS_SURVEY="${STARCHORUS_SURVEY:-0}"        # 1 = channel busy time from the survey dump (read-only)
 export STARCHORUS_BLUETOOTH="${STARCHORUS_BLUETOOTH:-0}"  # 1 = the passive Bluetooth LE scan window every cycle (off by default)
 export STARCHORUS_TRAFFIC="${STARCHORUS_TRAFFIC:-0}"      # 1 = channel activity and station frame counts (off by default)
+export STARCHORUS_WIDS="${STARCHORUS_WIDS:-1}"            # 1 = five more kinds of alert, derived from what the collector already holds (on by default; 0 = off)
 STARCHORUS_COLLECTOR=${STARCHORUS_COLLECTOR:-1}           # payload only, environment only: start the collector
 STARCHORUS_PAGE=${STARCHORUS_PAGE:-1}                     # payload only: serve the page
 STARCHORUS_DASHBOARD=${STARCHORUS_DASHBOARD:-1}           # payload only, environment only: open the Overview after Start (menu)
 
-PL_KEYS="window interval port bind vendor survey page bluetooth traffic"
+PL_KEYS="window interval port bind vendor survey page bluetooth traffic wids"
 PL_FILE=""                     # keys that the settings file set with a valid value
 PL_CR=$(printf '\r')
 PL_PROC=${STARCHORUS_PROC:-/proc}                         # tests only (see TESTS ONLY above)
@@ -177,7 +182,7 @@ pl_valid() {
                 *)        [ "$2" -ge 1024 ] && [ "$2" -le 65535 ] && [ "$2" != 1471 ] ;;
             esac ;;
         bind) case $2 in auto|all) return 0 ;; 0.0.0.0) return 1 ;; esac; pl_ipv4 "$2" ;;   # every interface only as `all`
-        vendor|survey|page|bluetooth|traffic) [ "$2" = on ] || [ "$2" = off ] ;;
+        vendor|survey|page|bluetooth|traffic|wids) [ "$2" = on ] || [ "$2" = off ] ;;
         *) return 1 ;;
     esac
 }
@@ -194,6 +199,7 @@ pl_assign() {
         page)      STARCHORUS_PAGE=$(pl_bit "$2") ;;
         bluetooth) STARCHORUS_BLUETOOTH=$(pl_bit "$2") ;;
         traffic)   STARCHORUS_TRAFFIC=$(pl_bit "$2") ;;
+        wids)      STARCHORUS_WIDS=$(pl_bit "$2") ;;
     esac
 }
 
@@ -209,6 +215,7 @@ pl_value() {
         page)      pl_onoff "$STARCHORUS_PAGE" ;;
         bluetooth) pl_onoff "$STARCHORUS_BLUETOOTH" ;;
         traffic)   pl_onoff "$STARCHORUS_TRAFFIC" ;;
+        wids)      pl_onoff "$STARCHORUS_WIDS" ;;
     esac
 }
 
@@ -223,7 +230,7 @@ pl_snapshot() {
 # Parse the settings file (never source it): KEY=VALUE lines, CR stripped, a fixed key list, every value validated,
 # the last valid line of a key wins; everything else is skipped. A key the environment sets is left alone. A leading
 # UTF-8 BOM on the first line is stripped, and a file far larger than a real settings file is ignored (a single
-# multi-MB line can stall the shell's read loop under bash 3.2; a real file has at most nine short lines).
+# multi-MB line can stall the shell's read loop under bash 3.2; a real file has at most ten short lines).
 PL_BOM=$(printf '\357\273\277')
 pl_load() {
     [ -f "$SETTINGS" ] || return 0
@@ -765,8 +772,9 @@ pl_status() {
 # `  version: "x.y.z",`), which carry no contract of their own and are judged on the version alone;
 # a difference is reported once per launch (dialogue and LOG on the device, stderr elsewhere; one dialogue, for the first file that
 # differs) and nothing else changes. The
-# contract number is the interface the scripts share (the collector's --status/--stop/pidfile protocol, the
-# Overview's environment, the line format of the alerts.log that the companion alert writes and the collector parses): it changes
+# contract number is the interface the scripts share (the environment this payload hands the collector, one STARCHORUS_* variable per
+# key the collector reads: window, interval, vendor, survey, traffic, bluetooth, wids; the collector's --status/--stop/pidfile protocol;
+# the Overview's environment; the line format of the alerts.log that the companion alert writes and the collector parses): it changes
 # with that interface, so a payload updated on its own is caught at the same version too. An installed file with a version but no
 # contract line is contract 1; a file with no version header at all is not judged. The remedy named is tools/install.sh, or, where this payload's own directory
 # carries the files (Hak5's library layout, no tools/ on the device), the one file whose absence makes the next run copy them; for the
@@ -994,7 +1002,7 @@ pl_web_flow() {
 pl_envvar() {   # pl_envvar KEY -> the environment variable behind a settings key
     case $1 in window) echo STARCHORUS_MAX_AGE ;; interval) echo STARCHORUS_INTERVAL ;; port) echo STARCHORUS_PORT ;;
         vendor) echo STARCHORUS_VENDOR ;; survey) echo STARCHORUS_SURVEY ;; page) echo STARCHORUS_PAGE ;;
-        bluetooth) echo STARCHORUS_BLUETOOTH ;; traffic) echo STARCHORUS_TRAFFIC ;; esac
+        bluetooth) echo STARCHORUS_BLUETOOTH ;; traffic) echo STARCHORUS_TRAFFIC ;; wids) echo STARCHORUS_WIDS ;; esac
 }
 pl_lock() { pl_has "$PL_ENV" "$1" && printf ' (locked)'; return 0; }                # " (locked)" when the environment sets KEY
 pl_sw() { if [ "$(pl_value "$1")" = on ]; then echo ON; else echo OFF; fi; }      # R1: an ON/OFF value flips with one press
@@ -1003,7 +1011,7 @@ pl_save() {     # pl_save KEY VALUE -> saved (0), or E9 and nothing changed (1)
     ui_err "Could not save the setting."                                            # E9
     return 1
 }
-pl_applykeys() { for pl_k in interval window vendor survey traffic bluetooth port; do printf '%s=%s ' "$pl_k" "$(pl_value "$pl_k")"; done; }
+pl_applykeys() { for pl_k in interval window vendor survey traffic bluetooth wids port; do printf '%s=%s ' "$pl_k" "$(pl_value "$pl_k")"; done; }
 
 pl_set_page() {   # Web Page: while RUNNING the flip applies at once; while STOPPED it only saves
     if [ "$STARCHORUS_PAGE" = 1 ]; then
@@ -1088,6 +1096,7 @@ pl_settings() {
             "Traffic: $(pl_sw traffic)$(pl_lock traffic)" \
             "Bluetooth: $(pl_sw bluetooth)$(pl_lock bluetooth)" \
             "Alerts: $(pl_alert_sw)$(pl_lock alerts)" \
+            "Alert Rules: $(pl_sw wids)$(pl_lock wids)" \
             "Port: $STARCHORUS_PORT$(pl_lock port)" \
             "Reset to Defaults") || break
         case $pl_c in
@@ -1099,6 +1108,7 @@ pl_settings() {
             "Traffic: "*)      pl_scur="Traffic:"; pl_k=traffic ;;
             "Bluetooth: "*)    pl_scur="Bluetooth:"; pl_k=bluetooth ;;
             "Alerts: "*)       pl_scur="Alerts:"; pl_k=alerts ;;
+            "Alert Rules: "*)  pl_scur="Alert Rules:"; pl_k=wids ;;
             "Port: "*)         pl_scur="Port:"; pl_k=port ;;
             *)                 pl_scur="Reset to Defaults"; pl_k=reset ;;
         esac
@@ -1121,6 +1131,8 @@ pl_settings() {
             alerts)   if pl_alert_on; then pl_alert_remove
                       elif pl_alert_dis; then ui_prompt "Switched off on the\nfirmware Alerts page.\nSwitch it on there."                 # P3: no second copy
                       else pl_alert_install; fi ;;                                                                   # C2, C3
+            wids)     if [ "$STARCHORUS_WIDS" = 1 ]; then pl_save wids off
+                      elif pl_save wids on; then ui_log "Alert rules: five more kinds, on the web page."; fi ;;   # L8h (the Overview counts deauth alone)
             port)     if pl_n=$(ui_num Port "$STARCHORUS_PORT"); then
                           if ! pl_valid port "$pl_n"; then ui_err "Use 1024 to 65535, not 1471."               # E7
                           elif [ "$pl_n" != "$STARCHORUS_PORT" ]; then pl_save port "$pl_n"; fi

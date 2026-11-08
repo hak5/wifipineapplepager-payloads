@@ -141,7 +141,7 @@ body {
 button { font: inherit; letter-spacing: inherit; }
 b { font-weight: 600; }
 
-/* ==== 02 THEME TOKENS (CSS-SPIEGEL) ==== */
+/* ==== 02 THEME TOKENS (CSS MIRROR) ==== */
 :root {
   --surface-base: #05070d;
   --surface-deep: #05070d;
@@ -405,7 +405,6 @@ b { font-weight: 600; }
 .btn.b5.on  { background: var(--band-5);  border-color: var(--band-5); }
 .btn.b6.on  { background: var(--band-6);  border-color: var(--band-6); }
 .btn.bbt.on { background: var(--bt-mark); border-color: var(--bt-mark); }
-@media (max-width: 374px) { #sheet-row { flex-wrap: wrap; justify-content: flex-end; } }   /* four layer buttons, Legend and the chevron need 338 px: below that the chevron (then Legend) goes to a second line */
 .btn.on:not([data-band]) { background: var(--toggle-on); border-color: var(--toggle-border); color: var(--toggle-ink); }
 .btn.forced { outline: 1px dashed var(--status-ring-neutral); }
 #cam .cam { min-width: 30px; text-align: center; }
@@ -450,6 +449,12 @@ b { font-weight: 600; }
 #detail td .est { color: var(--ink-secondary); }
 #detail canvas#detail-spark { display: block; width: 240px; height: 64px; margin: 6px 0 2px; }
 canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
+/* 0.2.7 the Remote ID plan under the sheet's rows (ridPlan): colours by token; a drawing, so its words and units keep their case where the panel's chrome is in capitals */
+.rp { display: block; width: 100%; margin: 8px 0 2px; border: 1px solid var(--line-hairline); font-size: 9px; text-transform: none; letter-spacing: 0; }
+.rp text { fill: var(--ink-secondary); } .rp .f { fill: var(--ink-primary); font-weight: 600; }
+.rp path { fill: none; stroke: var(--ink-secondary); } .rp .l { stroke-dasharray: 3 3; }
+.rp circle { fill: none; stroke: var(--bt-mark); stroke-width: 1.5; } .rp .a { fill: var(--bt-mark); stroke: none; }
+#detail .legrow.note { margin: 2px 0 8px; }
 
 #help { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); max-width: 420px; width: min(420px, 92vw); max-height: calc(100vh - 112px); display: flex; flex-direction: column; z-index: 40; padding: 12px 16px 12px; }
 #help h3 { margin: 0 0 8px; font-size: var(--size-title); font-weight: 600; }
@@ -524,6 +529,7 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
   overflow: hidden; z-index: 15; backdrop-filter: none; -webkit-backdrop-filter: none; background: linear-gradient(var(--panel-fill), var(--panel-fill)), var(--surface-base);
   transition: height .28s cubic-bezier(.2,.8,.2,1), opacity .18s; }
 :root[data-sheet-drag="on"] #sheet { transition: none; }   /* it follows the finger */
+:root[data-sheet-snap="on"] #sheet { transition: none; }   /* the head's own height (one line or two) snaps; phoneLayout sets it for one layout */
 #sheet-head { flex: none; padding: 0 8px 8px 12px; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: grab; }
 #sheet-grab { height: 14px; display: flex; align-items: center; justify-content: center; }
 #sheet-grab::before { content: ""; width: 36px; height: 5px; border-radius: 3px; background: var(--ink-muted); }
@@ -533,6 +539,10 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 #sheet-title { flex: 1; min-width: 0; margin: 0; font-size: var(--size-title); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-primary); }
 :root[data-card="detail"] #sheet-title { text-transform: none; }   /* D16: a data string */
 #t-legend { margin-left: auto; }
+#sheet-row.wrap { flex-wrap: wrap; }   /* two lines where the row has not 52 px to spare for the Scope's key (phoneLayout, section 9.8b): the band keys on the first; the Scope's key, Legend and the chevron on the second */
+#sheet-row.wrap #sheet-lead { flex-basis: 100%; }
+#sheet-row.wrap #t-legend { margin-left: 0; }
+#sheet-row.wrap #sheet-toggle { margin-left: auto; }
 #sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; padding: 4px 12px 14px; display: flex; flex-direction: column; gap: 16px; }
 :root[data-sheet="peek"] #sheet-body { overflow: hidden; visibility: hidden; transition: visibility 0s .28s; }
 :root[data-sheet-drag] #sheet-body { visibility: visible; transition: none; }   /* dragged up from collapsed */
@@ -576,9 +586,8 @@ canvas#detail-spark:focus-visible { outline: 2px solid var(--accent-focus); }
 :root[data-rm="1"] :is(.cursor, .dot, #panels-pill .dot) { animation: none; }   /* :is() lends the pill dot its id rank */
 :root[data-rm="1"] #crt, :root[data-rm="1"] #intro { display: none !important; }
 :root:not([data-scope=on]) :is(#scope-strip,#scope-foot,#scope-lamps){display:none}
-:root[data-scope=on] :is(#bar-counts>*,#bar .ver,#caption,#grp-layers,#cam,#t-view,#t-rotate,#t-spin){display:none!important}
-#t-scope{display:inline-flex;align-items:center;gap:6px}
-#sheet-row #t-scope{padding:0;width:44px;justify-content:center}#sheet-row .lbl{display:none}
+:root[data-scope=on] :is(#bar-counts>*,#bar .ver,#caption,#grp-layers,#cam,#t-view,#t-spin){display:none!important}
+#sheet-row #t-scope{display:inline-flex;align-items:center;justify-content:center;padding:0;width:44px}   /* over #sheet .btn's padding */
 </style>
 </head>
 <body>
@@ -643,7 +652,7 @@ not range</span><span id="sc-rx"></span><span id="sc-no" hidden>Too little room 
 <div id="sheet" class="panel ph-only" role="region" aria-label="Controls">
   <div id="sheet-head"><div id="sheet-grab" aria-hidden="true"></div><div id="sheet-row"><div id="sheet-lead"></div>
   <button class="btn" id="sheet-prev" hidden aria-label="Previous pinned node">‹</button><h2 id="sheet-title" hidden></h2><button class="btn" id="sheet-next" hidden aria-label="Next pinned node">›</button>
-  <button class="btn toggle ph-only" id="t-scope" aria-pressed="false" aria-label="Scope"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 16 3 5a12 12 0 0 1 12 0Z" fill="none" stroke="currentColor"/></svg><span class="lbl">Scope</span></button><button class="btn toggle" id="t-legend" aria-pressed="false">Legend</button><button class="btn" id="sheet-close" hidden aria-label="Close">×</button>
+  <button class="btn toggle ph-only" id="t-scope" aria-pressed="false" aria-label="Scope"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 16 3 5a12 12 0 0 1 12 0Z" fill="none" stroke="currentColor"/></svg></button><button class="btn toggle" id="t-legend" aria-pressed="false">Legend</button><button class="btn" id="sheet-close" hidden aria-label="Close">×</button>
   <button class="btn" id="sheet-toggle" aria-expanded="false" aria-controls="sheet-body" aria-label="Expand the sheet">⌃</button></div></div>
   <div id="sheet-body"></div>
 </div>
@@ -683,8 +692,7 @@ not range</span><span id="sc-rx"></span><span id="sc-no" hidden>Too little room 
     <span class="glabel">Look</span>
     <button class="btn" id="t-theme">Wargames</button>
     <button class="btn" id="t-view">3D</button>
-    <button class="btn toggle on" id="t-rotate" aria-pressed="true">Rotate</button>
-    <button class="btn toggle on" id="t-spin" aria-pressed="true" title="Sky spin: everything slowly orbits the device [S]">Spin</button>
+    <button class="btn" id="t-spin">Fast spin</button>
     <button class="btn toggle on" id="t-crt" aria-pressed="true" hidden>CRT</button>
     <button class="btn" id="t-panels">Hide panels</button>
   </div>
@@ -787,7 +795,7 @@ const LAYOUT = {
   settleEpsPx: 0.2, settleSyncIter: 32, settlePerFrame: 2, settleMaxIter: 600,
   orbitMinPx: 32, orbitSpreadPx: 18, orbitRankPx: 3, orbitLanes: 6, orbitMaxPx: 65, hexAbove: 8, hexBPx: 16,
   orbitSpeedBase: 0.45, orbitSpeedRefPx: 32, orbitSpeedExp: 1.5, hexSpinRadPerS: 0.08,
-  skySpinRadPerS: 2 * Math.PI / 300,   // sky spin (§4.2a): the whole sky turns rigidly around the device, one turn in 5 min
+  skySpinRadPerS: [0, 2 * Math.PI / 300, 2 * Math.PI / 60],   // sky spin (§4.2a) by S.ui.spin: the whole sky turns rigidly around the device, off · one turn in 5 min · in 1 min
   forceAggAbove: 600, forceAggDensity: 0.20
 };
 const AGG = { cellPx: 32, minCell: (nFree) => nFree <= 200 ? 4 : 3, minCluster: (nFree) => nFree <= 200 ? 6 : 8, maxCellsPerBubble: 4,
@@ -806,7 +814,7 @@ const CFG3D = { el: 0.42, azStart: 0, fovDeg: 50, distFactor: 0.8, distMin: 1.1,
   yBand: { "2.4": -0.10, "5": 0, "6": 0.10, unknown: 0 }, yJitter: 0.04, freeYSpread: 0.36, freeZJitter: 0.03,
   fibonacciAbove: 60, hexY: 0.02,
   dragRadPerPx: 0.0055, wheelK: 0.0012, btnAz: 0.35, btnEl: 0.2, btnZoom: 1.25, dragThresholdPx: 4, touchThresholdPx: 10,
-  kAz: 7, kEl: 7, kDist: 5, kTarget: 4, kNode: 3, kBlend: 3.5, kReduced: 40, autoRamp: 1.2, idleResumeMs: 6000,
+  kAz: 7, kEl: 7, kDist: 5, kTarget: 4, kNode: 3, kBlend: 3.5, kReduced: 40,
   nearHard: 0.10, nearSoft: 0.45, farStart: 0.35, farEnd: 1.8, centerZoom: 0.55,
   fogNearAlpha: 1, fogFarAlpha: 0.33, sizeFarFactor: 0.58,   // depth fog + far size, theme-free (they gate 3D px, alphaDraw, labels, hit-test)
   minPxClient: 3.5, minPxAp: 5, maxPxClient: 9, maxPxAp: 44, minPxBubble: 9, bubbleFogFloor: 0.5,
@@ -826,8 +834,7 @@ const HIT = { apPad: 6, clientPad: 5, bubblePad: 4, minPx: 12, touchMinPx: 16, p
 const KEYS = [
   { key: "T", desc: "Cycle theme (Foundation / Wargames / Whitehall)", btn: "t-theme" },
   { key: "V", desc: "Toggle 2D / 3D view", btn: "t-view" },
-  { key: "R", desc: "Auto-rotation (3D)", btn: "t-rotate" },
-  { key: "S", desc: "Sky spin: the whole sky slowly orbits the device (distance = signal stays exact)", btn: "t-spin" },
+  { key: "S", desc: "Sky spin about the device: off · slow, a turn in 5 min · fast, a turn a minute (cycles)", btn: "t-spin" },
   { key: "C", desc: "CRT scanlines, vignette, persistence (Wargames)", btn: "t-crt" },
   { key: "Space", desc: "Pause / resume", btn: "t-pause" },
   { key: "L", desc: "Labels", btn: "t-labels" },
@@ -884,11 +891,11 @@ const CHG_MAX = 12, CHG_BSSIDS = 500, BASELINE_KEY = "starchorus.baseline.v1", B
 // Station registers are capped apart from the APs' so that rotating randomised MACs can never crowd out an access point:
 // station RSSI series in S.hist, stations in the baseline, station ghosts.
 const HIST_CL_MAX = 2400, BASELINE_CL_MAX = 2000, GHOST_CL_MAX = 40;
-const WATCH_KEY = "starchorus.watch.v1", WATCH_MAX = 20, OBS_MAX = 12, OBS_DWELL = 2, OBS_PROBE_S = 600;
+const WATCH_KEY = "starchorus.watch.v1", WATCH_MAX = 200, OBS_DWELL = 2;
+const AL_TXT = { deauth: "many deauth/disassoc frames heard for this AP", own_name: "own name also sent by another transmitter", sec_weaker: "security weaker than when first heard", chan_changed: "channel changed since first heard", sec_profiles: "one name, several security profiles", bt_fixed_new: "new fixed Bluetooth address, strong signal" };   // the note of each kind of alerts[]
 // library rules (persisted), alias/notes/tags per observed key (AP or station, <= 200), inventory, export, homing.
-const LIB_KEY = "starchorus.library.v1", NOTES_KEY = "starchorus.notes.v1", NOTES_MAX = 200, RULES_MAX = 20, INV_ROWS = 300;
+const LIB_KEY = "starchorus.library.v1", NOTES_KEY = "starchorus.notes.v1", NOTES_MAX = 2000, RULES_MAX = 200, INV_ROWS = 2000;
 const EXPORT_FOOTER = "Starchorus · passive observation · not a government system · no official marking";
-const STA_SITREP_MAX = 20;   // the human SITREP caps its station list; JSON and CSV carry the complete set
 const MOBILE_SSID_RE = /iphone|android|galaxy|pixel|hotspot|^DIRECT-/i;   // P3
 
 // ==== 21 THEMES & ENCODING ====
@@ -961,7 +968,7 @@ THEMES.foundation = {
     cohesion: { scale: [1, 1.3, 1.7, 2.3], alpha: [1, 0.85, 0.65, 0.45] },   // the dust's cohesion IS freshness — T0 dense and bright … T3 a loose haze (the core, radius and hit-test do not change)
     spiral: { dawnRad: 1.4, duskRad: 0.9 },                                // dawn: new dust spirals IN; dusk: leaving dust drifts OUT along a spiral (radians of turn)
     lit: true, shade: "rgba(176,122,60,1)" },   // the grains are LIT, not emitting — the side facing the centre is warm dust, the far side this bronze shade (ΔE 18.4 to alarm, so the ornament rule holds)
-  motion: { autoRotateRadPerS: 0.05, breathePeriodMs: 6000, breatheAmp: 0.06, fadeInMs: 900, fadeOutMs: 1400, cameraEaseMs: 1200,
+  motion: { breathePeriodMs: 6000, breatheAmp: 0.06, fadeInMs: 900, fadeOutMs: 1400, cameraEaseMs: 1200,
     cameraEasing: "easeInOutCubic", edgeTravelDotSpeed: 0, edgeTravelDotPx: 0, cursorBlinkMs: 0, introStyle: "coalesce", logonCharMs: [28, 58] },
   depth: { bokeh: { enabled: true, farSoftness: 2.4, nearSoftness: 1.0 },
     lensFlare: { enabled: true, maxStars: 2, lengthFactor: 6, alpha: 0.18 } },
@@ -1002,7 +1009,7 @@ THEMES.wargames = {
   crt: { scanlineOpacity: 0.10, scanlinePeriodPx: 3, scanlineWidthPx: 1, vignetteAlpha: 0.45, vignetteInner: 0.60, persistenceAlpha: 0.25, flickerAmp: 0.015, userToggle: true },
   particles: { perNode: [0, 0], spreadFactor: 0, sigmaFactor: 0, lifeMs: [0, 0], sizePx: [0, 0], alpha: [0, 0], driftPxPerS: 0, gatherMs: 0, dissolveMs: 0, maxTotal: 0, color: null,
     cohesion: { scale: [1, 1, 1, 1], alpha: [1, 1, 1, 1] }, spiral: { dawnRad: 0, duskRad: 0 }, lit: false, shade: null },
-  motion: { autoRotateRadPerS: 0.12, breathePeriodMs: 0, breatheAmp: 0, fadeInMs: 250, fadeOutMs: 400, cameraEaseMs: 600, cameraEasing: "easeOutQuad",
+  motion: { breathePeriodMs: 0, breatheAmp: 0, fadeInMs: 250, fadeOutMs: 400, cameraEaseMs: 600, cameraEasing: "easeOutQuad",
     edgeTravelDotSpeed: 0.35, edgeTravelDotPx: 1.5, cursorBlinkMs: 530, introStyle: "typed", logonCharMs: [28, 58] },
   depth: { bokeh: { enabled: false, farSoftness: 1.0, nearSoftness: 1.0 },
     lensFlare: { enabled: false, maxStars: 0, lengthFactor: 0, alpha: 0 } },
@@ -1054,7 +1061,7 @@ THEMES.whitehall = {
   crt: { scanlineOpacity: 0, scanlinePeriodPx: 0, scanlineWidthPx: 0, vignetteAlpha: 0, vignetteInner: 1, persistenceAlpha: 0, flickerAmp: 0, userToggle: false },
   particles: { perNode: [0, 0], spreadFactor: 0, sigmaFactor: 0, lifeMs: [0, 0], sizePx: [0, 0], alpha: [0, 0], driftPxPerS: 0, gatherMs: 0, dissolveMs: 0, maxTotal: 0, color: null,
     cohesion: { scale: [1, 1, 1, 1], alpha: [1, 1, 1, 1] }, spiral: { dawnRad: 0, duskRad: 0 }, lit: false, shade: null },
-  motion: { autoRotateRadPerS: 0.06, breathePeriodMs: 0, breatheAmp: 0, fadeInMs: 300, fadeOutMs: 500, cameraEaseMs: 800, cameraEasing: "easeOutQuad",
+  motion: { breathePeriodMs: 0, breatheAmp: 0, fadeInMs: 300, fadeOutMs: 500, cameraEaseMs: 800, cameraEasing: "easeOutQuad",
     edgeTravelDotSpeed: 0, edgeTravelDotPx: 0, cursorBlinkMs: 0, introStyle: "typed", logonCharMs: [37.5, 37.5] },   // a teleprinter types at a constant 37.5 ms per character
   depth: { bokeh: { enabled: false, farSoftness: 1.0, nearSoftness: 1.0 },
     lensFlare: { enabled: false, maxStars: 0, lengthFactor: 0, alpha: 0 } },
@@ -1245,7 +1252,7 @@ function fillAnim() {
   a.fadeInK = rate(m.fadeInMs); a.fadeOutK = rate(m.fadeOutMs);
   a.breathePeriodS = m.breathePeriodMs / 1000; a.breatheAmp = m.breatheAmp;
   a.blendK = rate(m.fadeInMs);
-  a.autoRotateRadPerS = m.autoRotateRadPerS; a.cameraEaseMs = m.cameraEaseMs;
+  a.cameraEaseMs = m.cameraEaseMs;
   a.cameraEasing = { easeInOutCubic, easeOutQuad, linear: (u) => u }[m.cameraEasing] || easeInOutCubic;
   a.edgeTravelDotSpeed = m.edgeTravelDotSpeed;
   a.flickerAmp = THEME.crt.flickerAmp;
@@ -1435,7 +1442,7 @@ function normClient(c, fallbackId) {
     if (seen.size) probes = Array.from(seen);
   }
   return { mac, rssi, vendor, last_seen: numOrNull(c.last_seen), packets: numOrNull(c.packets), probes,
-    randomized: c.randomized === true || (!vendor && ulBit(mac)) };
+    randomized: c.randomized === true || (!vendor && ulBit(mac)), watched: c.watched === true };
 }
 function normBt(r) {   // §3.1 bluetooth[]: the strongest 256, null without an array
   if (!Array.isArray(r)) return null;
@@ -1444,9 +1451,24 @@ function normBt(r) {   // §3.1 bluetooth[]: the strongest 256, null without an 
     if (!isObj(b)) continue;
     const addr = normMac(b.addr), rssi = dbmOrNull(b.rssi), co = numOrNull(b.company);
     if (isMac(addr) && rssi != null && !(m.has(addr) && m.get(addr).rssi >= rssi)) m.set(addr, { addr, addr_type: BT_TYPES.includes(b.addr_type) ? b.addr_type : "random", rssi, reports: numOrNull(b.reports), last_seen: numOrNull(b.last_seen),
-      company: co >= 0 && co < 65536 && co % 1 === 0 ? co : null, company_name: strOrNull(b.company_name, 48), name: strOrNull(b.name, 32), connectable: b.connectable === true });
+      company: co >= 0 && co < 65536 && co % 1 === 0 ? co : null, company_name: strOrNull(b.company_name, 48), name: strOrNull(b.name, 32), connectable: b.connectable === true, ...btOpt(b) });
   }
   return Array.from(m.values()).sort((a, b) => b.rssi - a.rssi || cmpStr(a.addr, b.addr)).slice(0, BT.cap);
+}
+// 0.2.7: each key only when set
+function btOpt(b) {
+  const c = strOrNull(b.class, 24);
+  return { ...c && { class: c }, ...b.watched === true && { watched: true }, ...normRid(b.remote_id) };
+}
+// §3.1 remote_id (0.2.7): its keys in order and its words, as in tools/gen-testdata.py (RID_KEYS, RID_UA, RID_IDT, RID_STATUS)
+const RID_KEYS = "ua_type id_type uas_id status lat lon alt_m operator_lat operator_lon operator_id".split(" "), RID_W = { ua_type: "none aeroplane multirotor gyroplane vtol ornithopter glider kite free-balloon captive-balloon airship free-fall rocket tethered obstacle other",
+  id_type: "none serial registration utm session", status: "undeclared ground airborne emergency failure" };
+function normRid(x) {   // → { remote_id } for btOpt's spread, or null
+  if (!isObj(x)) return null;
+  const o = {};
+  for (const k of RID_KEYS) { const v = x[k], w = RID_W[k]; if (w ? w.split(" ").includes(v) : /id$/.test(k) ? typeof v == "string" && /^[\w.-]{1,20}$/.test(v) : typeof v == "number" && (k === "alt_m" ? v > -1000 && v <= 31767.5 : Math.abs(v) <= (/lat/.test(k) ? 90 : 180))) o[k] = v; }
+  for (const p of ["", "operator_"]) if (!(Math.max(Math.abs(o[p + "lat"]), Math.abs(o[p + "lon"])) > 5e-8)) { delete o[p + "lat"]; delete o[p + "lon"]; }   // lat with lon, never 0/0
+  return Object.keys(o).length ? { remote_id: o } : null;
 }
 const normAct = (r) => Array.isArray(r) ? r.slice(0, 69).flatMap(x => { const f = isObj(x) ? numOrNull(x.freq) : null, s = isObj(x) ? numOrNull(x.share) : null; return f > 0 && s > 0 && s <= 1 ? [{ freq: f, share: s }] : []; }) : null;   // §3.1 activity[]
 function normalizeDoc(raw) {
@@ -1463,12 +1485,12 @@ function normalizeDoc(raw) {
       // this device's own transmitters (interface MACs / operator file): kept in memory for the exclusion logic only; never rendered, exported or stored
       own_bssids: Array.isArray(rc.own_bssids) ? rc.own_bssids.map(normMac).filter(isMac).slice(0, 16) : [],
       own_ssids: strs(rc.own_ssids, 32, 32) || [], bt_window: numOrNull(rc.bt_window), bt_hold: numOrNull(rc.bt_hold) },
-    // optional alerts[] {type, t, ap, n}: local-live (P6)
+    // optional alerts[] {type, t, ap, n}: the note reaches the SITREP, the JSON and the CSV, the ring the PNG (P6)
     alerts: Array.isArray(raw.alerts) ? raw.alerts.slice(0, 20).map(x => {
-      if (!isObj(x) || x.type !== "deauth") return null;
+      if (!isObj(x) || !Object.keys(AL_TXT).includes(x.type)) return null;
       const ap = normMac(x.ap);
       const n = numOrNull(x.n);
-      return isMac(ap) && n != null && n > 0 ? { type: "deauth", t: numOrNull(x.t), ap, n: Math.round(n) } : null;
+      return isMac(ap) && n != null && n > 0 ? { type: x.type, t: numOrNull(x.t), ap, n: Math.round(n) } : null;
     }).filter(Boolean) : [],
     // optional homing reading {bssid, dbm, peak, t} for ONE target the device (or STARCHORUS_HOMING_BSSID) chose; validated at ingest (an observed key present this capture — an AP or a station; own transmitters refused)
     homing: isObj(raw.homing) && numOrNull(raw.homing.dbm) != null ? { bssid: normMac(raw.homing.bssid), dbm: dbmOrNull(raw.homing.dbm), peak: numOrNull(raw.homing.peak), t: numOrNull(raw.homing.t) } : null,
@@ -1497,7 +1519,7 @@ function normalizeDoc(raw) {
     let resp = numOrNull(a.responded_ssids); resp = resp != null && resp >= 2 ? Math.round(resp) : null;
     const ap = { bssid, ssid: stripCtl(a.ssid, 32), hid: stripN > 0, channel, freq, band: bandOf(a.band, freq, channel), bandF: bandOf(a.band, freq, null), rssi,
       security: stripCtl(a.security, 48), vendor, rate: numOrNull(a.rate), width, last_seen: numOrNull(a.last_seen), phy, caps,
-      beacons: numOrNull(a.beacons), packets: numOrNull(a.packets), akm: strs(a.akm, 12, 24), cipher, auth: strs(a.auth, 6, 16), responded_ssids: resp, clients: [] };
+      beacons: numOrNull(a.beacons), packets: numOrNull(a.packets), akm: strs(a.akm, 12, 24), cipher, auth: strs(a.auth, 6, 16), responded_ssids: resp, watched: a.watched === true, clients: [] };
     const cl = Array.isArray(a.clients) ? a.clients : [];
     cl.forEach((c, j) => { if (!isObj(c)) return; ap.clients.push(normClient(c, bssid + ":c" + j)); });
     const prev = apMap.get(bssid);
@@ -1546,25 +1568,28 @@ function demoData() {
     return ap;
   };
   const freeOui = [["3c:22:fb", "Vendor G"], ["8c:f5:a3", "Vendor H"], ["24:6f:28", "Vendor I"], ["dc:a6:32", "Vendor J"]];   // neutral placeholder vendor names
+  const GEN = 1789300000;   // the demo is dated (same reference as the fixtures) and its APs span every freshness tier of D1
   const unassociated = [];
   for (let i = 0; i < 16; i++) {
     const randomized = i === 4 || i === 9 || i === 14;
     const rssi = -58 - Math.round(hash("probe" + i) * 30);
-    const c = { mac: randomized ? macFrom(null, "probe" + i, true) : macFrom(freeOui[i % 4][0], "probe" + i, false) };
+    const c = { mac: randomized ? macFrom(null, "probe" + i, true) : macFrom(freeOui[i % 4][0], "probe" + i, false), last_seen: GEN - 5 - 23 * i };
     if (!(i === 6 || i === 12)) c.rssi = rssi;          // two without rssi (path "n/a")
-    if (!randomized) c.vendor = freeOui[i % 4][1];
+    if (randomized) c.randomized = true; else c.vendor = freeOui[i % 4][1];
     unassociated.push(c);
   }
-  const GEN = 1789300000;   // the demo is dated (same reference as the fixtures) and its APs span every freshness tier of D1
-  const demoAges = [4, 12, 45, 130, 70, 240, 320, 520, 760, 1400, 20];   // seconds before `generated`, per AP in the list below
+  [[1, ["HomeWiFi"]], [5, ["Campus", "Cafe-Free"]], [8, ["Office-5G"]]].forEach(([i, p]) => { unassociated[i].probes = p; });   // named probes: probe orbits
+  unassociated[2].packets = 2048; unassociated[7].packets = 120; unassociated[3].watched = true;   // frame counts; one station in watch.list
+  for (let k = 0; k < 16; k++) unassociated.push({ mac: macFrom(null, "cloud" + k, true), rssi: -64 + (hash("cloud" + k) * 2 | 0), randomized: true, last_seen: GEN - 3 - 40 * k });   // one device changing its address every 40 s: a cloud (§8.8a)
+  const demoAges = [4, 12, 45, 130, 70, 240, 320, 520, 760, 1400, 20, 9, 33, 61, 190, 95, 15, 7, 25, 2, 42, 350, 80, 110];   // seconds before `generated`, per AP in the list below
   const doc = {
     generated: GEN,
-    center: { label: "YOU ARE HERE" },
+    center: { label: "YOU ARE HERE", bt_window: 6, bt_hold: 120, own_ssids: ["Field-Kit"] },
     source: "demo",
     aps: [
       mk("HomeWiFi", "2.4", 6, -44, "WPA2", 4, "44:4e:6d", "Vendor A", { width: 40, rate: 300, phy: "n" }),
       mk("HomeWiFi", "5", 44, -47, "WPA2", 3, "44:4e:6d", "Vendor A", { width: 80, rate: 866, phy: "ac" }),
-      mk("Neighbour-A1", "2.4", 11, -63, "WPA2", 2, "7c:03:ab", "Vendor B"),
+      mk("Neighbour-A1", "2.4", 11, -63, "WPA2", 2, "7c:03:ab", "Vendor B", { watched: true }),
       mk("Town-Hotspot", "2.4", 1, -71, "Open", 0, "00:e0:fc", "Vendor C"),
       mk("Hub-4432", "5", 100, -58, "WPA3", 2, "58:97:bd", null, { width: 80, rate: 1201, phy: "ax" }),
       mk("Campus", "5", 36, -66, "WPA2", 1, "24:de:c6", "Vendor D"),
@@ -1573,11 +1598,35 @@ function demoData() {
       mk("GuestNet", "2.4", 9, -78, "Open", 0, "f0:9f:c2", "Vendor F"),
       mk("Legacy-Net", "2.4", 4, -82, "WEP", 0, "9c:3d:cf", null),
       mk("Office-5G", "5", 149, -52, "WPA3", 3, "50:c7:bf", null),
+      mk("Cafe-Free", "2.4", 6, -60, "OWE", 2, "02:00:5e", null),   // the other security classes: enhanced open ...
+      mk("Corp-Secure", "5", 52, -64, "WPA2-Enterprise", 2, "02:00:5e", "Vendor K", { akm: ["1x"], cipher: { group: "ccmp128", pairwise: ["ccmp128"] }, auth: ["open"], responded_ssids: 3 }),
+      mk("Shop-Guest", "2.4", 1, -67, "WPA3/WPA2", 1, "02:00:5e", null),
+      mk("Old-Printer", "2.4", 11, -69, "WPA2 (TKIP)", 0, "02:00:5e", "Vendor L"),
+      mk("Garage-Cam", "2.4", 9, -65, "WPA", 1, "02:00:5e", null),   // ... and legacy WPA
+      mk("Office-6E", "6", 69, -62, "WPA3", 2, "02:00:5e", null, { width: 160, rate: 2402, phy: "ax" }),
+      mk("DIRECT-7a-Printer", "2.4", 6, -68, "WPA2", 0, "02:1a:7b", null),   // a Wi-Fi Direct group and a phone's hotspot: probable hotspots (P3)
+      mk("Travel-Hotspot", "2.4", 11, -61, "WPA2", 1, "0a:4d:e2", null),
+      mk("Field-Kit", "2.4", 1, -35, "WPA2", 1, "02:00:5e", null),   // this device's own transmitter (center.own_bssids) ...
+      mk("Field-Kit", "2.4", 13, -70, "WPA2", 0, "7c:03:ab", "Vendor B"),   // ... and its name from another transmitter (own_name)
+      mk("HomeWiFi", "2.4", 11, -74, "Open", 0, "9c:3d:cf", null),   // the home name open as well (sec_profiles)
+      mk("Lounge-Net", "5", 40, -63, "WPA2", 1, "02:00:5e", null, { hid: true }),   // a name that carried invisible characters
+      mk("Depot-Net", "2.4", 7, -66, "WAPI", 0, "02:00:5e", null),   // a label the page does not know: the class 'unknown'
     ],
     unassociated,
   };
   doc.aps.forEach((a, i) => { a.last_seen = GEN - demoAges[i]; });
-  doc.activity = [[2412, 0.12], [2422, 0.05], [2427, 0.03], [2437, 0.3], [2452, 0.06], [2462, 0.18], [5180, 0.07], [5220, 0.09], [5500, 0.04], [5745, 0.06]].map(([freq, share]) => ({ freq, share }));
+  const B = (i) => doc.aps[i].bssid;
+  doc.center.own_bssids = [B(19)];
+  doc.alerts = [["deauth", 4, 14], ["own_name", 20, 6], ["sec_profiles", 21, 2], ["sec_weaker", 13, 1], ["chan_changed", 5, 1]].map(([type, i, n], j) => ({ type, t: GEN - 30 * j, ap: B(i), n }));   // the five Wi-Fi kinds ...
+  doc.alerts.push({ type: "bt_fixed_new", t: GEN - 5, ap: "02:00:00:00:04:20", n: 3 });   // ... and the Bluetooth one, on the strongest new fixed address below
+  doc.homing = { bssid: B(5), dbm: -66, peak: -58, t: GEN };
+  doc.activity = [[2412, 0.12], [2422, 0.05], [2427, 0.03], [2437, 0.22], [2452, 0.06], [2462, 0.13], [5180, 0.07], [5200, 0.03], [5220, 0.09], [5260, 0.05], [5500, 0.04], [5745, 0.06], [6135, 0.02], [6295, 0.03]].map(([freq, share]) => ({ freq, share }));
+  const rid = (uas_id, status, lat, lon, alt_m, operator_lat, operator_lon, operator_id, ua_type, id_type) => ({ ua_type, id_type, uas_id, status, lat, lon, alt_m, operator_lat, operator_lon, operator_id });
+  doc.bluetooth = [[-49, 1, "finder frame"], [-53, 1, "finder frame"], [-57, 1, "beacon"], [-46, 2, "keyring", { watched: true }], [-64, 3], [-71], [-77, 2], [-58, 3],
+    [-55, 2, "pairing frame", { name: "Earbuds-2" }], [-61, 3, "phone"], [-66, 1, "watch"], [-69, 2, "sensor", { name: "Kettle-3" }], [-73, 3, "tag", { addr_type: "random-nonresolvable" }], [-52, 2, "input device", { connectable: true }], [-59, 3, "display"], [-63, 1, "media player"],
+    [-42, 2, "keyring"], [-56, 2, null, { remote_id: rid("SAMPLE-UA-0001", "airborne", 0.5, -30.25, 62.5, 0.4972, -30.251, "OP-SAMPLE-01", "multirotor", "serial") }],
+    [-70, 2, null, { remote_id: rid("SAMPLE-UA-0002", "ground", 0.5004, -30.2493, 2, 0.5004, -30.2493, "OP-SAMPLE-02", "aeroplane", "registration") }]
+  ].map(([rssi, co, cl, x], i) => Object.assign({ addr: "02:00:00:00:04:" + (16 + i).toString(16), addr_type: BT_TYPES[i < 3 ? 2 : i & 1], rssi, last_seen: GEN - 7 * i }, co && { company: 65530 + co, company_name: "Maker " + "ABC"[co - 1] }, cl && { class: cl }, x));   // §3.1: 3 rotating of one company, the rest fixed; two Remote ID aircraft over open water with their operators
   return doc;
 }
 
@@ -1588,22 +1637,22 @@ const S = {
   identity: new Map(), clouds: new Map(), cloudOrder: [],   // §8.8a
   bt: new Map(), btOrder: [], btLvl: new Map(), btDoc: null, act: new Map(), actN: 0,
   ui: { theme: "foundation", view: "2d", labels: true, orbits: true, links: true, paused: false,
-        agg: true, vendor: false, nebula: true, groups: true, rotate: true, spin: true, crt: true, autoLod: true, help: false,
+        agg: true, vendor: false, nebula: true, groups: true, spin: 1, crt: true, autoLod: true, help: false,
         deviceLinks: false, essMerge: false, affinity: true, observations: false, baselineDiff: false, inventory: false,
         random: "cloud", panels: true, scope: false, sheet: "peek", legendCard: false,   // §9.8: panels, scope (saved); the sheet and its legend card (not)
         filters: { "2.4": true, "5": true, "6": true, bt: true } },
   queryLocked: new Set(),
   view: { blend: 0, blendT: 0 },
-  cam: { az: 0, el: CFG3D.el, dist: 3, target: [0, 0, 0], azT: 0, elT: CFG3D.el, distT: 3, targetT: [0, 0, 0], tween: null, ramp: 0, idleAt: 0, zoom2d: 1 },
+  cam: { az: 0, el: CFG3D.el, dist: 3, target: [0, 0, 0], azT: 0, elT: CFG3D.el, distT: 3, targetT: [0, 0, 0], tween: null, zoom2d: 1 },
   anim: { fadeInK: 5.1, fadeOutK: 3.3, breathePeriodS: 6, breatheAmp: 0.06, blendK: 5.1,
-          autoRotateRadPerS: 0.05, cameraEaseMs: 1200, cameraEasing: null,
+          cameraEaseMs: 1200, cameraEasing: null,
           edgeTravelDotSpeed: 0, flareMax: 2, flareEnabled: true, flareLenFactor: 6 },
   apOrder: [], clientOrder: [],
   mode: "demo", source: "", note: "", generated: null, centerLabel: "YOU ARE HERE", maxAgeS: null, pollIntervalS: null,
   sourceKind: "none", sourceLabel: "", sourceKey: "", sourceApCount: 0, liveFeed: false, lastGen: null, stalePolls: 0, staleMs: 0, lostPolls: 0, gaps: [], fresh: false, ingestSeq: 0,   // D3/D4 (§38)
   captureSeq: 0, ev: { lastGen: null, arrived: 0, departed: 0, newStations: 0, newInClouds: 0 },   // D2: one event record per source (see eventsBegin)
   sky: { seq: 0, ref: new Map(), t0: null, resets: 0, dev: [] }, crowding: { level: 1, busiest: null },   // D11: per-source EWMA reference of channel occupancy (skyUpdate), crowding 1–5
-  pinned: new Set(), hover: null, locked: null,
+  pinned: new Set(), wl: new Set(), hover: null, locked: null,
   clock: 0, skyA: 0, dirty: true, settling: false, settlePhase: 0, settleCapped: false, relayHold: false, relayT0: 0, layoutDirty: true, fixedTime: null, moving: false,
   perf: { fps: 0, frameMs: 16.6, lod: 0, lodBase: 0, dpr: 1, dprStep: 0, dprStart: 0, down: 0, capMs: 0, lateMs: 1.4 * RENDER.budgetMs,
           slowRun: 0, fastRun: 0, ambRun: 0, bT0: 0, bN: 0, bLate: 0, bMin: Infinity, bMin2: Infinity, upT: 0, upAt: 0, upWait: 0, probe: -1, probeMs: 0, probeT: -1e9, rSeen: 0,
@@ -1613,7 +1662,7 @@ const S = {
   twinkles: 0, revealed: 0, labelsDrawn: 0, labelCollisions: 0, labelsOutside: 0, nodeCount: 0, nFreeTotal: 0,
   security: Object.fromEntries(Object.keys(ENCODING.security).map(k => [k, 0])),
   chg: new Map(), baseline: null, base: { set: false, size: 0, new: 0, gone: 0, changed: 0, ghosts: 0, sizeCl: 0, newCl: 0, goneCl: 0, ghostsCl: 0 }, ghosts: new Map(),
-  watch: [], obs: [], obsFirst: new Map(), alerts: [], obsProbe: { firstGen: null },
+  watch: [], obs: [], obsFirst: new Map(), alerts: [],
   rules: [], notes: new Map(), inv: { sort: "rssi", dir: -1, filter: {} }, homing: null, homeOpen: false, homePeak: { bssid: null, dbm: null, gen: null, polls: 0 },
   recvT0: null, dx: null, chanMode: "bars", timeScale: "10m", wfBand: "2.4", threshold: null, long: new Map(), chanPeak: new Map(), rec: null, replay: null,   // analysis drawers (air|time|rec), channel-bar mode, operator threshold, long RSSI history, peak hold, recorder/replay (memory only)
   hop: null, own: { bssids: new Set(), ssids: new Set() },   // channels[] of the last document (null = none: absence is never "gone"); own transmitters, in memory only
@@ -1635,7 +1684,7 @@ function updateReduceMotion() {
 function setReducedMotion(on) { rmApi = on == null ? null : !!on; updateReduceMotion(); S.dirty = true; return reduceMotion; }
 if (mqReduce.addEventListener) mqReduce.addEventListener("change", () => { updateReduceMotion(); S.dirty = true; });
 updateReduceMotion();
-const PERSIST_KEYS = ["theme", "view", "random", "labels", "orbits", "links", "agg", "vendor", "nebula", "groups", "rotate", "spin", "crt", "deviceLinks", "essMerge", "affinity", "observations", "baselineDiff", "inventory", "panels", "scope"];
+const PERSIST_KEYS = ["theme", "view", "random", "spin", "labels", "orbits", "links", "agg", "vendor", "nebula", "groups", "crt", "deviceLinks", "essMerge", "affinity", "observations", "baselineDiff", "inventory", "panels", "scope"];
 function readStored() {
   const raw = safeStorage.get(STORAGE_KEY); if (!raw) return null;
   try { const o = JSON.parse(raw); return isObj(o) ? o : null; } catch (e) { return null; }
@@ -1645,7 +1694,8 @@ function loadUi() {
   if (o.theme && THEMES[o.theme]) S.ui.theme = o.theme;
   if (o.view === "2d" || o.view === "3d") S.ui.view = o.view;
   if (RANDOM_MODES.indexOf(o.random) >= 0) S.ui.random = o.random;
-  for (const k of PERSIST_KEYS.slice(3)) if (typeof o[k] === "boolean") S.ui[k] = o[k];
+  if (+o.spin in LAYOUT.skySpinRadPerS) S.ui.spin = +o.spin;   // an old boolean: true 1, false 0
+  for (const k of PERSIST_KEYS.slice(4)) if (typeof o[k] === "boolean") S.ui[k] = o[k];
 }
 let saveTimer = 0;
 function saveUi() {
@@ -1730,7 +1780,7 @@ function eventsReset() {
   S.clouds.clear(); S.cloudOrder = []; S.bt.clear(); S.btOrder = []; S.btLvl.clear();   // §8.8a, §3.1
   S.long = new Map(); S.chanPeak = new Map(); S.recvT0 = null;
   S.chg = new Map();
-  S.obsFirst = new Map(); S.obsProbe = { firstGen: null }; S.obsWatchSeen = new Set();
+  S.obsFirst = new Map(); S.obsWatchSeen = new Set();
   S.sky = { seq: 0, ref: new Map(), t0: null, resets: 0, dev: [] };
   S.aps.forEach(n => { n.capSeq = -1; n.newSeq = -1; n.changedSeq = -1; n.cueSeq = -1; });
   S.clients.forEach(n => { n.capSeq = -1; n.newSeq = -1; n.pk = null; });
@@ -1752,7 +1802,8 @@ function isMobileLikely(n) {
   return MOBILE_SSID_RE.test(n.ssidKnown || n.ssid || "") || !!(n.caps && n.caps.includes("IBSS"));
 }
 const eventSkip = (n) => !n || n.mobile || S.own.bssids.has(n.id);   // mobile hotspots and this device's own transmitters
-const alertNode = (a) => { const n = S.aps.get(a.ap); return eventSkip(n) || S.ui.filters[n.band] === false ? null : n; };
+const alertAp = (a) => (a.type === "deauth" || a.type !== "bt_fixed_new" && identityOf(a.ap) !== "friend") && S.aps.get(a.ap);   // a friend keeps deauth only; Bluetooth has no star
+const alertNode = (a) => { const n = alertAp(a); return eventSkip(n) || S.ui.filters[n.band] === false ? null : n; };
 let alAt = Infinity;
 function chgPush(id, seq, t, kind, from, to) {
   let a = S.chg.get(id);
@@ -1865,6 +1916,8 @@ function ingest(doc, opts = {}) {
   rebuildGroups();
   rebuildDevices();
   S.aps.forEach(n => { n.mobile = isMobileLikely(n); });
+  const wl0 = S.wl; S.wl = new Set(); for (const x of doc.aps.flatMap(a => [a, ...a.clients]).concat(doc.unassociated)) { const id = x.bssid || x.mac; if (x.watched && !eventSkip(nodeById(id))) S.wl.add(id); }   // watch.list, P3 aside
+  if (S.wl.size !== wl0.size || [...S.wl].some(id => !wl0.has(id))) changed = true;   // a changed list changes the bubbles (§4.6)
   if (cap) {
     eventsSettle(pend, gen, seq, seenAp, seenCl);
     // something new was heard → the receive ring contracts once (not a live cloud's new burst, §8.8a)
@@ -2511,8 +2564,8 @@ function newBubble(id, gx, gz) {
     meanRssi: null, vendors: [], randomized: 0, expandedUntil: null, born: S.clock };
 }
 function rebuildBubbles() {
-  const active = S.clientOrder.filter(c => c.free && c.target === 1 && !c.randOut);   // §8.8a
-  for (const c of S.clientOrder) if (!c.free || c.randOut) c.bubble = null;
+  const active = S.clientOrder.filter(c => c.free && c.target === 1 && !c.randOut && !S.wl.has(c.id));   // §8.8a; watched: never in a bubble
+  for (const c of S.clientOrder) if (!c.free || c.randOut || S.wl.has(c.id)) c.bubble = null;
   const nFree = active.length;
   const forced = aggForced();
   if (!S.ui.agg && !forced) {
@@ -2760,10 +2813,10 @@ function startTween(to) {
     to: { az: to.az ?? c.az, el: to.el ?? c.el, dist: to.dist ?? c.dist, target: (to.target || c.target).slice() } };
   S.dirty = true;
 }
-function stepCamera(dt) {
+function stepCamera(dt) {   // turns only on input (§5.3)
   const c = S.cam, v = S.view;
   if (v.blend !== v.blendT) return;          // transition drives the camera (stepBlend)
-  if (v.blend < 0.5) { c.ramp = 0; return; } // 2D steady: projection unused
+  if (v.blend < 0.5) return;                 // 2D steady: projection unused
   if (c.tween) {
     const tw = c.tween, u = tw.fn(clamp((tw.e += dt * 1e3) / tw.ms, 0, 1));
     c.az = c.azT = tw.from.az + wrapPi(tw.to.az - tw.from.az) * u;
@@ -2773,11 +2826,6 @@ function stepCamera(dt) {
     if (u >= 1) c.tween = null;
     c.az3D = c.az; S.dirty = true; return;
   }
-  if (!reduceMotion && S.ui.rotate && !S.ui.paused) {
-    const idleOk = c.idleAt === 0 || (S.clock - c.idleAt) >= CFG3D.idleResumeMs / 1000;
-    if (idleOk) c.ramp = ease(c.ramp, 1, CFG3D.autoRamp, dt);
-    if (c.ramp > 0) { c.az += S.anim.autoRotateRadPerS * c.ramp * dt; c.azT = c.az; S.dirty = true; }
-  } else c.ramp = 0;
   const kA = reduceMotion ? CFG3D.kReduced : CFG3D.kAz, kE = reduceMotion ? CFG3D.kReduced : CFG3D.kEl, kD = reduceMotion ? CFG3D.kReduced : CFG3D.kDist, kT = reduceMotion ? CFG3D.kReduced : CFG3D.kTarget;
   const az0 = c.az, el0 = c.el, d0 = c.dist;
   c.az = easeAngle(c.az, c.azT, kA, dt);
@@ -2809,7 +2857,7 @@ function snapCamera(mode) {
   c.el = c.elT = pre.el; c.dist = c.distT = pre.dist; c.F = pre.F;
   c.az = c.azT = c.az3D = mode === "3d" ? CFG3D.azStart : 0;
   c.target[0] = c.target[1] = c.target[2] = 0; c.targetT[0] = c.targetT[1] = c.targetT[2] = 0;
-  c.tween = null; c.ramp = 0; c.idleAt = 0;
+  c.tween = null;
 }
 function flyTo(node) {   // never re-target — turn the node to the front of the device and dolly in only as far as keeps it on screen
   if (!node || !node.p) return;
@@ -2821,7 +2869,7 @@ function flyTo(node) {   // never re-target — turn the node to the front of th
 function applyOrbit(dx, dy) {
   const c = S.cam; c.az -= dx * CFG3D.dragRadPerPx; c.azT = c.az;
   c.el = clamp(c.el + dy * CFG3D.dragRadPerPx, CFG3D.elMin, CFG3D.elMax); c.elT = c.el;
-  c.az3D = c.az; c.tween = null; c.ramp = 0; c.idleAt = S.clock; S.dirty = true;
+  c.az3D = c.az; c.tween = null; S.dirty = true;
 }
 function setZoom2d(z) { S.cam.zoom2d = clamp(z, CFG3D.zoom2dMin, CFG3D.zoom2dMax); S.dirty = true; }   // always about the device (no pan)
 function resetCamera() {
@@ -3087,7 +3135,7 @@ function near1(a, b) {   // exactly one edit apart (substitution, insertion or d
 function obsCompute() {
   const tick = S.generated != null ? S.captureSeq : S.ingestSeq;
   const aps = S.apOrder.filter(n => !eventSkip(n)), raw = [];
-  const add = (key, group, text) => raw.push({ key, group, text });
+  const add = (key, group, text, alert) => raw.push(alert ? { key, group, text, alert } : { key, group, text });   // alert: what of an alerts[] entry the exports carry (P6)
   if (S.ui.baselineDiff && S.baseline) {   // Baseline
     const b = S.base;
     if (b.new) add("b-new", "Baseline", b.new + " network(s) not in the baseline");
@@ -3107,19 +3155,16 @@ function obsCompute() {
   }
   const multi = aps.filter(n => n.respondedSsids >= 2);   // Multi-SSID responders
   if (multi.length) add("multi", "Responders", multi.length + " BSSID(s) answered probes for several SSIDs (up to " + Math.max(...multi.map(n => n.respondedSsids)) + ")");
-  if (fs.size && S.generated != null) {   // Probes for a confirmed SSID (P4): tiered 0 / <5 / >=5, only after 10 minutes of capture time, no times, no identities
-    if (S.obsProbe.firstGen == null) S.obsProbe.firstGen = S.generated;
-    if (S.generated - S.obsProbe.firstGen >= OBS_PROBE_S) {
-      let k = 0; for (const c of S.clientOrder) if (!eventSkip(c) && c.probes && c.probes.some(p => fs.has(p))) k++;
-      if (k > 0) add("probes", "Probes", "stations probed for a confirmed SSID: " + (k < 5 ? "<5" : "5 or more"));
-    }
+  if (fs.size) {   // Probes for a confirmed SSID (P4): the number of stations as counted, from the first capture that holds one; the note names no station
+    let k = 0; for (const c of S.clientOrder) if (!eventSkip(c) && c.probes && c.probes.some(p => fs.has(p))) k++;
+    if (k > 0) add("probes", "Probes", k + " station(s) probed for a confirmed SSID");
   }
   for (const w of S.watch) {   // Watchlist (SSIDs of access points only); "lost" needs hop data, as for the baseline
     const hit = aps.some(n => n.groupKey === w);
     if (hit) { S.obsWatchSeen = S.obsWatchSeen || new Set(); S.obsWatchSeen.add(w); add("w+" + w, "Watchlist", "watched SSID present: " + w); }
     else if (S.hop !== null && S.obsWatchSeen && S.obsWatchSeen.has(w)) add("w-" + w, "Watchlist", "watched SSID not heard now: " + w);
   }
-  for (const a of S.alerts) { const n = S.aps.get(a.ap); if (n && !eventSkip(n)) add("alert:" + a.ap, "Alerts", "many deauth/disassoc frames heard for this AP: " + (n.ssidKnown || n.ssid || n.bssid) + " (" + a.n + ")"); }   // P6: local-live only
+  for (const a of S.alerts) { const n = alertAp(a), b = a.type === "bt_fixed_new" && (S.bt.get("bt:" + a.ap) || {}).target === 1, nm = !b && n ? n.ssidKnown || n.ssid || null : null; if (b || !eventSkip(n) && n.target === 1) add("alert:" + a.type + ":" + a.ap, "Alerts", AL_TXT[a.type] + ": " + (b ? a.ap : n.ssidKnown || n.ssid || n.bssid) + " (" + a.n + ")", { kind: a.type, address: a.ap, name: nm, count: a.n }); }   // P6: kind, name or address, count, for an access point the capture holds (as the Bluetooth note its live mark); the note reaches the SITREP, the JSON and the CSV; dwell per kind
   if (S.cloudOrder.length) {   // §8.8a
     const k = S.cloudOrder.length, a = S.cloudOrder.reduce((x, c) => x + c.n, 0), one = k === 1 && !cloudMixed(S.cloudOrder[0]);
     add("s-clouds", "Stations", a + " randomised addresses in " + k + (k === 1 ? " cloud" : " clouds") + (one ? ": probably one nearby device changing its address" : ": possibly one or more nearby devices changing their address"));
@@ -3138,7 +3183,7 @@ function obsCompute() {
   S.obsFirst.forEach((_, k) => { if (!keys.has(k)) S.obsFirst.delete(k); });
   const out = [];
   for (const r of raw) { if (!S.obsFirst.has(r.key)) S.obsFirst.set(r.key, tick); if (tick - S.obsFirst.get(r.key) >= OBS_DWELL - 1) out.push(r); }
-  S.obs = out.slice(0, OBS_MAX);
+  S.obs = out;
 }
 // ---- Homing (browser side): one reading per poll ("coarse"), peak hold that decays after 12 polls without a new maximum. The target (an AP or a
 // station) is chosen on the device or with STARCHORUS_HOMING_BSSID; the page never sends anything. A reading for a key not heard this capture, or one of our own transmitters, is refused.
@@ -3729,6 +3774,7 @@ function applyRandom() {   // the Random switch: randOut = folded into a shown c
 }
 const btOn = (k) => k.kind === "bt" ? S.ui.filters.bt : S.ui.random === "cloud";   // key 4 for S.bt, X for S.clouds
 const btRot = (t) => t !== "public" && t !== "random-static";
+const btCmp = (a, b) => !!b.m[0].watched - !!a.m[0].watched || !!b.m[0].remote_id - !!a.m[0].remote_id || b.rssi - a.rssi || cmpStr(a.id, b.id);   // §3.1 watched first, then Remote ID (every aircraft among the drawn marks), then signal
 function rebuildBt(doc, gen, rp) {   // §3.1 marks: fixed = one mark, rotating = per company and ring (3 dB hysteresis)
   const L = doc.bluetooth, W = doc.center.bt_window ?? null, hold = doc.center.bt_hold ?? 120, keep = !!L && W === 0 && !L.length, grp = new Map(), lv = new Map(), rg = LAYOUT.rings;
   S.btDoc = L ? { window: W, hold, void: W === 0 } : null;
@@ -3736,7 +3782,7 @@ function rebuildBt(doc, gen, rp) {   // §3.1 marks: fixed = one mark, rotating 
     const rot = btRot(b.addr_type), p = rot && !rp ? S.btLvl.get(b.addr) : null;
     let l = signalLevel(b.rssi);
     if (p != null && b.rssi >= (rg[p] ?? -999) - BT.hystDb && b.rssi < (rg[p - 1] ?? 999) + BT.hystDb) l = p;
-    const key = "bt:" + (rot ? (b.company ?? "-") + ":" + l : b.addr);
+    const key = "bt:" + (rot && !b.watched && !b.remote_id ? (b.company ?? "-") + ":" + l : b.addr);
     lv.set(b.addr, l); (grp.get(key) || grp.set(key, []).get(key)).push(b);
   }
   if (!keep && !rp) S.btLvl = lv;
@@ -3751,7 +3797,7 @@ function rebuildBt(doc, gen, rp) {   // §3.1 marks: fixed = one mark, rotating 
     const fr = freshOf(k.lastSeen, gen); k.freshTier = fr.tier; k.freshAT = ENCODING.fresh.alpha[fr.tier ?? 0];
     if (keep ? gen != null && gen - k.lastSeen > hold : !grp.has(id)) k.target = 0;
   });
-  S.btOrder = Array.from(S.bt.values()).filter(k => k.target === 1).sort((a, b) => b.rssi - a.rssi || cmpStr(a.id, b.id)); S.btOrder.forEach((k, i) => { k.rank = i; });
+  S.btOrder = Array.from(S.bt.values()).filter(k => k.target === 1).sort(btCmp); S.btOrder.forEach((k, i) => { k.rank = i; });
 }
 function btStats() {   // §3.10 counts over the live marks
   if (!S.btDoc) return null;
@@ -3841,7 +3887,7 @@ function libraryImport(text) {   // "MAC class" per line; "aa:bb:cc:??:??:??" (o
     if (!identCanAdd(b)) { rej(l, "identity store full"); continue; }
     S.identity.set(b, cls); res.added++;
   }
-  saveIdentity(); saveLibrary(); buildLegend(); S.dirty = true; renderInv();
+  saveIdentity(); saveLibrary(); buildLegend(); S.dirty = true; renderInv(); obsCompute(); renderObs();
   const n = res.rejected.length; res.message = n ? n + " rejected" + (res.rejected.every(r => r.why === "not observed") ? ": not observed" : "") : "";
   return res;
 }
@@ -3866,7 +3912,7 @@ function libraryAssign(cls, filter) {   // bulk assign friend/neutral/suspect to
   };
   for (const ap of S.apOrder) take(ap, true);
   for (const cl of S.clientOrder) if (cl.target === 1) take(cl, false);
-  if (n) { saveIdentity(); buildLegend(); S.dirty = true; renderInv(); }
+  if (n) { saveIdentity(); buildLegend(); S.dirty = true; renderInv(); obsCompute(); renderObs(); }
   return n;
 }
 const SEC_RANK = { open: 0, wep: 1, "tkip-weak": 2, wpa: 3, wpa2: 4, enterprise: 5, "wpa3-transition": 6, owe: 7, wpa3: 8 };
@@ -3885,7 +3931,7 @@ function setIdentity(bssid, id) {
   if (id == null || id === "unknown") S.identity.delete(b);
   else if (id === "friend" || id === "neutral" || id === "hostile") { if (!observed(b) || !identCanAdd(b)) return identityOf(b); S.identity.set(b, id); }
   else return identityOf(b);
-  saveIdentity(); buildLegend(); S.dirty = true;
+  saveIdentity(); buildLegend(); S.dirty = true; obsCompute(); renderObs();   // the notes follow the identity at once: a friend's derived kind leaves the Observations and the three text exports before the next capture (P6, section 14.5)
   if (S.locked === b || (S.locked && String(S.locked).toLowerCase() === b)) openDetail(S.locked);
   return identityOf(b);
 }
@@ -4039,7 +4085,7 @@ function stepClouds(dt) {   // §8.8a, and the §3.1 marks
   if (moving) S.moving = true;
 }
 function stepSky(liveDt) {   // §4.2a: one shared angular rate → rigid, so no pair or zone distance ever changes
-  const w = S.ui.spin ? LAYOUT.skySpinRadPerS : 0;
+  const w = LAYOUT.skySpinRadPerS[S.ui.spin] || 0;
   if (S.fixedTime != null) S.skyA = (w * S.clock) % (2 * Math.PI);   // frozen frame: a pure function of the fixed clock
   else if (w > 0 && liveDt > 0 && !reduceMotion) {                     // paused (liveDt 0) / reduced motion: the sky holds still
     S.skyA = (S.skyA + w * liveDt) % (2 * Math.PI);
@@ -4587,8 +4633,8 @@ function fR(ctx, x, y, w, h) { ctx.fillRect(x, y, w, h); if (S.countCalls) DC.fi
 function sT(ctx) { ctx.stroke(); if (S.countCalls) DC.stroke++; }
 function fT(ctx, text, x, y, halo) { if (halo) ctx.strokeText(text, x, y); ctx.fillText(text, x, y); if (S.countCalls) DC.fillText++; }
 // DC.shadowBlur / DC.gradient stay 0: the hot path neither blurs live nor builds gradients (bloom and halos are baked in §31)
-function isForced(id) { return id === S.hover || id === S.locked || S.pinned.has(id); }   // hovered, locked or pinned: always drawn and labelled
-function anyForced() { return S.hover != null || S.locked != null || S.pinned.size > 0; }   // false: isForced() is false for every node (an id is never null), so a scan that only looks for forced nodes finds none
+function isForced(id) { return id === S.hover || id === S.locked || S.pinned.has(id) || S.wl.has(id); }   // hovered, locked, pinned or watched: always drawn and labelled
+function anyForced() { return S.hover != null || S.locked != null || S.pinned.size > 0 || S.wl.size > 0; }   // false: isForced() is false for every node (an id is never null), so a scan that only looks for forced nodes finds none
 function beginFrame() {
   spriteSlot = 0;
   ctxHud.clearRect(0, 0, W, H);
@@ -5008,15 +5054,18 @@ function drawClients() {
       setAlpha(ctx, alpha * c.freshA); blit(ctx, s, sx, sy, px);
     }
     if (S.identity.size || S.rules.length) { const idn = identityOf(c.id); if (idn !== "unknown") { setAlpha(ctx, alpha); drawIdentityFrame(ctx, sx, sy, px + 4, ENCODING.identity[idn]); } }   // D7: a classified station wears the frame, like a star
+    if (S.wl.has(c.id)) { setAlpha(ctx, alpha); drawPinMark(ctx, sx, sy, px + ENCODING.selectionRingOffsetPx); }   // watch.list only
   }
   setAlpha(ctx, 1);
 }
-function drawBt() {   // §3.3 the strongest 48 marks, up to LOD 2
+function drawBt() {   // §3.3 the first 48 marks of the order (watched, then Remote ID, then the strongest), up to LOD 2
   if (!S.bt.size || S.perf.lod > 2) return;
   const ctx = ctxSky;
   for (const k of S.bt.values()) {
     if (k.alphaDraw <= 0.02 || k.rank >= BT.drawMax) continue;
     setAlpha(ctx, k.alphaDraw * k.freshA); blit(ctx, getSprite("bt", "bt", tierFor(k.px), k.rot ? (k.n > 1 ? "hd" : "h") : "f"), k.sx, k.sy, k.px);
+    drawSelectionMarks(ctx, k, k.alpha);   // the selected mark (Remote ID, 0.2.7)
+    if (k.m[0].watched) { setAlpha(ctx, k.alphaDraw); drawPinMark(ctx, k.sx, k.sy, k.px + ENCODING.selectionRingOffsetPx + (k.id === S.locked ? 5 : 0)); }
   }
   setAlpha(ctx, 1);
 }
@@ -5056,12 +5105,12 @@ function drawBubbles() {
   ringFlush(ctx);
   setAlpha(ctx, 1);
 }
-function drawSelectionMarks(ctx, n, alpha) {   // selection ring when locked, pin mark (outside the ring) when pinned
+function drawSelectionMarks(ctx, n, alpha) {   // selection ring when locked, pin mark (outside the ring) when pinned or watched
   if (n.id === S.locked) {
     setAlpha(ctx, alpha); ctx.strokeStyle = THEME.accent.selection; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(n.sx, n.sy, n.px + ENCODING.selectionRingOffsetPx, 0, Math.PI * 2); sT(ctx);
   }
-  if (S.pinned.has(n.id)) { setAlpha(ctx, alpha); drawPinMark(ctx, n.sx, n.sy, n.px + ENCODING.selectionRingOffsetPx + (n.id === S.locked ? 5 : 0)); }
+  if (S.pinned.has(n.id) || S.wl.has(n.id)) { setAlpha(ctx, alpha); drawPinMark(ctx, n.sx, n.sy, n.px + ENCODING.selectionRingOffsetPx + (n.id === S.locked ? 5 : 0)); }
 }
 function drawPinMark(ctx, x, y, r) {   // D5: a 290° arc, gap at 12 o'clock, a radial notch at each end
   const g = ENCODING.pin.gapDeg * Math.PI / 360, a0 = -Math.PI / 2 + g, a1 = -Math.PI / 2 - g + 2 * Math.PI, nt = ENCODING.pin.notchPx;
@@ -5260,7 +5309,7 @@ function labelDevCarriers() {   // §8.8: device id → the one member that carr
 // drawHud walks it, fonts and raster only place; STARCHORUS.labelCandidates() returns it for cross-theme tests.
 function labelCandidateList(devCarrier) {
   const trans = S.view.blend > 0.02 && S.view.blend < 0.98;
-  const prio = (n) => (n.id === S.locked ? 4 : 0) + (n.id === S.hover ? 3 : 0) + (S.pinned.has(n.id) ? 2 : 0);
+  const prio = (n) => (n.id === S.locked ? 4 : 0) + (n.id === S.hover ? 3 : 0) + (S.pinned.has(n.id) || S.wl.has(n.id) ? 2 : 0);
   const cand = [];
   for (const ap of S.apOrder) {
     if (ap.hidden) continue;
@@ -5508,7 +5557,7 @@ function setHover(id) {
 }
 function select(id) {
   if (id == null) { deselect(); return null; }
-  const n = nodeById(id); if (!n || n.kind === "bt") return null;   // no sheet for a mark in this release
+  const n = nodeById(id); if (!n || n.kind === "bt" && !n.m[0].remote_id) return null;   // a mark has a sheet only with Remote ID
   S.locked = id; S.dirty = true;
   const fc = S.aps.has(id) ? essOfFolded(id) : null; if (fc) expandEss(fc.id);   // §8.8 click a folded ESS node → expand 6 s
   if (tS >= 0.5 && !scopeOn) flyTo(n);               // 3D: turn the node to the front + dolly in; the device stays centred
@@ -5520,7 +5569,7 @@ function deselect() {
   return null;
 }
 let lastPinClick = { id: null, t: -Infinity };
-function clickPin(id, t) {   // §5.6/§9.2, MUSS BLEIBEN 10: a click on a star toggles its pin (clients additively); bubbles are aggregates → no pin
+function clickPin(id, t) {   // §5.6/§9.2, MUST STAY 10: a click on a star toggles its pin (clients additively); bubbles are aggregates → no pin
   if (!S.aps.has(id) && !S.clients.has(id)) return false;
   const dbl = id === lastPinClick.id && t - lastPinClick.t < HIT.pinDebounceMs;   // double click: no second toggle (PointerEvent.timeStamp, UI only — not a data/render clock)
   lastPinClick = { id, t };
@@ -5528,7 +5577,6 @@ function clickPin(id, t) {   // §5.6/§9.2, MUSS BLEIBEN 10: a click on a star 
   return S.pinned.has(id);
 }
 let drag = null; const pointers = new Map(); let pinchBase = 0, pinchZoom0 = 1, pinchDist0 = 1;
-function interacted() { S.cam.ramp = 0; S.cam.idleAt = S.clock; }
 canvasHud.addEventListener("pointerdown", (e) => {
   try { canvasHud.setPointerCapture(e.pointerId); } catch (_) { }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -5538,7 +5586,6 @@ canvasHud.addEventListener("pointerdown", (e) => {
   } else {
     drag = { id: e.pointerId, downX: e.clientX, downY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, is3d: tS >= 0.5, touch: e.pointerType === "touch" };
   }
-  interacted();
 });
 canvasHud.addEventListener("pointermove", (e) => {
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -5547,14 +5594,14 @@ canvasHud.addEventListener("pointermove", (e) => {
     const p = Array.from(pointers.values()); const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1; const ratio = d / pinchBase;
     if (tS >= 0.5) { S.cam.distT = clamp(pinchDist0 / ratio, CFG3D.distMin, CFG3D.distMax); S.cam.tween = null; }
     else setZoom2d(pinchZoom0 * ratio);
-    interacted(); S.dirty = true; return;
+    S.dirty = true; return;
   }
   if (drag && drag.id === e.pointerId) {
     const thr = drag.touch ? CFG3D.touchThresholdPx : CFG3D.dragThresholdPx;
     if (!drag.moved) { if (Math.hypot(e.clientX - drag.downX, e.clientY - drag.downY) < thr) return; drag.moved = true; drag.lastX = drag.downX; drag.lastY = drag.downY; }
     const dx = e.clientX - drag.lastX, dy = e.clientY - drag.lastY; drag.lastX = e.clientX; drag.lastY = e.clientY;
     if (drag.is3d) applyOrbit(dx, dy);   // 2D drag has no effect: the device is the fixed anchor (no pan)
-    interacted(); return;
+    return;
   }
   const id = nodeAt(e.clientX, e.clientY, e.pointerType === "touch");
   setHover(id);
@@ -5576,7 +5623,6 @@ canvasHud.addEventListener("wheel", (e) => {
   e.preventDefault();
   if (scopeOn) return;
   const norm = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * 100 : e.deltaY;
-  interacted();
   if (tS >= 0.5) { S.cam.distT = clamp(S.cam.distT * Math.exp(norm * CFG3D.wheelK), CFG3D.distMin, CFG3D.distMax); S.cam.tween = null; }
   else setZoom2d(S.cam.zoom2d * Math.exp(-norm * CFG3D.wheelK));   // about the device, not the cursor
   S.dirty = true;
@@ -5594,7 +5640,7 @@ const CAM_STEP = {
   out: (c) => { c.distT = clamp(c.distT * CFG3D.btnZoom, CFG3D.distMin, CFG3D.distMax); },
 };
 const CAM_KEY = { arrowleft: "left", arrowright: "right", arrowup: "up", arrowdown: "down", "+": "in", "=": "in", "-": "out" };
-const KEY_ACT = { t: () => toggleTheme(), v: () => { setView(S.ui.view === "3d" ? "2d" : "3d"); renderCaption(); }, r: () => setToggle("rotate", !S.ui.rotate), s: () => setToggle("spin", !S.ui.spin),
+const KEY_ACT = { t: () => toggleTheme(), v: () => { setView(S.ui.view === "3d" ? "2d" : "3d"); renderCaption(); }, s: cycleSpin,
   c: () => toggleCrt(), " ": () => setToggle("paused", !S.ui.paused),
   l: () => setToggle("labels", !S.ui.labels), o: () => setToggle("orbits", !S.ui.orbits), k: () => setToggle("links", !S.ui.links),
   a: () => setToggle("agg", !S.ui.agg), e: () => setToggle("vendor", !S.ui.vendor), n: () => setToggle("nebula", !S.ui.nebula),
@@ -5633,7 +5679,7 @@ window.addEventListener("keydown", (e) => {
     else if (k === "-") setZoom2d(S.cam.zoom2d / CFG3D.btnZoom);
     else camHandled = false;
   }
-  if (camHandled) { interacted(); S.dirty = true; e.preventDefault(); return; }
+  if (camHandled) { S.dirty = true; e.preventDefault(); return; }
   if (KEY_ACT[k]) { KEY_ACT[k](); e.preventDefault(); }
 });
 
@@ -5666,6 +5712,12 @@ function toggleBand(b) {
 const THEME_CYCLE = ["foundation", "wargames", "whitehall"];
 function nextTheme(id) { const i = THEME_CYCLE.indexOf(id); return THEME_CYCLE[(i + 1) % THEME_CYCLE.length]; }
 function toggleTheme() { applyTheme(nextTheme(S.ui.theme), { intro: true }); }
+const SPIN_LOOK = ["No spin", "Slow spin", "Fast spin"];   // §4.2a; #t-spin names the next state, as #t-theme does
+function setSpin(v) {   // 0 off · 1 slow · 2 fast; true 1, false 0
+  v = +v; if (!SPIN_LOOK[v]) return S.ui.spin;
+  S.ui.spin = v; S.queryLocked.delete("spin"); saveUi(); updateControlsLook(); S.dirty = true; return v;
+}
+function cycleSpin() { return setSpin((S.ui.spin + 1) % 3); }
 function toggleCrt() { if (THEME.crt.userToggle) setToggle("crt", !S.ui.crt); }
 function applyCrt() { const crt = el("crt"); if (crt) crt.classList.toggle("on", THEME.crt.userToggle && S.ui.crt); }
 function setToggle(key, on) {
@@ -5685,7 +5737,7 @@ function setToggle(key, on) {
   updateControlsLook(); updateStats(); S.dirty = true;
   return on;
 }
-const BTN_OF = { labels: "t-labels", orbits: "t-orbits", links: "t-links", paused: "t-pause", agg: "t-agg", vendor: "t-vendor", nebula: "t-nebula", groups: "t-groups", rotate: "t-rotate", spin: "t-spin", crt: "t-crt", deviceLinks: "t-devices", essMerge: "t-merge", affinity: "t-probes", observations: "t-obs", baselineDiff: "t-baseline", inventory: "t-inv", scope: "t-scope" };
+const BTN_OF = { labels: "t-labels", orbits: "t-orbits", links: "t-links", paused: "t-pause", agg: "t-agg", vendor: "t-vendor", nebula: "t-nebula", groups: "t-groups", crt: "t-crt", deviceLinks: "t-devices", essMerge: "t-merge", affinity: "t-probes", observations: "t-obs", baselineDiff: "t-baseline", inventory: "t-inv", scope: "t-scope" };
 function syncPressed(id, on) { const b = el(id); if (b) { b.classList.toggle("on", !!on); b.setAttribute("aria-pressed", String(!!on)); } }
 function syncButton(key, on) { syncPressed(BTN_OF[key], on); }
 function dropToggle(key) { if (S.ui[key]) { S.ui[key] = false; syncButton(key, false); } }   // flag and button only
@@ -5697,20 +5749,21 @@ function setToggles(o) {
     if (key === "panels") { setPanels(!!o.panels); continue; }
     if (key === "random") { setRandomMode(o.random); continue; }
     if (key === "autoLod") { S.ui.autoLod = !!o.autoLod; S.dirty = true; continue; }
+    if (key === "spin") { setSpin(o.spin); continue; }
     if (key in S.ui && typeof S.ui[key] === "boolean") setToggle(key, !!o[key]);   // switches only
   }
   return getToggles();
 }
 function getToggles() {   // the BTN_OF keys (in their order), then the rest
   const o = {}; for (const key of Object.keys(BTN_OF)) o[key] = S.ui[key];
-  return Object.assign(o, { autoLod: S.ui.autoLod, help: S.ui.help, panels: S.ui.panels, random: S.ui.random, theme: S.ui.theme, view: S.ui.view, bands: { "2.4": S.ui.filters["2.4"], "5": S.ui.filters["5"], "6": S.ui.filters["6"], bt: S.ui.filters.bt } });
+  return Object.assign(o, { autoLod: S.ui.autoLod, help: S.ui.help, panels: S.ui.panels, random: S.ui.random, spin: S.ui.spin, theme: S.ui.theme, view: S.ui.view, bands: { "2.4": S.ui.filters["2.4"], "5": S.ui.filters["5"], "6": S.ui.filters["6"], bt: S.ui.filters.bt } });
 }
 function updateControlsLook() {
   const tt = el("t-theme"); if (tt) { const lb = THEMES[nextTheme(S.ui.theme)].meta.label; tt.textContent = lb.charAt(0) + lb.slice(1).toLowerCase(); }
   const tv = el("t-view"); if (tv) tv.textContent = S.ui.view === "3d" ? "2D" : "3D";
   const flat = S.ui.view !== "3d"; el("cam").classList.toggle("flat", flat);
   for (const k of ["left", "right", "up", "down"]) { const b = el("cam-" + k); if (b) b.hidden = flat; }   // 2D: only +, − and reset
-  el("t-rotate").hidden = flat;   // the auto-rotation is 3D only
+  el("t-spin").textContent = SPIN_LOOK[(S.ui.spin + 1) % 3]; document.documentElement.dataset.spin = S.ui.spin;
   const crtBtn = el("t-crt"); if (crtBtn) crtBtn.hidden = !THEME.crt.userToggle;
   syncRandomButton();
   for (const key of Object.keys(BTN_OF)) syncButton(key, S.ui[key]);
@@ -5781,7 +5834,7 @@ function renderHome() {
 }
 // ---- export (text formats, local): access points AND stations (a received association may be filed); mobile hotspots and own transmitters (and an own/mobile parent) left out
 function exportModel() {
-  const withNotes = (o, id) => { const nt = S.notes.get(id); if (nt && nt.a) o.alias = nt.a; if (nt && nt.t.length) o.tags = nt.t.slice(); return o; };   // alias/tags only: note text is NOT exported
+  const withNotes = (o, id) => { const nt = S.notes.get(id); if (nt && nt.a) o.alias = nt.a; if (nt && nt.t.length) o.tags = nt.t.slice(); if (S.wl.has(id)) o.watched = true; return o; };   // alias/tags only: note text is NOT exported
   const aps = S.apOrder.filter(n => !eventSkip(n)).map(n => withNotes({ bssid: n.bssid, ssid: n.ssidKnown || n.ssid || "", band: n.band, channel: n.channel, security: n.security || ENCODING.security[n.sec].label, class: n.sec, rssi: n.rssi, heard: heardWord(n) }, n.id));
   let mob = 0; S.aps.forEach(n => { if (n.target === 1 && n.mobile) mob++; });
   const clouds = S.cloudOrder.length > 0;
@@ -5797,6 +5850,7 @@ function exportModel() {
   });
   const sc = { free: 0, associated: 0 }; stations.forEach(x => { if (x.association) sc.associated++; else sc.free++; });
   const out = { footer: EXPORT_FOOTER, generated: S.generated, source: S.sourceKind, aps, stations, station_counts: sc, mobile_hotspots: mob, crowding: S.crowding.level };
+  const al = S.obs.filter(o => o.alert).map(o => ({ ...o.alert })); if (al.length) out.alerts = al;   // P6: of alerts[] the notes' kind, address, name and count, as the Observations show them; nothing the page shows no note for
   if (clouds) {   // §8.8a only with a live cloud
     sc.randomised = stations.filter(x => x.randomized).length; sc.in_clouds = stations.filter(x => x.cloud != null).length;
     out.clouds = S.cloudOrder.map(k => ({ id: k.id, addresses: k.n, rssi: k.rssi, rssi_min: k.rssiMin, rssi_max: k.rssiMax, first_heard: k.first, last_heard: k.last, cadence_s: k.cadenceS, bursts: k.bursts,
@@ -5809,26 +5863,31 @@ function exportModel() {
   return out;
 }
 function exportText(fmt) {
-  const m = exportModel();
+  const m = exportModel(), R = (m.bluetooth || []).filter(b => b.remote_id);   // 0.2.7: none = the text of 0.2.6
   if (fmt === "csv") {
     const q = (v) => { const s = v == null ? "" : String(v), t = /^[=+@\t\r-]/.test(s) && !isFinite(s) ? "'" + s : s; return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
     const head = "kind,bssid,ssid,band,channel,security,rssi,heard,alias,tags,association,randomized,probes,cloud";   // one table, a leading kind column, every row the same width
     const apRow = (a) => ["ap", a.bssid, a.ssid, a.band, a.channel, a.security, a.rssi, a.heard, a.alias || "", (a.tags || []).join(" "), "", "", "", ""];
     const stRow = (x) => ["station", x.mac, "", x.band, "", "", x.rssi, x.heard, x.alias || "", (x.tags || []).join(" "), x.association || "", x.randomized ? "1" : "", (x.probes || []).join(" "), x.cloud || ""];
-    return [head].concat(m.aps.map(a => apRow(a).map(q).join(","))).concat(m.stations.map(x => stRow(x).map(q).join(","))).concat(["# " + EXPORT_FOOTER]).join("\n") + "\n";
+    const A = m.alerts || [], ea = A.length ? ",," : "";   // two alert columns (P6: the kind and the count), empty on the other rows
+    const alRow = (x) => ["alert", x.address, x.name || "", "", "", "", "", "", "", "", "", "", "", "", x.kind, x.count];
+    const e = R.length ? ",,,,,,,,,," : "";   // ten Remote ID columns, empty on the other rows
+    return [head + (ea && ",alert,count") + (e && "," + RID_KEYS.join(","))].concat(m.aps.map(a => apRow(a).map(q).join(",") + ea + e)).concat(m.stations.map(x => stRow(x).map(q).join(",") + ea + e))
+      .concat(A.map(x => alRow(x).map(q).join(",") + e), R.map(b => "remote_id," + b.addr + ",,,,," + b.rssi + "," + b.heard + ",,,,,,," + ea + RID_KEYS.map(k => q(ridV(b.remote_id, k))).join(",")), e ? ["# " + RID_NOTE] : [], ["# " + EXPORT_FOOTER]).join("\n") + "\n";
   }
   if (fmt === "sitrep") {
     const by = (fn) => { const c = {}; for (const a of m.aps) c[fn(a)] = (c[fn(a)] || 0) + 1; return Object.keys(c).sort().map(k => k + " " + c[k]).join(" · "); };
     const top = m.aps.slice().sort((a, b) => rssiOf(b) - rssiOf(a)).slice(0, 5).map(a => "  " + (a.alias || a.ssid || "(hidden)") + " · " + a.bssid + " · " + fmtBand(a.band) + (a.channel != null ? " ch " + a.channel : "") + " · " + a.rssi + " dBm");
     const cl = m.clouds || null, outside = cl ? m.stations.filter(x => x.cloud == null) : m.stations;
-    const staTop = outside.slice().sort((a, b) => rssiOf(b) - rssiOf(a) || (a.mac < b.mac ? -1 : 1)).slice(0, STA_SITREP_MAX)
+    const staTop = outside.slice().sort((a, b) => rssiOf(b) - rssiOf(a) || (a.mac < b.mac ? -1 : 1))
       .map(x => "  " + (x.alias || x.mac) + " · " + fmtBand(x.band) + (x.rssi != null ? " · " + x.rssi + " dBm" : "") + " · " + (x.association ? "assoc " + x.association : x.probes.length ? "named probes " + x.probes.length : "free"));
-    const cap = m.generated != null ? new Date(m.generated * 1000).toISOString().slice(0, 19) + "Z" : "undated";
+    const cap = m.generated != null ? new Date(m.generated * 1000).toISOString().slice(0, 19) + "Z" : "undated", nw = m.aps.concat(m.stations).filter(x => x.watched).length;
     return ["SITREP · Starchorus", EXPORT_FOOTER, "", "Capture: " + cap + " · source: " + m.source,
       "Access points: " + m.aps.length + " · stations: " + m.stations.length + " (" + m.station_counts.free + " free, " + m.station_counts.associated + " associated) · mobile hotspots: " + m.mobile_hotspots]
-      .concat(cl ? ["Randomised: " + m.station_counts.randomised + " · " + m.station_counts.in_clouds + " of them in " + cl.length + (cl.length === 1 ? " cloud" : " clouds") + " (an estimate, not a device count)"] : [],
-      ["Bands: " + by(a => a.band), "Security: " + by(a => a.class), "Crowding: " + m.crowding + " of 5", "", "Strongest:"], top, ["", "Stations (strongest " + Math.min(outside.length, STA_SITREP_MAX) + " of " + outside.length + (cl ? " outside clouds" : "") + "):"], staTop,
+      .concat(nw ? ["Watched: " + nw + " (in watch.list on the device)"] : [], cl ? ["Randomised: " + m.station_counts.randomised + " · " + m.station_counts.in_clouds + " of them in " + cl.length + (cl.length === 1 ? " cloud" : " clouds") + " (an estimate, not a device count)"] : [],
+      ["Bands: " + by(a => a.band), "Security: " + by(a => a.class), "Crowding: " + m.crowding + " of 5", "", "Strongest:"], top, ["", "Stations (" + outside.length + (cl ? " outside clouds" : "") + ", strongest first):"], staTop,
       cl ? ["", "Clouds of randomised addresses (an estimate):"].concat(cl.map(c => "  " + c.id + " · " + c.addresses + " addresses · " + c.rssi + " dBm (" + c.rssi_min + " to " + c.rssi_max + ")" + (c.cadence_s != null ? " · " + cadText(c.cadence_s) : "") + " · named probes " + c.probes.length)) : [],
+      R.length ? ["", RID_NOTE + ":"].concat(R.flatMap(b => ["  " + b.addr + " · " + b.rssi + " dBm · " + b.heard].concat(ridRows(b.remote_id).map(([k, v]) => "    " + k + ": " + v)))) : [],
       ["", "Observations:"], S.obs.length ? S.obs.map(o => "  " + o.text) : ["  none"], ["", EXPORT_FOOTER]).join("\n") + "\n";
   }
   return JSON.stringify(m, null, 1) + "\n";
@@ -6195,7 +6254,7 @@ function buildLegend() {   // D10: one builder, four blocks (Measured / Derived 
   rows.push('<div class="legrow" id="leg-fresh-u" data-kind="fresh-undated" hidden>' + freshSwatch(ENCODING.fresh.alpha[0]) + '<span>' + esc(ENCODING.fresh.undated) + '</span><span class="cnt"></span></div>');
   rows.push('<div class="sep"></div>');
   rows.push('<div class="legrow note" data-kind="hidden">' + ringSwatch(ENCODING.hidden, "--status-hidden", 5.5) + '<span>hidden SSID</span></div>');
-  rows.push('<div class="legrow note" id="leg-alert" data-kind="alert" hidden>' + ringSwatch({ ring: "solid", widthPx: 1.5 }, "--status-alert", 5.5) + '<span>alert ring = many deauth/disassoc frames heard for this AP</span></div>');
+  rows.push('<div class="legrow note" id="leg-alert" data-kind="alert" hidden>' + ringSwatch({ ring: "solid", widthPx: 1.5 }, "--status-alert", 5.5) + '<span>alert ring = an alert for this AP, see Observations</span></div>');
   rows.push('<div class="legrow note" id="leg-activity" data-kind="activity" hidden>' + swFrame('<path d="M6 1.5v9" stroke="var(--ink-primary)" stroke-width="1.5"/>') + '<span>thin line in a channel bar = share of frames heard (relative)</span></div>');
   rows.push('<div class="legrow note" id="leg-cue" data-kind="traffic" hidden>' + swFrame('<circle cx="6" cy="6" r="4.8" fill="none" stroke="var(--client)" stroke-dasharray="1 2"/><circle cx="6" cy="6" r="1.8" fill="var(--client)"/>') + '<span>station ' + (THEME.render.trafficCue || "ticks") + ' = frames heard from it per second (depends on where the radio listens)</span></div>');
   rows.push('<div class="legrow note" id="leg-geometry" data-kind="geometry">rings = received signal (dBm), not range · direction is not measured</div>');
@@ -6215,7 +6274,7 @@ function buildLegend() {   // D10: one builder, four blocks (Measured / Derived 
   rows.push('<div class="legrow note" data-kind="id-head">identity (APP-6, set in detail):</div>');
   for (const k of ["friend", "neutral", "hostile"]) rows.push('<div class="legrow note" data-kind="id-' + k + '">' + identitySwatch(ENCODING.identity[k]) + '<span>' + esc(ENCODING.identity[k].label) + '</span></div>');
   rows.push('<div class="legrow note" data-kind="selected">' + swFrame('<circle cx="6" cy="6" r="4.6" fill="none" stroke="var(--accent-selection)" stroke-width="1.5"/>') + '<span>selected</span></div>');
-  rows.push('<div class="legrow note" data-kind="pinned">' + pinSwatch() + '<span>pinned</span></div>');
+  rows.push('<div class="legrow note" data-kind="pinned">' + pinSwatch() + '<span id="leg-pin">pinned</span></div>');
   rows.push(block("look"));
   rows.push('<div class="legrow note" id="leg-height" data-kind="height" hidden>height = band (2.4 below · 5 mid · 6 above)</div>');
   rows.push('<div id="leg-rx">' + esc(copyFor("legRx")) + '</div>');
@@ -6243,6 +6302,7 @@ function legendVisibility() {   // D10: a mark's row exists exactly while that m
   const bb = document.querySelector('[data-band="bt"]'); if (bb) bb.hidden = !S.btDoc;
   vis("leg-alert", S.alerts.some(alertNode)); vis("leg-bt", bo); vis("leg-activity", S.actN > 0); vis("leg-cue", !captureStale() && S.clientOrder.some(c => c.cue));
   txt("leg-geometry", "rings = received signal (dBm), not range · " + (bo ? "Bluetooth and Wi-Fi share the rings, not the scale · " : "") + "direction is not measured");
+  txt("leg-pin", S.wl.size || bo && S.btOrder.some(k => k.m[0].watched) ? "pinned, or in watch.list" : "pinned");
 }
 function updateLegendCounts() {
   const s = S._stats || { bands: { "2.4": 0, "5": 0, "6": 0 }, bandUnknown: 0 };
@@ -6300,12 +6360,50 @@ function probeWords(list, max) {   // a station's probes in one wording: wildcar
 }
 function probeCell(list) { return esc(probeWords(list)) + (list && list.length ? ' <span style="color:var(--ink-muted)">' + esc(copyFor("probeHint")) + '</span>' : ""); }
 function btTip(k) {   // §3.5 the tooltip line (plain text)
-  return "Bluetooth LE · " + (k.companyName || (k.company != null ? "company id " + k.company : "company not advertised")) + " · " + (k.rot ? k.n + " rotating address" + (k.n > 1 ? "es · " + k.m[0].rssi + " dBm strongest" : " · " + k.rssi + " dBm") + " · not a device count" : k.rssi + " dBm · " + k.m[0].addr_type.replace("random-", "") + " address · last heard in a window " + fmtAge(S.generated - k.lastSeen));
+  return "Bluetooth LE · " + (k.companyName || (k.company != null ? "company id " + k.company : "company not advertised")) + " · " + (k.rot ? k.n + " rotating address" + (k.n > 1 ? "es · " + k.m[0].rssi + " dBm strongest" : " · " + k.rssi + " dBm") + " · not a device count" : k.rssi + " dBm · " + k.m[0].addr_type.replace("random-", "") + " address · last heard in a window " + fmtAge(S.generated - k.lastSeen)) + btTail(k);
+}
+function btTail(k) {   // 0.2.7: the classes of its addresses, counted, and the watch.list mark
+  const w = k.m.map(b => b.class).filter(Boolean).sort();
+  return (w.length ? " · advertising as " + [...new Set(w)].map(x => k.n > 1 ? x + " ×" + w.filter(y => y === x).length : x).join(", ") : "") + (k.m[0].watched ? " · in watch.list" : "");
+}
+const RID_NOTE = "Remote ID · as broadcast, not checked", ridV = (r, k) => r[k] == null ? "" : typeof r[k] == "number" ? r[k].toFixed(k === "alt_m" ? 1 : 7) : r[k];
+function ridRows(r) {   // 0.2.7 Remote ID as [label, text] rows: tooltip, sheet, SITREP
+  const v = (k) => ridV(r, k), j = (a, b) => [v(a), v(b)].filter(Boolean).join(" · "), p = (o) => v(o + "lat") && "lat " + v(o + "lat") + ", lon " + v(o + "lon");
+  return [["Aircraft", j("ua_type", "status")], ["ID", j("uas_id", "id_type")], ["Position", p("")], ["Altitude", v("alt_m") && v("alt_m") + " m"], ["Operator position", p("operator_")], ["Operator ID", v("operator_id")], ridGap(r)].filter(x => x[1]);
+}
+function ridGeo(r) {   // operator to aircraft from the two positions of one broadcast (haversine, mean earth radius), never from the Pager; e and n in m for the plan: the figure laid along the initial bearing at the operator, so the drawn length is the figure
+  if (r.lat == null || r.operator_lat == null) return null;
+  const k = Math.PI / 180, R = 6371008.8, p = r.operator_lat * k, q = r.lat * k, l = (r.lon - r.operator_lon) * k,
+    a = Math.sin((q - p) / 2), b = Math.sin(l / 2), h = a * a + Math.cos(p) * Math.cos(q) * b * b;
+  const d = 2 * R * Math.asin(Math.min(1, Math.sqrt(h))), t = Math.atan2(Math.sin(l) * Math.cos(q), Math.cos(p) * Math.sin(q) - Math.sin(p) * Math.cos(q) * Math.cos(l));
+  return { d, e: d * Math.sin(t), n: d * Math.cos(t) };
+}
+const ridM = (d) => String(d < 1e3 ? Math.round(d) : +d.toPrecision(3)).replace(/\B(?=(\d{3})+$)/g, ",") + " m";   // whole metres, three figures from 1,000 m, grouped by commas
+function ridGap(r) {   // the derived row: none without both positions
+  const g = ridGeo(r);
+  return g ? ["Operator–aircraft", ridM(g.d) + " (derived, horizontal)"] : [];
+}
+function ridPlan(k, r) {   // the plan under the sheet's rows, to scale and north up: the operator a ring, the aircraft a disc at its mark's freshness, the figure beside the line between them, a scale bar, the north arrow, the broadcast altitude; inline SVG coloured by the theme's tokens, rebuilt with the sheet
+  const g = ridGeo(r); if (!g) return "";
+  const s = Math.min(120 / Math.abs(g.e), 60 / Math.abs(g.n), 6), x = g.e * s / 2, y = -g.n * s / 2, h = Math.hypot(x, y), u = h > 20 ? [x / h, y / h] : [0, y > 0 ? 1 : -1],
+    f = (v) => v.toFixed(1), P = (c, a) => f(120 + c * x) + a + f(50 + c * y), an = (v) => v > 0.4 ? "start" : v < -0.4 ? "end" : "middle",
+    t = (a, b, w, v, c) => '<text x="' + f(a) + '" y="' + f(b + 3) + '" text-anchor="' + w + '"' + (c ? ' class="' + c + '"' : "") + ">" + v + "</text>",
+    T = (c, v) => t(120 + c * (x + 12 * u[0]), 50 + c * (y + 12 * u[1]), an(c * u[0]), v),
+    M = 48 / s, L = Math.pow(10, Math.floor(Math.log10(M))), B = L * (M / L >= 5 ? 5 : M / L >= 2 ? 2 : 1), q = h > 20 ? 9 + (Math.abs(u[1]) <= 0.4 ? 2.6 * ridM(g.d).length * Math.abs(u[1]) : 0) : 12 + Math.abs(x);
+  return '<svg class="rp" viewBox="0 0 240 120" aria-hidden="true"><path class="l" d="M' + P(-1, " ") + "L" + P(1, " ") + '"/><circle cx="' + P(-1, '" cy="') + '" r="5.5"/><circle class="a" cx="' + P(1, '" cy="') + '" r="3.5" fill-opacity="' + k.freshAT + '"/>'
+    + T(1, "aircraft") + T(-1, "operator") + t(120 - q * u[1], 50 + q * u[0], an(-u[1]), ridM(g.d), "f") + '<path d="M22 108v4h' + f(B * s) + 'v-4M8 117v-13m-3 4 3-4 3 4"/>'
+    + t(26 + B * s, 109, "start", ridM(B)) + t(8, 98, "middle", "N") + (r.alt_m != null ? t(232, 109, "end", "altitude " + ridV(r, "alt_m") + " m") : "")
+    + '</svg><div class="legrow note">' + derivedSwatch() + "<span>Drawn to scale, north up, from the two broadcast positions (derived): the operator's position may be from an earlier broadcast, and the Pager is not on it.</span></div>";
+}
+function ridSheet(k, r) {   // no input, identity, pin or member list
+  let h = '<div class="obsnote">' + esc(btTip(k)) + "</div><table>";
+  for (const [t, v] of [["Address", k.m[0].addr], ["Name", k.m[0].name], ["Freshness", heardWord(k)], ...ridRows(r)]) if (v) h += row(t, esc(v));
+  return h + "</table>" + ridPlan(k, r) + '<div class="obsnote">' + RID_NOTE + "</div>";
 }
 function showTip(n) {
   const kv = (k, v, cls = "v") => '<span class="k">' + k + '</span><span class="' + cls + '">' + v + '</span>';   // one row of the tooltip grid
   let html = "";
-  if (n.kind === "bt") html = '<div class="ssid">' + esc(btTip(n)) + "</div>";
+  if (n.kind === "bt") { const r = n.m[0].remote_id; html = '<div class="ssid">' + esc(btTip(n)) + "</div>" + (r ? '<div class="sub">' + RID_NOTE + '</div><div class="grid">' + ridRows(r).map(([k, v]) => kv(k, esc(v))).join("") + "</div>" : ""); }
   else if (n.kind === "cloud") {   // §8.8a
     html += '<div class="ssid">random cloud</div><div class="sub">' + esc(n.n + " randomised addresses" + (n.cadenceS != null && !cloudMixed(n) ? " · " + cadText(n.cadenceS) : "")) + '</div><div class="grid">';
     html += kv("Signal", esc(fmtSignal(n.rssi) + " · range " + n.rssiMin + " to " + n.rssiMax + " dBm")) + kv("Heard", esc(heardWord(n)));
@@ -6334,6 +6432,7 @@ function showTip(n) {
     html += kv("Probes", esc(probeWords(n.probes, 3)));
     html += kv("Signal", esc(fmtSignal(n.rssi))) + '</div>';
   }
+  if (S.wl.has(n.id)) html += '<div class="sub">in watch.list</div>';
   tipBody.innerHTML = html; tip.style.opacity = "1";
   // mini-sparkline for APs with ≥3 samples — persistent canvas, drawn only on hover change
   const h = n.kind === "ap" ? S.hist.get(n.id) : null;
@@ -6374,13 +6473,14 @@ function cloudSheet(kc) {   // §8.8a the sheet of a random cloud: an estimate f
 function openDetail(id) {
   const opening = id !== detailShown;
   if (opening) { detailShown = id; detail.scrollTop = 0; }   // another node opens at the top; a re-open of the same one (poll, theme, toggle) keeps the reader's offset
-  const bb = S.bubbles.get(id), kc = bb ? null : S.clouds.get(id);   // the two aggregates, a density bubble (§4.6) and a random cloud (§8.8a): one sheet with a member list
-  if (bb || kc) {
+  const bb = S.bubbles.get(id), kc = bb ? null : S.clouds.get(id), kb = S.bt.get(id), kr = kb && kb.m[0].remote_id;   // the two aggregates, a density bubble (§4.6) and a random cloud (§8.8a): one sheet with a member list; a mark with Remote ID
+  if (bb || kc || kr) {
     detail.hidden = false; detailSpark.hidden = true;
-    const title = kc ? kc.n + " randomised addresses" : bb.n + " clients", expand = () => kc ? expandCloud(id) : expandBubble(id);
+    const title = kr ? "Remote ID" : kc ? kc.n + " randomised addresses" : bb.n + " clients", expand = () => kc ? expandCloud(id) : expandBubble(id);
     detailTitle.textContent = title;
     let body;
-    if (kc) body = cloudSheet(kc);
+    if (kr) body = ridSheet(kb, kr);
+    else if (kc) body = cloudSheet(kc);
     else {
       body = "<table>";
       body += row("Members", String(bb.n));
@@ -6411,6 +6511,7 @@ function openDetail(id) {
     if (hh && hh.n) { const info = STARCHORUS.hist(n.id); if (info) t += row("History", esc("min " + (info.min ?? "—") + " · max " + (info.max ?? "—") + (withLast ? " · last " + (info.last ?? "—") : "") + " · " + info.n + " samples")); }
     t += row("Last seen", n.last_seen != null ? esc(fmtAge(lastSeenAge(n))) : "—");
     t += row("Freshness", esc(heardWord(n)));
+    if (S.wl.has(n.id)) t += row("Listed", "in watch.list on the device; edit that file to take the mark off");
     const nt = S.notes.get(n.id) || { a: "", n: "", t: [] };
     if (identitySource(n.id) === "rule-matched") t += row("Identity", esc(identityOf(n.id) + " (rule-matched)"));
     return t + '<tr><th>Alias</th><td><input id="nt-a" maxlength="24" value="' + esc(nt.a) + '"></td></tr><tr><th>Notes</th><td><input id="nt-n" maxlength="120" value="' + esc(nt.n) + '"></td></tr><tr><th>Tags</th><td><input id="nt-t" maxlength="52" placeholder="up to 4, comma separated" value="' + esc(nt.t.join(", ")) + '"></td></tr>';
@@ -6757,6 +6858,7 @@ function chanAtPointer(clientX) {   // map a pointer x on #chan back to {band, c
 }
 el("detail-close").addEventListener("click", () => deselect());
 el("t-theme").addEventListener("click", () => toggleTheme());
+el("t-spin").addEventListener("click", cycleSpin);
 el("t-view").addEventListener("click", () => { setView(S.ui.view === "3d" ? "2d" : "3d"); renderCaption(); });
 for (const key of Object.keys(BTN_OF)) { const b = el(BTN_OF[key]); if (b) b.addEventListener("click", () => setToggle(key, !S.ui[key])); }
 el("baseline-set").addEventListener("click", () => { baselineSet(); if (!S.ui.baselineDiff) setToggle("baselineDiff", true); else { obsCompute(); renderObs(); updateStats(); } });
@@ -6782,8 +6884,8 @@ detailSpark.addEventListener("keydown", (e) => {
   const v = info.s[cur];
   detailSpark.setAttribute("aria-label", "Signal history: " + (v === -128 ? "gap" : v + " dBm") + " · sample " + (cur + 1) + " of " + info.s.length);
 });
-function cyclePinned(dir) {   // [ / ] step through pinned nodes
-  const arr = Array.from(S.pinned).filter(nodeById); if (!arr.length) return;
+function cyclePinned(dir) {   // [ / ] step through pinned and watched nodes
+  const arr = [...new Set([...S.pinned, ...S.wl])].filter(nodeById); if (!arr.length) return;
   let i = arr.indexOf(S.locked);
   i = i < 0 ? (dir > 0 ? 0 : arr.length - 1) : ((i + dir) % arr.length + arr.length) % arr.length;
   select(arr[i]);
@@ -6793,7 +6895,7 @@ const wire = (id, fn) => { const b = el(id); if (b) b.addEventListener("click", 
 for (const k of Object.keys(CAM_STEP)) wire("cam-" + k, () => {
   if (tS < 0.5 && (k === "in" || k === "out")) setZoom2d(S.cam.zoom2d * (k === "in" ? CFG3D.btnZoom : 1 / CFG3D.btnZoom));   // 2D: zoom about the device
   else { CAM_STEP[k](S.cam); S.cam.tween = null; }
-  interacted(); S.dirty = true;
+  S.dirty = true;
 });
 wire("cam-reset", () => resetCamera());
 // §8.2 channel-bar hover/click (redraw only on hover change; click pins that channel's APs for 6 s)
@@ -6827,7 +6929,7 @@ wire("cam-reset", () => resetCamera());
 const DE = document.documentElement, PH_VARS = ["--ph-banner-t", "--ph-banner-b", "--ph-top", "--ph-bar-b", "--ph-sheet-h", "--ph-sky-cx"];
 const PH_MOVES = [["mast-brand", "bar", 1], ["mode-chip", "bar"], ["grp-bands", "sheet-lead", 1]].concat(["controls", "chanbar", "stats", "source", "masthead", "legend", "detail", "help"].map(id => [id, "sheet-body"]));   // [id, new parent, first]
 const PH_TITLE = { obs: "Observations", inv: "Inventory", home: "Homing", air: "Air quality", time: "Signal over time", rec: "Recording", legend: "Legend", help: "Keyboard shortcuts" };
-let phHome = null, phCard = null, phBase = "peek", phDock = null;
+let phHome = null, phCard = null, phBase = "peek", phDock = null, phHeadCtl = 0, phPeek = 0;   // phHeadCtl: the controls head's height, measured on every phone pass; skyBox holds the sky still while another card shows a lower head (section 9.8b); phPeek: the head's height of the last pass
 function applyPhone() {   // → true when the mode changed
   const on = query.phone === "1" || (query.phone !== "0" && mqPhone.matches), ds = DE.dataset;
   if (!phHome) phHome = PH_MOVES.map(([id]) => { const e = el(id); return [e, e.parentNode, e.nextSibling]; });   // each next sibling is a whitespace node: the way back is exact
@@ -6838,7 +6940,7 @@ function applyPhone() {   // → true when the mode changed
     for (const [e, p, nx] of phHome.slice().reverse()) p.insertBefore(e, nx);
     for (const k of ["card", "sheet", "dock", "sheetDrag"]) delete ds[k];
     for (const k of PH_VARS) DE.style.removeProperty(k);
-    el("bar").className = "panel ph-only"; delete edgeState.sheet;
+    el("bar").className = "panel ph-only"; delete edgeState.sheet; el("sheet-row").classList.remove("wrap"); phHeadCtl = phPeek = 0;
   }
   phCard = phDock = null; S.ui.sheet = "peek"; S.ui.legendCard = false;
   applyScope();
@@ -6885,12 +6987,19 @@ function phoneLayout(fromResize) {   // D21 the phone pass of layoutEdges(): the
   ds.card = card;   // first: the CSS shows this card before it is measured
   el("sheet-lead").hidden = el("t-legend").hidden = !ctl; title.hidden = el("sheet-close").hidden = ctl;
   title.textContent = card === "detail" ? detailTitle.textContent : PH_TITLE[card === "drawer" ? ds.drawer : card] || "";
-  el("sheet-prev").hidden = el("sheet-next").hidden = !(card === "detail" && S.pinned.size >= 2);
-  const sc = el("t-scope"), row = el("sheet-row"), room = row.clientWidth - [...row.children].reduce((s, c) => s + (c === sc || !c.scrollWidth ? 0 : c.scrollWidth + 8), -8) >= 52;
-  sc.hidden = !ctl; if (room !== (sc.parentNode === row)) (room ? row : el("grp-look")).insertBefore(sc, room ? el("t-legend") : null);
+  el("sheet-prev").hidden = el("sheet-next").hidden = !(card === "detail" && new Set([...S.pinned, ...S.wl]).size >= 2);
+  const sc = el("t-scope"), row = el("sheet-row"), lead = el("sheet-lead"), head = el("sheet-head"); sc.hidden = !ctl;
+  const wrapRow = () => row.classList.toggle("wrap", row.clientWidth - [...row.children].reduce((s, c) => s + (c === sc || !c.scrollWidth ? 0 : (c === lead ? el("grp-bands") : c).scrollWidth + 8), -8) < 52);   // the Scope's key keeps its place; the row takes two lines where it has not 52 px to spare for it (section 9.8b); the class may be on while measuring: the lead is read as its band group, whose width the wrap leaves alone
+  if (ctl) { wrapRow(); phHeadCtl = head.offsetHeight; }
+  else {   // the controls head, measured without a paint (the lead, the key and Legend shown, the title row hidden, for one layout): skyBox lays the sky out with it on every card, so a card with a one-line head does not move the sky
+    const swap = [lead, sc, el("t-legend"), title, el("sheet-close"), el("sheet-prev"), el("sheet-next")], was = swap.map(e => e.hidden);
+    swap.forEach((e, i) => { e.hidden = i > 2; }); wrapRow(); phHeadCtl = head.offsetHeight;
+    swap.forEach((e, i) => { e.hidden = was[i]; }); row.classList.remove("wrap");
+  }
   syncPressed("t-legend", S.ui.legendCard); el("sheet").setAttribute("aria-label", ctl ? "Controls" : title.textContent);
   const bottom = box("sheet").bottom, peek = el("sheet-head").offsetHeight, full = Math.min(peek + body.scrollHeight, Math.max(peek, Math.floor(bottom - bar.bottom - PHONE.gapPx)));
   const half = phDock === "side" ? full : Math.min(full, clamp(Math.floor(bottom - (bar.bottom + bottom - peek) / 2 - PHONE.centreClearPx), peek, Math.round(vh * PHONE.halfFrac)));   // clear of the device
+  const snap = (phCard === null || key === phCard) && peek !== phPeek; phPeek = peek;   // the head's own height (one line or two, section 9.8b) snaps; a detent animates
   if (key !== phCard) {   // another card, drawer or node (the first pass stays collapsed)
     if (phCard && phCard.startsWith("controls")) phBase = S.ui.sheet;
     if (phCard !== null) S.ui.sheet = ctl ? phBase : card === "detail" ? phDetailDetent(half, bottom) : S.ui.sheet === "peek" ? "half" : S.ui.sheet;
@@ -6899,7 +7008,7 @@ function phoneLayout(fromResize) {   // D21 the phone pass of layoutEdges(): the
   const open = (ds.sheet = S.ui.sheet) !== "peek", sb = skyBox();
   tg.textContent = open ? "⌄" : "⌃"; tg.setAttribute("aria-expanded", open); tg.setAttribute("aria-label", (open ? "Collapse" : "Expand") + " the sheet");
   const h = open ? (S.ui.sheet === "half" ? half : full) : peek;
-  if (ds.sheetDrag !== "on") set("--ph-sheet-h", h + "px");
+  if (ds.sheetDrag !== "on") { if (snap && !open) ds.sheetSnap = "on"; set("--ph-sheet-h", h + "px"); if (ds.sheetSnap) { void el("sheet").offsetHeight; delete ds.sheetSnap; } }   // the snap: no transition for this one height, applied in a layout of its own
   set("--ph-sky-cx", Math.round(sb.x + sb.w / 2) + "px");
   edgeState.sheet = { card, detent: S.ui.sheet, dock: phDock, peek, half, full, h };
   if (!fromResize && (Math.abs(sb.x + sb.w / 2 - CX) > 0.5 || Math.abs(sb.y + sb.h / 2 - CY) > 0.5 || Math.abs(sb.h - skyH) > 0.5)) { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 100); }   // theme, banners, fonts
@@ -6915,7 +7024,7 @@ function skyBox() {   // the free rectangle for the sky
   const bar = el("bar").getBoundingClientRect(), sh = el("sheet").getBoundingClientRect(), ban = DE.dataset.banner === "on", bx = (x, y, r, b) => ({ x, y, w: Math.max(40, r - x), h: Math.max(40, b - y) });
   if (!S.ui.panels) return bx(0, bar.top, W, sh.bottom - 52);   // above the pill
   if (phDock === "side") return bx(Math.max(bar.right, sh.right) + PHONE.gapPx, ban ? el("dtg").getBoundingClientRect().bottom + 4 : 0, W - bar.left, ban ? H - el("classbar-bot").offsetHeight : H);
-  return bx(0, bar.bottom + 4, W, sh.bottom - el("sheet-head").offsetHeight - 4);
+  return bx(0, bar.bottom + 4, W, sh.bottom - Math.max(el("sheet-head").offsetHeight, phHeadCtl) - 4);   // the controls head, so a card with a lower head does not move the sky
 }
 function setPanels(on) {   // §9.8 Hide panels, at every size; saved unless ?panels locks it
   on = !!on; if (on === S.ui.panels) return on;
@@ -6993,7 +7102,7 @@ let pollPromise = null, firstPollDone = false;
 // D3: a poll that never answers ends after POLL_TIMEOUT_MS: the request is aborted and the tick counts like a failed poll,
 // so a hung server or a half-open connection cannot keep the chip on "Live". `?pollto=<ms>` shortens it for tests only.
 const POLL_TIMEOUT_MS = Number.isFinite(+query.pollto) && +query.pollto >= 100 ? Math.min(+query.pollto, 60000) : 4000;
-function tryPoll(tickMs) {   // MUSS BLEIBEN 1: the page's only network call; returns the in-flight promise (no double request). tickMs: the poll time it stands for
+function tryPoll(tickMs) {   // MUST STAY 1: the page's only network call; returns the in-flight promise (no double request). tickMs: the poll time it stands for
   if (query.demo1) return Promise.resolve({ ok: false });   // ?demo=1 (§2.7): nothing is requested
   if (pollPromise) return pollPromise;
   const ac = typeof AbortController === "function" ? new AbortController() : null;
@@ -7264,16 +7373,16 @@ function pubNode(n) {
     band: n.band, channel: n.channel, freq: n.freq, rssi: n.rssi, security: n.security, sec: n.sec, vendor: n.vendor, rate: n.rate,
     width: n.width, phy: n.phy, caps: n.caps, beacons: n.beacons, last_seen: n.last_seen, clientCount: n.clientCount, ageS: n.ageS, freshTier: n.freshTier, akm: n.akm, cipher: n.cipher, auth: n.auth, respondedSsids: n.respondedSsids, packets: n.packets, mobile: n.mobile, baseState: n.baseState || null, isNew: isNewAp(n), newSeq: n.newSeq, changedSeq: n.changedSeq, cueSeq: n.cueSeq,
     phyEstimate: phyEstimate(n), pmf: pmfDerived(n), basePxMax: r3(n.basePxMax), flare: r3(n.flare), flareT: n.flareT, pState: n.pState, revealAt: n.revealAt,
-    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: null, bubbleBlend: 0, pinned: S.pinned.has(n.id) };
+    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: null, bubbleBlend: 0, pinned: S.pinned.has(n.id), watched: S.wl.has(n.id) };
   return { id: n.id, kind: "client", mac: n.mac, rssi: n.rssi, vendor: n.vendor, randomized: n.randomized, last_seen: n.last_seen, ageS: n.ageS, freshTier: n.freshTier, isNew: isNewAp(n),
     packets: n.packets, fps: n.fps == null ? null : r3(n.fps), glow: n.cue ? n.gl : 0, parent: n.parent, free: n.free, affinity: !!n.affinity, probeVia: n.probeVia || null, probes: n.probes ? n.probes.slice() : null, band: n.band, basePxMax: r3(n.basePxMax),
-    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: n.bubble, bubbleBlend: r3(n.bubbleBlend), pinned: S.pinned.has(n.id), cloud: n.cloud || null, randOut: !!n.randOut };
+    sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: n.bubble, bubbleBlend: r3(n.bubbleBlend), pinned: S.pinned.has(n.id), watched: S.wl.has(n.id), cloud: n.cloud || null, randOut: !!n.randOut };
 }
 function nodeVisible(n) { return n.target === 1 && n.alphaDraw > 0.05 && (n.kind !== "ap" || (S.ui.filters[n.band] !== false && !isEssFolded(n.id))); }
-function eventsObj() {   // D2: counters of the LAST capture of this source (per station: STARCHORUS.node(mac).isNew); "<5" is a display rule
+function eventsObj() {   // D2: counters of the LAST capture of this source (per station: STARCHORUS.node(mac).isNew)
   let nw = 0, chg = 0, cue = 0; S.aps.forEach(n => { if (n.target !== 1 || eventSkip(n)) return; if (isNewAp(n)) nw++; if (n.changedSeq === S.captureSeq && S.captureSeq > 0) chg++; if (n.cueSeq === S.captureSeq && S.captureSeq > 0) cue++; });
   const e = S.ev;
-  return { captureSeq: S.captureSeq, arrived: e.arrived, departed: e.departed, changed: chg, cues: cue, newAps: nw, newStations: e.newStations, newInClouds: e.newInClouds || 0, departedStations: e.departedStations, newStationsText: e.newStations === 0 ? "0" : e.newStations < 5 ? "<5" : String(e.newStations) };
+  return { captureSeq: S.captureSeq, arrived: e.arrived, departed: e.departed, changed: chg, cues: cue, newAps: nw, newStations: e.newStations, newInClouds: e.newInClouds || 0, departedStations: e.departedStations };
 }
 function statsObj() {
   const st = S._stats || { apsTotal: 0, aps: 0, free: 0, assoc: 0, clients: 0, bands: { "2.4": 0, "5": 0, "6": 0 }, bandsT: { "2.4": 0, "5": 0, "6": 0 }, alarms: 0, groups: 0 };
@@ -7286,7 +7395,7 @@ function statsObj() {
     groups: st.groups, bubbles: S.bubbles.size, visibleClients: vis, visibleAps: st.aps, alarms: st.alarms, hidden, revealed: S.revealed,
     bands: st.bands, bandsTotal: st.bandsT, security: Object.assign({}, S.security), fresh: Object.assign({}, st.fresh || freshZero()),
     freshClients: Object.assign({}, st.freshCl || freshZero()),   // D1 over the present stations (fresh stays APs only)
-    events: eventsObj(), crowding: S.crowding.level, deviations: S.sky.dev.length, baseline: Object.assign({}, S.base), observations: S.obs.length, changeEntries: Array.from(S.chg.values()).reduce((a, x) => a + x.length, 0), watch: S.watch.length,
+    events: eventsObj(), crowding: S.crowding.level, deviations: S.sky.dev.length, baseline: Object.assign({}, S.base), observations: S.obs.length, changeEntries: Array.from(S.chg.values()).reduce((a, x) => a + x.length, 0), watch: S.watch.length, wl: S.wl.size,
     hop: S.hop === null ? null : { channels: S.hop.length, busy: S.hop.filter(c => c.busy_pct != null).length }, own: { bssids: S.own.bssids.size, ssids: S.own.ssids.size },   // counts only, never the values
     theme: S.ui.theme, view: S.ui.view, mode: S.mode, source: S.source, generated: S.generated, centerLabel: S.centerLabel,
     sourceKind: S.sourceKind, sourceLabel: S.sourceLabel, liveFeed: S.liveFeed, stalePolls: S.stalePolls, captureStale: captureStale(), captureOffline: captureOffline(),
@@ -7326,8 +7435,8 @@ function deviceClusterCount() { let n = 0; S.devices.forEach(d => { if (d.member
 function essMergedCount() { let n = 0; if (S.ui.essMerge) S.essClusters.forEach((c, id) => { if (c.deviceIds.length >= 2 && !isEssExpanded(id)) n++; }); return n; }
 function camObj() {
   const c = S.cam;
-  return { az: r3(c.az), el: r3(c.el), dist: r3(c.dist), target: c.target.map(r3), locked: S.locked, autoRot: S.ui.rotate,
-    ramp: r3(c.ramp), blend: r3(S.view.blend), zoom2d: r3(c.zoom2d), sky: r3(S.skyA), spin: S.ui.spin, tween: c.tween !== null };
+  return { az: r3(c.az), el: r3(c.el), dist: r3(c.dist), target: c.target.map(r3), locked: S.locked,
+    blend: r3(S.view.blend), zoom2d: r3(c.zoom2d), sky: r3(S.skyA), spin: S.ui.spin, tween: c.tween !== null };
 }
 // contrast hook — read-only, pure maths (no DOM, no clock, no randomness). A pair side is a token path
 // ("ink.muted"), a CSS colour ("#rrggbb", "rgb()/rgba()"), the keyword "ground" (brightest of surface.base and the
@@ -7421,7 +7530,7 @@ function contrastPairs(pairs, themeId) {
   });
 }
 window.STARCHORUS = Object.freeze({
-  version: "0.2.6.2",
+  version: "0.2.7",
   setTheme: (id) => guard(() => applyTheme(id, { intro: false })),
   getTheme: () => guard(() => S.ui.theme),
   setView: (v) => guard(() => setView(v)),
@@ -7613,8 +7722,9 @@ S.labelsList = [];
   if (query.theme && THEMES[query.theme]) { S.ui.theme = query.theme; S.queryLocked.add("theme"); }
   if (query.view === "2d" || query.view === "3d") { S.ui.view = query.view; S.queryLocked.add("view"); }
   if (RANDOM_MODES.indexOf(query.random) >= 0) { S.ui.random = query.random; S.queryLocked.add("random"); }
+  if (/^[012]$/.test(query.spin)) { S.ui.spin = +query.spin; S.queryLocked.add("spin"); }
   for (const [v, key] of [[query.agg, "agg"], [query.crt, "crt"], [query.autolod, "autoLod"], [query.deviceLinks, "deviceLinks"], [query.essMerge, "essMerge"],
-    [query.affinity, "affinity"], [query.spin, "spin"], [query.baseline, "baselineDiff"], [query.obs, "observations"], [query.inv, "inventory"], [query.panels, "panels"], [query.scope, "scope"]]) {
+    [query.affinity, "affinity"], [query.baseline, "baselineDiff"], [query.obs, "observations"], [query.inv, "inventory"], [query.panels, "panels"], [query.scope, "scope"]]) {
     if (v === "0" || v === "1") { S.ui[key] = v === "1"; S.queryLocked.add(key); }
   }
   validateThemes();   // symmetric, once, all themes, before the first applyTheme

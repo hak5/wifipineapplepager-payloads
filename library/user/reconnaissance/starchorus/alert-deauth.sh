@@ -2,8 +2,8 @@
 # Title: Starchorus deauth/disassoc alert
 # Description: Writes one line per firmware alert to the Starchorus alerts.log, in a directory of its own (time and addresses only). Sends nothing.
 # Author: Starchorus
-# Version: 0.2.6.2
-# Contract: 3
+# Version: 0.2.7
+# Contract: 4
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The companion of Starchorus for the firmware's alert deauth_flood_detected. The firmware runs this file once for each such event and hands it the

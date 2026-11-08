@@ -39,10 +39,19 @@ frames, associate with any network or scan actively. It reads the recon database
 copy (`sqlite3 -readonly`), or receives in monitor mode. Two settings, both off by default, add to what
 it reads: 'Traffic' (channel activity from the AP service and the frame counts of stations) and
 'Bluetooth' (a scan of 5 s per refresh). Bluetooth: passive LE scan only; by the Bluetooth specification a
-passive scan sends no scan request, it listens for advertisements that devices broadcast anyway; on firmware 2.0 the Pager's own scanner holds the radio, and the layer reads the firmware's Bluetooth database instead, read-only from a copy, with the scanner left as the Pager set it. It does not change the LED. An active scan exists in the collector only as
+passive scan sends no scan request, it listens for advertisements that devices broadcast anyway; on firmware 2.0 the Pager's own scanner holds the radio, and the layer reads the firmware's Bluetooth database instead, read-only from a copy, with the scanner left as the Pager set it. Starchorus does not change the LED. The setting 'Alert Rules' (on by default) adds five more kinds of alert, which the collector derives from what it already holds, never from the air. An active scan exists in the collector only as
 a last resort behind the environment variable
 `STARCHORUS_ALLOW_ACTIVE=1`; it is off by default, and no menu item or setting reaches it. The optional companion alert `alert-deauth.sh` only
 writes the times and addresses of the firmware's own deauth/disassoc alert to a file, when the firmware raises it; it listens to nothing and sends nothing.
+
+The project's passivity check (`tools/passivity-check.sh` in the repository) is run on these
+scripts and on the page before every release. It goes red if one of them gains a way to send, holds
+a command of the AP service outside the functions allowed to hold one, names a Bluetooth tool
+outside its own functions, opens `sqlite3` without `-readonly`, or runs a named program that
+transmits, connects out or changes a radio or an interface. A second script plants violations in
+copies of them, none of which is run, to show that each rule can fail (796 mutations and 131
+controls, as of 31 October 2026). It reads source text, not the air. The rules are listed under
+"Static check" at <https://github.com/starchorus/pager/blob/main/SECURITY.md>.
 
 One collector runs per Pager, so that two loops never share the monitor interface or radio: starting
 or stopping any instance stops every other collector loop on the device, and each loop so stopped is
@@ -70,7 +79,9 @@ your settings are kept. When the payload opens
 it compares the installed collector, Overview, netcat server and page with itself, by version and, for the scripts, by their `# Contract:`
 number (the interface they share). If you replace the payload directory but not the installed
 files, a dialogue ('Installed …, payload …' or 'Installed files differ from the payload.') says so
-and names the file to delete.
+and names the file to delete. While Alerts is ON, the companion alert in the firmware's alert tree
+is compared as well: after an upgrade, switch Alerts off and on again, which renews it; until then
+the dialogue names that remedy ('Switch Alerts off, then on.') at every launch.
 
 ## Requirements
 
@@ -129,15 +140,24 @@ environment variable of the same meaning takes precedence over the file.
 | `page` | `on` | `on`, `off` | 'Start' starts the page server |
 | `bluetooth` | `off` | `on`, `off` | the Bluetooth layer: a passive LE scan of 5 s per refresh, or on firmware 2.0 the firmware's own database |
 | `traffic` | `off` | `on`, `off` | channel activity from the AP service and the frame counts of stations |
+| `wids` | `on` | `on`, `off` | five more kinds of alert, derived from what the collector already holds, never from the air; shown on the page, not in the Overview |
 
 In the menu's Settings, `interval` is 'Refresh', `window` is 'Show Last', `vendor` is 'Vendor
-Names', `survey` is 'Channel Load', `traffic` is 'Traffic', `bluetooth` is 'Bluetooth' and `page` is
+Names', `survey` is 'Channel Load', `traffic` is 'Traffic', `bluetooth` is 'Bluetooth', `wids` is 'Alert Rules' and `page` is
 'Web Page'. A change made there while Starchorus runs is applied when you leave Settings, except
 'Web Page', which takes effect at once. A window of one hour keeps each pass small enough for the
 Pager's CPU; 'Show Last' also offers 'All (may be slow)'. Marking the Pager's own radios
 (`STARCHORUS_OWN=1`) and keeping the Overview closed after 'Start' (`STARCHORUS_DASHBOARD=0`) are
 environment variables only. The Settings row 'Alerts' installs or removes the companion alert
 `alert-deauth.sh` and stores no key.
+
+A watch list needs no key either: write addresses or network names, one per line, into
+`/root/loot/starchorus/watch.list` (an address as `aa:bb:cc:00:00:01`, `aa-bb-cc-00-00-01` or
+`aabbcc000001`; a name byte for byte, 1 to 32 bytes; `mac:` or `ssid:` in front where a name looks
+like an address; `#` starts a comment). From the next refresh on, every access point whose address or name is on the list, and every
+station and Bluetooth record whose address is, carries `"watched": true` in `starchorus.json`;
+at most 64 entries count. The list stays on the Pager: it is in no document and no log, and the page
+server does not serve it. The page draws the pin mark on them, names the list in the tooltip and in the detail sheet of an access point or a station, and counts the watched access points and stations in the report.
 
 ## Network exposure
 
