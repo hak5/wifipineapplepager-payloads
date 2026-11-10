@@ -1,33 +1,86 @@
 #!/usr/bin/env python3
-"""Install an OpenWrt .ipk package on the Pineapple Pager without `opkg install`.
+"""Install OpenWrt .ipk packages on the Pineapple Pager without `opkg install`.
 
-The Pager's opkg build has the `install`/`remove` sub-commands removed, so
-packages can't be added the normal way. This script uses `opkg download`
-(which *does* work) and unpacks the package into the root filesystem using
-only `python3-light` stdlib modules (gzip + tarfile), so it needs no extra
-tools (busybox on the Pager has no `tar` applet).
+The Pager's opkg build removes the `install`/`remove` sub-commands, so packages
+can't be added the normal way. This script uses `opkg download` (which *does*
+work) plus Python `tarfile` to unpack packages, and resolves dependencies via
+`opkg info`. Only `python3-light` stdlib modules are required.
 
 Usage:
-    python3 install_pkg.py python3-ctypes
+    python3 install_pkg.py <package> [<package> ...]
 
-For VENUS you only need `python3-ctypes` (the on-device UI). The firmware
-already ships `libffi.so.8`, so it has no other dependencies.
+Examples:
+    python3 install_pkg.py python3-ctypes     # on-device UI for VENUS
+    python3 install_pkg.py python3-openssl    # online footprint check
 """
 
 import gzip
 import io
 import os
+import re
 import subprocess
 import sys
 import tarfile
 
 
-def sh(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+def sh(cmd, timeout=180):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=timeout)
+    except Exception as e:
+        return subprocess.CompletedProcess(cmd, 1, "", str(e))
+
+
+def installed(pkg):
+    """Best-effort: is this package already installed?"""
+    r = sh(["opkg", "list-installed"])
+    if re.search(r"(?m)^%s[ \t]" % re.escape(pkg), r.stdout or ""):
+        return True
+    r2 = sh(["opkg", "status", pkg])
+    return bool((r2.stdout or "").strip())
+
+
+def opkg_info(pkg):
+    return (sh(["opkg", "info", pkg]).stdout or "")
+
+
+def parse_depends(info):
+    """Return package names from a `Depends:` line (first alt, no version)."""
+    m = re.search(r"(?m)^Depends:\s*(.*)$", info)
+    if not m:
+        return []
+    deps = []
+    for alt in m.group(1).split(","):
+        alt = alt.strip()
+        if not alt:
+            continue
+        first = alt.split("|")[0].strip()
+        first = re.split(r"\s*[()<>=]", first)[0].strip()
+        if first:
+            deps.append(first)
+    return deps
+
+
+def collect(pkg, seen, order):
+    """Post-order list of missing packages (dependencies first)."""
+    if pkg in seen or installed(pkg):
+        return
+    seen.add(pkg)
+    for dep in parse_depends(opkg_info(pkg)):
+        collect(dep, seen, order)
+    order.append(pkg)
+
+
+def download(pkg, workdir="/tmp"):
+    sh(["opkg", "download", pkg])
+    for f in sorted(os.listdir(workdir)):
+        if f.startswith(pkg + "_") and f.endswith(".ipk"):
+            return os.path.join(workdir, f)
+    return None
 
 
 def install_ipk(path, dest="/"):
-    """Extract an OpenWrt .ipk (a gzip'd tar of debian-binary/data/control)."""
+    """Unpack an OpenWrt .ipk (gzip'd tar of debian-binary/data/control)."""
     with gzip.open(path, "rb") as gz:
         outer = tarfile.open(fileobj=gz, mode="r:")
         data_name = None
@@ -40,45 +93,48 @@ def install_ipk(path, dest="/"):
         data_bytes = outer.extractfile(data_name).read()
     count = 0
     with tarfile.open(fileobj=io.BytesIO(data_bytes), mode="r:gz") as inner:
-        members = []
-        for m in inner.getmembers():
-            name = m.name.lstrip("./")
-            # Only install under /usr (the package's payload); ignore the
-            # control tarball and any stray paths.
-            if name.startswith("usr/"):
-                members.append(m)
+        members = [m for m in inner.getmembers()
+                   if m.name.lstrip("./").split("/", 1)[0] in
+                   ("usr", "etc", "lib", "sbin", "bin")]
         inner.extractall(dest, members=members)
         count = len(members)
     return count
 
 
 def main(argv):
-    pkg = argv[1] if len(argv) > 1 else "python3-ctypes"
-    print(f"[*] updating package lists (opkg update)...")
+    targets = [a for a in argv[1:] if not a.startswith("-")]
+    if not targets:
+        print(__doc__)
+        return 2
+    print("[*] updating package lists (opkg update)...")
     sh(["opkg", "update"])
 
-    print(f"[*] downloading {pkg} (opkg download)...")
-    os.chdir("/tmp")
-    r = sh(["opkg", "download", pkg])
-    ipk = None
-    for f in sorted(os.listdir("/tmp")):
-        if f.startswith(pkg + "_") and f.endswith(".ipk"):
-            ipk = f
-            break
-    if not ipk:
-        print("download failed:", (r.stderr or r.stdout or "").strip())
-        return 1
+    workdir = "/tmp"
+    os.makedirs(workdir, exist_ok=True)
+    os.chdir(workdir)
 
-    print(f"[*] unpacking {ipk} into / ...")
-    n = install_ipk(os.path.join("/tmp", ipk))
-    print(f"[*] installed {n} files for {pkg}")
+    seen = set()
+    order = []
+    for t in targets:
+        collect(t, seen, order)
 
-    r = sh(["python3", "-c", "import ctypes; print('ctypes OK')"])
-    if r.returncode == 0:
-        print("[*] import check:", r.stdout.strip())
+    if not order:
+        print("nothing to do: all targets and dependencies are already "
+              "installed")
         return 0
-    print("[!] import check failed:", (r.stderr or "").strip())
-    return 1
+
+    print("[*] install plan: %s" % " ".join(order))
+    failed = False
+    for pkg in order:
+        print("[*] installing %s ..." % pkg, flush=True)
+        ipk = download(pkg, workdir)
+        if not ipk:
+            print("    ! download failed for %s" % pkg)
+            failed = True
+            continue
+        n = install_ipk(ipk)
+        print("    %s: %d files unpacked" % (pkg, n))
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

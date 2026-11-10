@@ -69,6 +69,7 @@ venus/
 ├── venus.py               radio/AP/portal/DNS/lure engine + selftest + simulate
 ├── pager_ui.py            on-device flytrap UI + headless renderer
 ├── venus.conf.example     optional site overrides (copy to venus.conf)
+├── install_pkg.py         dependency installer (opkg install is disabled)
 ├── portal/
 │   ├── index.html         captive portal (SSID/title templated)
 │   └── success.html       post-submit page
@@ -112,10 +113,13 @@ Communication:
 One-line install for the full experience:
 
 ```sh
-opkg update && opkg install python3-light python3-ctypes
+opkg update
+python3 install_pkg.py python3-ctypes
 ```
 
-(`hostapd` and `iw` ship with the firmware; install only if missing.)
+(`hostapd` and `iw` ship with the firmware; install only if missing. The
+Pager's `opkg` has `install` disabled, so VENUS bundles `install_pkg.py`,
+which installs packages via `opkg download` + Python `tarfile`.)
 
 `libpagerctl.so` in `lib/` is a MIPS binary copied from the Pager firmware
 payload library. It will not load on a development PC; that is expected. The
