@@ -1,113 +1,229 @@
 #!/bin/bash
 
 # Title: Translator
+# Description: Translate text into 39 languages with reverse translation.
 # Author: spywill
-# Description:  Translate English to "Spanish" "French" "German" "Italian" "Portuguese" "Russian" "Arabic"
-#               "Turkish" "Vietnamese" "Polish" "Dutch" "Indonesian" "Urdu" "Persian"
-# Version: 1.0
+# Version: 1.1
+
+# Available languages
+LANG_CODES=(
+	es fr de it pt ru ar tr vi pl nl id ur fa
+	ja zh-CN zh-TW ko el hi he th sv da fi no
+	cs ro hu uk bn ta ms tl sw bg hr sk sr
+)
+
+LANG_NAMES=(
+	"Spanish" "French" "German" "Italian" "Portuguese"
+	"Russian" "Arabic" "Turkish" "Vietnamese" "Polish"
+	"Dutch" "Indonesian" "Urdu" "Persian"
+	"Japanese" "Chinese (Simplified)" "Chinese (Traditional)"
+	"Korean" "Greek" "Hindi" "Hebrew" "Thai" "Swedish"
+	"Danish" "Finnish" "Norwegian" "Czech" "Romanian"
+	"Hungarian" "Ukrainian" "Bengali" "Tamil" "Malay"
+	"Filipino" "Swahili" "Bulgarian" "Croatian"
+	"Slovak" "Serbian"
+)
 
 # Check internet connection
-if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-	LOG green "Online"
-	LOG ""
-else
-	LOG red "Offline internet connection is required exiting"
-	exit
+if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+	ERROR_DIALOG "Internet connection required."
+	exit 0
 fi
 
-PROMPT "Title: Translator
+# Check jq
+if ! command -v jq >/dev/null 2>&1; then
+	ERROR_DIALOG "jq is required to process translations."
+	exit 0
+fi
 
-Type something in English
-Hello, how are you today?
-
-Here it is in French
-Bonjour, comment allez-vous aujourd’hui? 
-"
-
-# URL encoder
-urlencode() {
-	local string="$1"
-	local encoded=""
-	local i c
-
-	for (( i=0; i<${#string}; i++ )); do
-		c="${string:$i:1}"
-		case "$c" in
-			[a-zA-Z0-9.~_-]) encoded+="$c" ;;
-			' ') encoded+="%20" ;;
-			*) printf -v hex '%%%02X' "'$c"
-				encoded+="$hex" ;;
-		esac
-	done
-	echo "$encoded"
-}
-
-# Translate function
+# Translation function with fallback support
 translate() {
 	local text="$1"
 	local target="$2"
-
-	local text_enc
-	text_enc=$(urlencode "$text")
-
 	local response
-	response=$(curl -s --connect-timeout 5 --max-time 8 "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$target&dt=t&q=$text_enc")
+	local result
 
-	# safer extraction
-	echo "$response" | sed -E 's/\[\[\["([^"]*).*/\1/'
+	# First Google Translate endpoint
+	response=$(curl -fsS --get \
+		--connect-timeout 5 \
+		--max-time 15 \
+		-A "Mozilla/5.0" \
+		--data-urlencode "client=gtx" \
+		--data-urlencode "sl=auto" \
+		--data-urlencode "tl=$target" \
+		--data-urlencode "dt=t" \
+		--data-urlencode "q=$text" \
+		"https://translate.googleapis.com/translate_a/single" 2>/dev/null)
+
+	# Extract translation
+	if [ -n "$response" ]; then
+		result=$(printf '%s' "$response" | jq -er \
+			'[.[0][][0] // empty] | join("") | select(length > 0)' 2>/dev/null)
+	fi
+
+	# Second endpoint if first fails
+	if [ -z "$result" ]; then
+		response=$(curl -fsS --get \
+			--connect-timeout 5 \
+			--max-time 15 \
+			-A "Mozilla/5.0" \
+			--data-urlencode "client=dict-chrome-ex" \
+			--data-urlencode "sl=auto" \
+			--data-urlencode "tl=$target" \
+			--data-urlencode "q=$text" \
+			"https://clients5.google.com/translate_a/t" 2>/dev/null)
+
+		# Extract fallback response
+		if [ -n "$response" ]; then
+			result=$(printf '%s' "$response" | jq -er \
+				'if (.[0][0] | type) == "string" then .[0][0] else empty end' 2>/dev/null)
+		fi
+	fi
+
+	# Return translation
+	if [ -n "$result" ]; then
+		printf '%s\n' "$result"
+		return 0
+	fi
+	return 1
 }
 
-# Enter text to be translated
-INPUT=$(TEXT_PICKER "Enter text to translate" "Hello how are you today")
+# Main menu loop
+while true; do
+	LANGUAGE=$(LIST_PICKER "Choose a language" \
+		"${LANG_NAMES[@]}" \
+		"All Languages" \
+		"Reverse Translation" \
+		"Exit" \
+		"Exit") || exit 0
 
-# Languages
-LANG_CODES=(es fr de it pt ru ar tr vi pl nl id ur fa)
+	# Exit
+	if [ -z "$LANGUAGE" ] || [ "$LANGUAGE" = "Exit" ]; then
+		LOG yellow "Translator closed."
+		exit 0
+	fi
 
-LANG_NAMES=("Spanish" "French" "German" "Italian" "Portuguese" "Russian" "Arabic" \
-"Turkish" "Vietnamese" "Polish" "Dutch" "Indonesian" "Urdu" "Persian")
+	# Reverse translation
+	if [ "$LANGUAGE" = "Reverse Translation" ]; then
+		if [ -z "$LAST_TRANSLATION" ] || [ -z "$LAST_LANGUAGE" ]; then
+			LOG red "No previous translation available."
+			PROMPT "Translate something first before using Reverse Translation."
+			continue
+		fi
 
-LANGS="es:Spanish fr:French de:German it:Italian pt:Portuguese ru:Russian ar:Arabic \
-tr:Turkish vi:Vietnamese pl:Polish nl:Dutch id:Indonesian ur:Urdu fa:Persian"
+		LOG yellow "Reversing $LAST_LANGUAGE to English..."
+		REVERSED=$(translate "$LAST_TRANSLATION" "en")
 
-# Build menu
-menu=""
-for i in "${!LANG_CODES[@]}"; do
-	index=$((i+1))
-	menu+="[$index] ${LANG_NAMES[$i]} (${LANG_CODES[$i]})"$'\n'
-done
+		if [ $? -ne 0 ] || [ -z "$REVERSED" ]; then
+			LOG red "Reverse translation failed."
+			continue
+		fi
 
-PROMPT "Available languages:
-$menu"
+		PROMPT "Reverse Translation
 
-# Select a number to translate to selected language
-choice=$(NUMBER_PICKER "Choose a number (0 = all)" "0")
+		Original English:
+		$LAST_INPUT
 
-# If user picks 0 → translate to all languages
-if [ "$choice" = "0" ]; then
-	for pair in $LANGS; do
-		code=$(echo "$pair" | cut -d':' -f1)
-		name=$(echo "$pair" | cut -d':' -f2)
-		TRANSLATED=$(translate "$INPUT" "$code")
-		LOG yellow "$name:"
-		LOG blue "$TRANSLATED"
+		$LAST_LANGUAGE:
+		$LAST_TRANSLATION
+
+		Back to English:
+		$REVERSED"
+
 		LOG ""
-	done
-	exit
-fi
+		LOG yellow "Original English:"
+		LOG blue "$LAST_INPUT"
+		LOG ""
+		LOG yellow "$LAST_LANGUAGE:"
+		LOG blue "$LAST_TRANSLATION"
+		LOG ""
+		LOG yellow "Reverse Translation (English):"
+		LOG green "$REVERSED"
 
-# Otherwise handle single selection
-if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le ${#LANG_CODES[@]} ]; then
-	TARGET="${LANG_CODES[$((choice-1))]}"
-	LANG_NAME="${LANG_NAMES[$((choice-1))]}"
+		WAIT_FOR_BUTTON_PRESS A
+		continue
+	fi
+
+	# Enter text to translate
+	INPUT=$(TEXT_PICKER "Enter text to translate" "Hello, how are you today?") || exit 0
+
+	if [ -z "$INPUT" ]; then
+		LOG red "No text entered."
+		continue
+	fi
+
+	# Translate into all languages
+	if [ "$LANGUAGE" = "All Languages" ]; then
+		spinnerid=$(START_SPINNER "Translating all languages...")
+		LOG yellow "Translating into all languages..."
+		LOG ""
+
+		for i in "${!LANG_CODES[@]}"; do
+			TARGET="${LANG_CODES[$i]}"
+			LANG_NAME="${LANG_NAMES[$i]}"
+
+			LOG yellow "$LANG_NAME"
+			TRANSLATED=$(translate "$INPUT" "$TARGET")
+
+			if [ $? -eq 0 ] && [ -n "$TRANSLATED" ]; then
+				LOG blue "$TRANSLATED"
+				LAST_INPUT="$INPUT"
+				LAST_TRANSLATION="$TRANSLATED"
+				LAST_LANGUAGE="$LANG_NAME"
+			else
+				STOP_SPINNER ${spinnerid}
+				LOG red "Translation failed."
+			fi
+			LOG ""
+		done
+		STOP_SPINNER ${spinnerid}
+
+		PROMPT "All language translations completed.
+		You can now select Reverse Translation."
+
+		WAIT_FOR_BUTTON_PRESS A
+		continue
+	fi
+
+	# Find selected language code
+	TARGET=""
+
+	for i in "${!LANG_NAMES[@]}"; do
+		if [ "$LANGUAGE" = "${LANG_NAMES[$i]}" ]; then
+			TARGET="${LANG_CODES[$i]}"
+			break
+		fi
+	done
+
+	if [ -z "$TARGET" ]; then
+		LOG red "Invalid language selection."
+		continue
+	fi
+
+	# Translate
+	LOG ""
+	LOG yellow "Translating into $LANGUAGE..."
 
 	TRANSLATED=$(translate "$INPUT" "$TARGET")
 
-	PROMPT "$LANG_NAME:
-	
-	$TRANSLATED"
+	if [ $? -ne 0 ] || [ -z "$TRANSLATED" ]; then
+		LOG red "Translation failed."
+		LOG yellow "Check your internet connection."
+		continue
+	fi
 
-	LOG yellow "$LANG_NAME:"
+	# Save last successful translation
+	LAST_INPUT="$INPUT"
+	LAST_TRANSLATION="$TRANSLATED"
+	LAST_LANGUAGE="$LANGUAGE"
+
+	# Display result
+	PROMPT "$LANGUAGE:
+
+	$TRANSLATED"
+	LOG ""
+	LOG yellow "$LANGUAGE:"
 	LOG blue "$TRANSLATED"
-else
-	LOG red "Invalid selection."
-fi
+
+	WAIT_FOR_BUTTON_PRESS A
+done
