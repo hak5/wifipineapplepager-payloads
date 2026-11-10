@@ -36,8 +36,13 @@ For each number (TEXT_PICKER input or bulk file):
 ## Requirements
 
 - WiFi Pineapple Pager, firmware **2.0.0-stable** or newer
-- `python3-light` (payload offers to install it)
-- `python3-openssl` only for the optional online footprint check
+- `python3-light` (payload offers to install it if missing)
+- `python3-openssl` only for the optional online footprint check (the payload
+  offers to install it automatically when you pick the online check)
+
+The Pager's `opkg` has `install`/`remove` disabled, so the payload bundles
+`install_pkg.py`, which installs packages via `opkg download` + Python
+`tarfile` (resolving dependencies). No manual `opkg install` is needed.
 
 ## Installation
 
@@ -52,6 +57,7 @@ Files:
 phonephreak/
   payload.sh       Pager UI
   phonephreak.py   analysis engine
+  install_pkg.py   dependency installer (opkg install is disabled on the Pager)
   README.md        this file
 ```
 

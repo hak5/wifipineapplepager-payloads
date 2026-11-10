@@ -63,6 +63,12 @@ play_done() { RINGTONE "done:d=4,o=5,b=180:c6,e6,g6,c7" & }
 play_fail() { RINGTONE "fail:d=4,o=4,b=120:g,e,c" & }
 
 # === DEPENDENCIES ===
+# The Pager's opkg has `install`/`remove` disabled. install_pkg.py installs
+# packages via `opkg download` + python tarfile instead, resolving deps.
+run_installer() {
+    python3 "$PAYLOAD_DIR/install_pkg.py" "$@"
+}
+
 ensure_python() {
     if command -v python3 >/dev/null 2>&1; then
         return 0
@@ -74,14 +80,41 @@ ensure_python() {
 
     LOG "cyan" "Updating package lists..."
     opkg update >/dev/null 2>&1
+    # opkg install is disabled on Pager firmware; try it first as a best
+    # effort, then fall back to the shipped installer.
     if opkg install python3-light >/tmp/phonephreak_opkg.log 2>&1 && \
+       command -v python3 >/dev/null 2>&1; then
+        LOG "green" "python3-light installed."
+        return 0
+    fi
+    if run_installer python3-light >/tmp/phonephreak_opkg.log 2>&1 && \
        command -v python3 >/dev/null 2>&1; then
         LOG "green" "python3-light installed."
         return 0
     fi
 
     LOG "red" "Install failed. See /tmp/phonephreak_opkg.log"
-    ALERT "python3-light install failed.\n\nRun manually:\nopkg update && opkg install python3-light"
+    ALERT "python3-light install failed.\n\nIf python3 is present but incomplete, run:\npython3 install_pkg.py python3-light\n\nOtherwise install python3-light via the Pager Portal or Cloud C2."
+    return 1
+}
+
+ensure_online_deps() {
+    # The online footprint check needs the `ssl` module (python3-openssl).
+    if python3 -c "import ssl" >/dev/null 2>&1; then
+        return 0
+    fi
+    LOG "yellow" "python3-openssl (ssl module) is missing for the online check."
+    resp=$(CONFIRMATION_DIALOG "Install python3-openssl now?\n\nNeeded for the online footprint check.")
+    confirmed "$resp" || return 1
+    LED BLUE
+    LOG "cyan" "Installing python3-openssl..."
+    run_installer python3-openssl
+    if python3 -c "import ssl" >/dev/null 2>&1; then
+        LOG "green" "python3-openssl installed."
+        return 0
+    fi
+    LOG "red" "python3-openssl install failed."
+    ALERT "Could not install python3-openssl.\n\nRun manually:\npython3 install_pkg.py python3-openssl"
     return 1
 }
 
@@ -119,6 +152,7 @@ run_lookup() {
 
     resp=$(CONFIRMATION_DIALOG "Run online footprint check?\n\nExact-match web search via DuckDuckGo (needs internet + python3-openssl).")
     if confirmed "$resp"; then
+        ensure_online_deps || { LED AMBER; LOG "yellow" "Online check skipped."; return; }
         LED BLUE
         LOG "cyan" "Online footprint check..."
         : > "$RUNLOG"
