@@ -1,0 +1,66 @@
+# VENUS site configuration
+#
+# Copy this file to venus.conf next to payload.sh and edit. It is sourced by
+# bash, so keep values quoted and do not add shell globs you do not want run.
+# Every setting is optional; the values below show the built-in defaults.
+
+# ---- Captive portal -------------------------------------------------------
+# Port for the HTTP portal. 80 is cleanest; if it is busy VENUS falls back to
+# 8080 and installs a best-effort nftables (or iptables) redirect.
+#VENUS_HTTP_PORT="80"
+
+# Address assigned to the rogue AP interface and handed out as DHCP router,
+# DNS server, and captive-portal host.
+#VENUS_AP_IP="192.168.69.1"
+
+# Heading shown on the portal page.
+#VENUS_PORTAL_TITLE="Sign in to Wi-Fi"
+
+# Optional WPA2-PSK passphrase for the clone. Empty means an open network.
+# An open clone catches the most clients; a passphrase only helps against
+# devices that refuse open networks (and the client must already know it).
+#VENUS_PASSWORD=""
+
+# Regulatory country for 5/6 GHz hostapd configs. Use your own two-letter
+# country code; the wrong one can make 5 GHz channels fail to start.
+#VENUS_COUNTRY="US"
+
+# Set to 1 to run the AP/DHCP/DNS/lure with no HTTP portal.
+#VENUS_NO_PORTAL="0"
+
+# Set to 1 to store form field NAMES only (values become "[redacted]").
+# Capture is on by default because the whole point is to show what a user
+# submits to a cloned portal. Treat the loot file as credential material.
+#VENUS_NO_CAPTURE="0"
+
+# ---- Lure (deauth) --------------------------------------------------------
+# The lure is OFF when the payload starts. Press A on the trap screen to turn
+# it on. Set VENUS_LURE=1 to start with it enabled, or VENUS_NO_LURE=1 to
+# remove the toggle entirely (e.g. single-radio deployments).
+#VENUS_LURE="0"
+#VENUS_NO_LURE="0"
+
+# ---- Safety guard ----------------------------------------------------------
+# VENUS refuses to run a flytrap on a radio whose phy is serving the Pager's
+# own client-mode uplink or a management/Open/Evil-WPA AP, so it can't knock
+# the Pager offline. Set VENUS_NO_GUARD=1 to disable this (bench radios only).
+#VENUS_NO_GUARD="0"
+
+# Seconds between deauth bursts and between recon sweeps.
+#VENUS_LURE_INTERVAL="8"
+#VENUS_SCAN_INTERVAL="6"
+
+# ---- Radios ---------------------------------------------------------------
+# Override automatic radio selection. The engine prefers a managed radio that
+# is NOT carrying the default route, then uses <recon>mon when the firmware
+# provides it.
+#VENUS_IFACE="wlan1"
+#VENUS_RECON_IFACE="wlan0"
+
+# ---- Display / vendor data ------------------------------------------------
+# Set to 0 to skip libpagerctl and use the LOG fallback display.
+#VENUS_PAGERCTL="1"
+
+# Optional IEEE oui.txt / oui.csv / nmap-mac-prefixes file for fuller vendor
+# names. The built-in table already covers the common phone/IoT prefixes.
+#VENUS_OUI_FILE="/root/loot/oui.txt"
