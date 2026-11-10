@@ -28,7 +28,7 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
-command -v python3 >/dev/null 2>&1 || { ERROR_DIALOG "Python 3 is required for this development preview."; exit 1; }
+command -v python3 >/dev/null 2>&1 || { ERROR_DIALOG "Python 3 is required for this payload."; exit 1; }
 # Pager packages installed on MMC are not included in the stock interpreter path.
 PYTHON_MMCLIB="/mmc/usr/lib/python$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 if [ -d "$PYTHON_MMCLIB" ]; then

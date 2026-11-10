@@ -1,6 +1,6 @@
 # C5 Wardriver Pager Node
 
-Development preview for WiFi Pineapple Pager 2.0.0. It scans 6 GHz preferred scanning channels with the Pager's MT7921AU radio and forwards observations to a nearby C5 Wardriver running in unencrypted Core mode.
+Payload for WiFi Pineapple Pager 2.0.0. It scans 6 GHz preferred scanning channels with the Pager's MT7921AU radio and forwards observations to a nearby C5 Wardriver running in unencrypted Core mode.
 
 ## Current scope
 
@@ -19,4 +19,4 @@ Development preview for WiFi Pineapple Pager 2.0.0. It scans 6 GHz preferred sca
 - Pager $wlan1mon$ available in monitor mode
 - python3-light installed on the Pager (MMC installations are detected automatically)
 
-This is an early hardware-validation build, not yet ready for upstream submission.
+The payload restores the Pager radio configuration when it exits and rejects replies from unpaired radios.
