@@ -263,25 +263,76 @@ def analyze(raw):
 # online footprint check (optional; no API key)
 # ---------------------------------------------------------------------------
 
+def _https_post(host, path, body, headers, timeout=10):
+    """Minimal HTTPS POST using socket + ssl.
+
+    Avoids http.client (which pulls in the ``email`` package, absent from
+    python3-light). It also avoids the ``idna`` codec, which needs
+    ``unicodedata`` (python3-codecs) and is missing on the Pager: the host is
+    passed to ``getaddrinfo`` as ASCII bytes and ``server_hostname`` is not
+    used, so neither path calls the ``idna`` encoder. The context is
+    unverified (no CA bundle required); acceptable for a public search query.
+    """
+    import socket as _socket
+    import ssl
+    ctx = ssl._create_unverified_context()
+    host_bytes = host.encode("ascii")
+    req = "POST %s HTTP/1.1\r\nHost: %s\r\n" % (path, host)
+    req += "Content-Length: %d\r\n" % len(body)
+    req += "Connection: close\r\n"
+    for k, v in headers.items():
+        req += "%s: %s\r\n" % (k, v)
+    req += "\r\n"
+    payload = req.encode("utf-8", "ignore") + body.encode("utf-8", "ignore")
+    with _socket.create_connection((host_bytes, 443), timeout=timeout) as sock:
+        with ctx.wrap_socket(sock) as ssock:
+            ssock.settimeout(timeout)
+            ssock.sendall(payload)
+            data = b""
+            while True:
+                try:
+                    chunk = ssock.recv(65536)
+                except _socket.timeout:
+                    break
+                if not chunk:
+                    break
+                data += chunk
+                if len(data) > 262144:
+                    break
+    return data
+
+
+def _http_status(data):
+    idx = data.find(b"\r\n\r\n")
+    head = data if idx == -1 else data[:idx]
+    line = head.split(b"\r\n", 1)[0].decode("utf-8", "replace")
+    parts = line.split(" ")
+    if len(parts) >= 2 and parts[1].isdigit():
+        return int(parts[1])
+    return 0
+
+
 def ddg_footprint(e164, timeout=10):
     """Exact-match DuckDuckGo HTML search. Returns match count or error."""
-    import http.client
+    try:
+        import ssl  # noqa: F401
+    except ImportError:
+        return {"status": 0,
+                "error": "online check needs python3-openssl (ssl module)"}
     # q="+15551234567" URL-encoded -> q=%22%2B15551234567%22
     body = "q=%22" + e164.replace("+", "%2B") + "%22"
-    conn = http.client.HTTPSConnection("html.duckduckgo.com", 443,
-                                       timeout=timeout)
     try:
-        conn.request("POST", "/html/", body=body, headers={
+        raw = _https_post("html.duckduckgo.com", "/html/", body, {
             "Content-Type": "application/x-www-form-urlencoded",
             "User-Agent": "Mozilla/5.0 (X11; Linux mipsel) PHONEPHREAK/%s"
                           % VERSION,
-        })
-        resp = conn.getresponse()
-        data = resp.read(262144).decode("utf-8", "replace")
-    finally:
-        conn.close()
-    if resp.status != 200:
-        return {"status": 0, "error": "duckduckgo http %d" % resp.status}
+        }, timeout=timeout)
+    except Exception as exc:
+        return {"status": 0, "error": "duckduckgo request failed: %s" % exc}
+    status = _http_status(raw)
+    if status != 200:
+        return {"status": 0, "error": "duckduckgo http %d" % status}
+    data = raw.decode("utf-8", "replace")
     hits = data.count("result__a")
     no = "No results" in data
     return {"status": 1, "exact_matches": 0 if no else hits,
