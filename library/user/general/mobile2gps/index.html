@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>mobile2gps</title>
+<title>Mobile2GPS</title>
 <style>
 * {
   box-sizing: border-box;
@@ -151,29 +151,6 @@ body {
   color: #0f0;
 }
 
-.kofi {
-  text-align: center;
-  margin-top: 20px;
-}
-
-.kofi a {
-  display: inline-block;
-  background: #ff5e5b;
-  color: #fff;
-  text-decoration: none;
-  padding: 8px 16px;
-  font-size: 12px;
-  line-height: 1;
-  border-radius: 4px;
-  transition: all 0.2s;
-  vertical-align: middle;
-}
-
-.kofi a:hover {
-  background: #ff7875;
-  box-shadow: 0 0 15px #ff5e5b55;
-}
-
 .scanline {
   position: fixed;
   top: 0;
@@ -194,22 +171,37 @@ body {
 <script>
 var iDelay = 1000;
 var iTimeoutDelay = 2500;
+var maxFixAge = 3000;
 
 var bLoop = false;
 var idInterval = 0;
-var bInRequest = false;
-var arrayUpdates = [];
-var bSendPending = false;
+var pendingFix = null;
 var timeLast = null;
 var bFindingLocation = false;
 var idTimeout = 0;
+var idFixTimeout = 0;
 var reqCurrent = null;
-var arrayUpdatesOnLine = [];
+// An empty status means that check is healthy.
+var fixStatus = "WAITING FOR FIX";
+var pagerStatus = "WAITING FOR PAGER";
 
 var vLat = { name: "Lat" };
 var vLon = { name: "Lon" };
 var vAcc = { name: "Acc" };
 var vTime = { name: "Time" };
+
+function updateStatus() {
+  var status = "IDLE";
+  if (bLoop) {
+    // Show confirmed link failures first; otherwise report fix quality.
+    if (pagerStatus == "PAGER LINK ERROR" || pagerStatus == "PAGER TIMEOUT") {
+      status = pagerStatus;
+    } else {
+      status = fixStatus || pagerStatus || "OK";
+    }
+  }
+  document.getElementById("idResponse").textContent = status;
+}
 
 function urlEncodeDict(dict) { 
   var result = "";
@@ -220,134 +212,125 @@ function urlEncodeDict(dict) {
   return result;
 }
 
-function endRequest(bPurge) {
+function endRequest() {
   if (idTimeout != 0) {
     clearTimeout(idTimeout);
     idTimeout = 0;
   }
-  bInRequest = false;
   if (reqCurrent != null) {
     reqCurrent.onreadystatechange = null;
+    reqCurrent.abort();
     reqCurrent = null;
-  }
-  if (bPurge == true) {
-    arrayUpdatesOnLine = [];
-    document.getElementById("idPending").innerHTML = "—";
   }
 }
 
 function processReqChange(req) {
   if (req != reqCurrent) return;
-  if (req.status == 200) {
-    if (req.readyState == 4) {
-      document.getElementById("idResponse").innerHTML = "OK";
-      endRequest(true);
-      if (bSendPending) sendUpdates();
-    } else if (req.readyState != 2) {
-      document.getElementById("idResponse").innerHTML = "...";
-    }
-  } else {
-    document.getElementById("idResponse").innerHTML = "ERR";
+  if (req.readyState == 4) {
+    pagerStatus = req.status == 200 ? "" : "PAGER LINK ERROR";
     endRequest();
+    updateStatus();
+    sendUpdates();
   }
 }
 
 function updateTimeout() {
   if (reqCurrent == null) return;
-  arrayUpdates = arrayUpdatesOnLine.concat(arrayUpdates);
-  endRequest(true);
-  document.getElementById("idResponse").innerHTML = "TIMEOUT";
-  document.getElementById("idPending").innerHTML = arrayUpdates.length + ' <a href="javascript:clearPending();">[clear]</a>';
+  // Discard the failed upload; only a newer pending fix may be sent.
+  endRequest();
+  pagerStatus = "PAGER TIMEOUT";
+  updateStatus();
+  sendUpdates();
 }
 
-function clearPending() {
-  arrayUpdatesOnLine = [];
-  arrayUpdates = [];
-  document.getElementById("idPending").innerHTML = "—";
+function invalidateLocation() {
+  clearTimeout(idFixTimeout);
+  idFixTimeout = 0;
+  pendingFix = null;
+  fixStatus = "NO FIX";
+  document.getElementById("idAcc").innerHTML = "NO FIX";
+  updateStatus();
 }
 
 function foundLocation(position) {
+  bFindingLocation = false;
+  if (!bLoop) return;
+  var age = Date.now() - position.timestamp;
+  if (age < 0 || age >= maxFixAge) {
+    noLocation();
+    return;
+  }
+  if (timeLast != null && position.timestamp <= timeLast) {
+    idInterval = setTimeout(findLocation, iDelay);
+    return;
+  }
   document.getElementById("idLat").innerHTML = position.coords.latitude.toFixed(6);
   document.getElementById("idLon").innerHTML = position.coords.longitude.toFixed(6);
   
   var accEl = document.getElementById("idAcc");
   var accText = position.coords.accuracy.toFixed(1) + "m";
   if (position.coords.accuracy > 100) {
+    fixStatus = "POOR ACCURACY";
     accText += " (INVALID)";
     accEl.classList.add("invalid");
   } else {
+    fixStatus = "";
     accEl.classList.remove("invalid");
   }
   accEl.innerHTML = accText;
+  updateStatus();
   
-  if (timeLast != position.timestamp) {
-    timeLast = position.timestamp;
-    var d = new Date(position.timestamp);
-    document.getElementById("idTime").innerHTML = d.toLocaleTimeString();
-    
-    vLat.value = position.coords.latitude;
-    vLon.value = position.coords.longitude;
-    vAcc.value = position.coords.accuracy;
-    vTime.value = position.timestamp;
-    
-    var formVars = [vLat, vLon, vAcc, vTime];
-    var strForm = urlEncodeDict(formVars);
-    arrayUpdates.push(strForm);
-    document.getElementById("idPending").innerHTML = (arrayUpdates.length + arrayUpdatesOnLine.length) + ' <a href="javascript:clearPending();">[clear]</a>';
-    sendUpdates();
-  }
+  timeLast = position.timestamp;
+  clearTimeout(idFixTimeout);
+  idFixTimeout = setTimeout(invalidateLocation, maxFixAge - age);
+  var d = new Date(position.timestamp);
+  document.getElementById("idTime").innerHTML = d.toLocaleTimeString();
+
+  vLat.value = position.coords.latitude;
+  vLon.value = position.coords.longitude;
+  vAcc.value = position.coords.accuracy;
+  vTime.value = position.timestamp;
+
+  var formVars = [vLat, vLon, vAcc, vTime];
+  var strForm = urlEncodeDict(formVars);
+  // Replace the waiting fix instead of retaining location history.
+  pendingFix = { body: strForm, timestamp: position.timestamp };
+  sendUpdates();
   
-  bFindingLocation = false;
-  if (bLoop) {
-    idInterval = setTimeout(findLocation, iDelay);
-  } else {
-    idInterval = 0;
-  }
+  idInterval = setTimeout(findLocation, iDelay);
 }
 
 function sendUpdates() {
-  if (bInRequest) {
-    bSendPending = true;
+  if (!bLoop || reqCurrent != null || pendingFix == null) return;
+  var fix = pendingFix;
+  pendingFix = null;
+  var age = Date.now() - fix.timestamp;
+  if (age < 0 || age >= maxFixAge) {
+    invalidateLocation();
     return;
   }
-  if (arrayUpdates.length == 0) return;
   
-  bInRequest = true;
   var req = new XMLHttpRequest();
   var reqURL = window.location.toString();
   req.open("POST", reqURL, true);
   req.onreadystatechange = function() { processReqChange(req); };
   req.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
   
-  var strForm = "";
-  for (var i = 0; i < arrayUpdates.length; i++) {
-    if (i > 0) strForm += '&';
-    strForm += arrayUpdates[i];
-  }
-  
-  arrayUpdatesOnLine = arrayUpdates;
-  arrayUpdates = [];
-  document.getElementById("idResponse").innerHTML = "TX...";
   reqCurrent = req;
-  req.send(strForm);
-  
-  if (idTimeout != 0) clearTimeout(idTimeout);
-  idTimeout = setTimeout(updateTimeout, iTimeoutDelay + (arrayUpdatesOnLine.length * 100));
+  idTimeout = setTimeout(updateTimeout, Math.min(iTimeoutDelay, maxFixAge - age));
+  req.send(fix.body);
 }
 
 function noLocation() {
-  document.getElementById("idAcc").innerHTML = "NO FIX";
-  if (bLoop) {
-    idInterval = setTimeout(findLocation, iDelay);
-  } else {
-    idInterval = 0;
-  }
   bFindingLocation = false;
+  if (!bLoop) return;
+  invalidateLocation();
+  idInterval = setTimeout(findLocation, iDelay);
 }
 
 function findLocation() {
-  if (!bFindingLocation) {
-    navigator.geolocation.getCurrentPosition(foundLocation, noLocation, {enableHighAccuracy: true});
+  if (bLoop && !bFindingLocation) {
+    navigator.geolocation.getCurrentPosition(foundLocation, noLocation, {enableHighAccuracy: true, timeout: maxFixAge});
     bFindingLocation = true;
   }
 }
@@ -357,10 +340,16 @@ function toggleLoop() {
   var btn = document.getElementById("btnToggle");
   
   if (bLoop) {
+    fixStatus = "WAITING FOR FIX";
+    pagerStatus = "WAITING FOR PAGER";
     btn.innerHTML = "■ STOP";
     btn.classList.add("active");
-    if (!bInRequest) findLocation();
+    findLocation();
   } else {
+    pendingFix = null;
+    endRequest();
+    clearTimeout(idFixTimeout);
+    idFixTimeout = 0;
     if (idInterval != 0) {
       clearTimeout(idInterval);
       idInterval = 0;
@@ -368,6 +357,7 @@ function toggleLoop() {
     btn.innerHTML = "▶ START";
     btn.classList.remove("active");
   }
+  updateStatus();
 }
 
 </script>
@@ -376,7 +366,7 @@ function toggleLoop() {
 <div class="scanline"></div>
 <div class="container">
   <div class="header">
-    <h1>mobile2gps</h1>
+    <h1>Mobile2GPS</h1>
     <div class="subtitle">for the Hak5 WiFi Pineapple Pager</div>
   </div>
   
@@ -406,10 +396,6 @@ function toggleLoop() {
       <div class="data-label">STATUS</div>
       <div class="data-value" id="idResponse">IDLE</div>
     </div>
-    <div class="data-row">
-      <div class="data-label">QUEUE</div>
-      <div class="data-value" id="idPending">—</div>
-    </div>
   </div>
   
   <div class="tips">
@@ -418,10 +404,6 @@ function toggleLoop() {
       <li>Enable Precise Location.</li>
       <li>NoSleep will stop your screen from auto-locking.</li>
     </ul>
-  </div>
-  
-  <div class="kofi">
-    <a href="https://ko-fi.com/ryanpohlner" target="_blank">☕ Support on Ko-fi</a>
   </div>
 </div>
 <script>

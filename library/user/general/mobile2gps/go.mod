@@ -1,4 +1,4 @@
-module mobile2gps
+module Mobile2GPS
 
 go 1.21
 

@@ -1,105 +1,119 @@
 #!/bin/bash
-# Title: mobile2gps
+# Title: Mobile2GPS
 # Description: Use your mobile phone as the Pager's GPS.
 # Author: Ryan Pohlner (@Spectracide on Discord)
-# Version: 1.5
+# Version: 2.0
 # Category: General
 
-# Check if the mobile2gps binary exists
-if [ ! -f ./mobile2gps ]; then
-  LOG red "ERROR: mobile2gps binary not found!"
-  LOG yellow "Please see the README for build instructions."
-  LOG ""
-  LOG yellow "Would you like to download the latest binary from GitHub?"
-  LOG ""
-  LOG red "You should exit, review the source code, and build it yourself."
-  LOG ""
-  LOG cyan "Press [▲] to DOWNLOAD"
-  LOG red "Press [▼] to EXIT"
-  LOG ""
-  
-  choice=$(WAIT_FOR_INPUT)
-  
-  if [ "$choice" = "UP" ]; then
-    LOG yellow "Downloading latest binary from GitHub..."
-    
-    if wget -q -O mobile2gps https://github.com/ryanpohlner/mobile2gps/releases/latest/download/mobile2gps 2>/dev/null; then
-      LOG green "Download complete!"
-    else
-      LOG red "Download failed."
-      LOG yellow "Please check the Pager's internet connection or download manually from:"
-      LOG cyan "https://github.com/ryanpohlner/mobile2gps/releases"
-      exit
-    fi
-  else
-    LOG "Exiting."
-    exit
+# GPS_CONFIGURE mode selection requires Pager firmware 2.0.0 or newer.
+if ! command -v LIST_PICKER >/dev/null 2>&1 ||
+   ! command -v GPS_CONFIGURE >/dev/null 2>&1; then
+  ERROR_DIALOG "Mobile2GPS requires Pager firmware 2.0.0 or newer."
+  exit 1
+fi
+
+# Check if the Mobile2GPS binary exists
+if [ ! -f ./Mobile2GPS ]; then
+  confirmed=$(CONFIRMATION_DIALOG "Server binary missing.
+Download Mobile2GPS from GitHub?") || exit 1
+  [ "$confirmed" = "1" ] || exit 0
+
+  spinner=$(START_SPINNER "Downloading Mobile2GPS...")
+  curl -k -q -L -o Mobile2GPS https://github.com/ryanpohlner/mobile2gps/releases/latest/download/Mobile2GPS 2>/dev/null
+  download_status=$?
+  STOP_SPINNER "$spinner"
+  if [ "$download_status" -ne 0 ]; then
+    rm -f ./Mobile2GPS
+    ERROR_DIALOG "Download failed.
+Check the Pager's internet connection."
+    exit 1
   fi
+  LOG green "Download complete."
 fi
 
 # Make sure the binary is executable
-chmod +x ./mobile2gps
+chmod +x ./Mobile2GPS
 
-# Main menu loop
+phone_setup() {
+  PROMPT "Enable the Pager's Management AP.
+Connect to the Management AP on your mobile device.
+Open https://172.16.52.1:1993 using the device's web browser.
+Press the Start button on the page."
+}
+
+# Refresh server state when the menu opens. Cancelling leaves the server alone.
 while true; do
-  LOG ""
-  LOG green "Press [▲] to START the mobile2gps server"
-  LOG red "Press [▼] to STOP the mobile2gps server"
-  LOG cyan "Press [◀] for HELP"
-  LOG yellow "Press [▶] to TEST"
-  LOG ""
-
-  choice=$(WAIT_FOR_INPUT)
-
-  if [ "$choice" = "UP" ]; then
-    if pgrep mobile2gps > /dev/null; then
-      LOG red "mobile2gps is already running!"
-    else
-      LOG yellow "Starting..."
-      ./mobile2gps &
-      LOG green "Started!"
-    fi
-  elif [ "$choice" = "DOWN" ]; then
-    if pgrep mobile2gps > /dev/null; then
-      LOG yellow "Stopping..."
-      killall mobile2gps
-      LOG green "Stopped!"
-    else
-      LOG red "mobile2gps is not running!"
-    fi
-  elif [ "$choice" = "LEFT" ]; then
-    LOG cyan "1. Enable the Pager's Management AP"
-    LOG cyan "2. Connect to the Management AP on your mobile device"
-    LOG cyan "3. Start the mobile2gps server"
-    LOG cyan "4. Open your mobile device's browser"
-    LOG cyan "5. Go to https://172.16.52.1:1993"
-    LOG cyan "6. Tap Start"
-    LOG cyan "7. Check Settings→GPS on the Pager or press ▶ at the mobile2gps menu to check your location"
-    LOG ""
-    LOG "Press any button to continue."
-    __button=$(WAIT_FOR_INPUT)
-    LOG ""
-    LOG cyan "Your mobile device's screen must be on and the mobile2gps page must be open in the browser to send location updates."
-    LOG cyan "Enable Precise Location in your browser's privacy/location settings."
-    LOG cyan "Accuracy must be <100m for a valid fix."
-    LOG cyan "You can close this payload after the server is started."
-    LOG ""
-    LOG "Press any button to return to the menu."
-    __button=$(WAIT_FOR_INPUT)
-  elif [ "$choice" = "RIGHT" ]; then
-    if pgrep mobile2gps > /dev/null; then
-      LOG green "mobile2gps is running."
-      coords=$(gpspipe --json -x 3 | tail -n 1 | jq -r '"\(.lat), \(.lon)"')
-      if echo "$coords" | grep -q "null"; then
-        LOG red "Unable to obtain coordinates from gpspipe.\nClient is not connected or position is not accurate."
-      else
-        LOG green "Your coordinates are:\n$coords"
-      fi
-    else
-      LOG red "mobile2gps is not running."
-    fi
+  if pidof Mobile2GPS > /dev/null; then
+    choice=$(LIST_PICKER "Mobile2GPS: running" "GPS status" "How to pair" "Stop server" "Exit (server stays on)" "GPS status") || break
   else
-    LOG "Exiting."
-    break
+    choice=$(LIST_PICKER "Mobile2GPS: stopped" "Start server" "How to pair" "Exit" "Start server") || break
   fi
+
+  case "$choice" in
+    "Start server")
+      # The server may have been started elsewhere while the picker was open.
+      if ! pidof Mobile2GPS > /dev/null; then
+        spinner=$(START_SPINNER "Starting server...")
+        ./Mobile2GPS &
+        server_pid=$!
+        # GPS_CONFIGURE may take a few seconds to switch modes and start gpsd.
+        server_ready=0
+        for attempt in {1..15}; do
+          kill -0 "$server_pid" 2>/dev/null || break
+          if curl -k -s -f --connect-timeout 1 --max-time 1 -o /dev/null https://127.0.0.1:1993/; then
+            server_ready=1
+            break
+          fi
+          sleep 1
+        done
+        STOP_SPINNER "$spinner"
+        if [ "$server_ready" -ne 1 ]; then
+          kill "$server_pid" 2>/dev/null
+          ERROR_DIALOG "Server failed to start.
+Check the payload log for details."
+          exit 1
+        fi
+        LOG green "Server started."
+      fi
+      ;;
+    "Stop server")
+      spinner=$(START_SPINNER "Stopping server...")
+      killall Mobile2GPS 2>/dev/null
+      # Allow time for shutdown without leaving the spinner open indefinitely.
+      for attempt in 1 2 3 4 5 6 7 8; do
+        pidof Mobile2GPS > /dev/null || break
+        sleep 1
+      done
+      STOP_SPINNER "$spinner"
+      if pidof Mobile2GPS > /dev/null; then
+        PROMPT "Server is still running.
+Try Stop server again."
+      else
+        LOG green "Server stopped."
+      fi
+      ;;
+    "GPS status")
+      if ! pidof Mobile2GPS > /dev/null; then
+        PROMPT "Server is stopped.
+Start it before checking GPS."
+        continue
+      fi
+      spinner=$(START_SPINNER "Checking GPS...")
+      # Read the Pager's selected GPS source; ignore altitude and speed.
+      coords=$(GPS_GET) || coords=""
+      coords=$(printf '%s\n' "$coords" | awk 'NF >= 2 && ($1 != 0 || $2 != 0) {print $1 ", " $2}')
+      STOP_SPINNER "$spinner"
+      if [ -n "$coords" ]; then
+        PROMPT "GPS fix received:
+$coords"
+      else
+        PROMPT "No valid GPS fix received.
+Check the phone page and location permissions."
+      fi
+      ;;
+    "How to pair")
+      phone_setup
+      ;;
+    *) break ;;
+  esac
 done
