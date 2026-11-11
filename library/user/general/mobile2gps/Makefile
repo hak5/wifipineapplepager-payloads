@@ -1,5 +1,5 @@
 # Build for MIPS 24KEc soft-float (OpenWRT)
-BINARY = mobile2gps
+BINARY = Mobile2GPS
 
 # MIPS little-endian, soft-float for 24KEc
 GOOS = linux
