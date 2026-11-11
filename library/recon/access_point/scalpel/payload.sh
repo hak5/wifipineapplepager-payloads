@@ -96,14 +96,18 @@ case "$SCALPEL_MODE" in
   active|passive) ;;
   *)
     if is_num "$CLIENT_COUNT" && [ "$CLIENT_COUNT" -gt 0 ]; then
-      # LIST_PICKER requires firmware 1.0.8+; fall back to active on failure.
-      SCALPEL_MODE=$(LIST_PICKER "Capture mode" "Active" "Passive" "Active" 2>/dev/null) \
-        || SCALPEL_MODE="Active"
-      [ "$SCALPEL_MODE" = "Active" ] && SCALPEL_MODE="active" || SCALPEL_MODE="passive"
+      LOG "Clients observed: $CLIENT_COUNT"
     else
-      LOG "No clients observed - passive mode"
-      SCALPEL_MODE="passive"
+      LOG yellow "No clients observed; Active mode deauths all clients of this BSSID."
     fi
+    # Always offer both modes. LIST_PICKER requires firmware 1.0.8+; fall
+    # back to active on failure.
+    SCALPEL_MODE=$(LIST_PICKER "Capture mode" "Active (deauth)" "Passive (wait)" 2>/dev/null) \
+      || SCALPEL_MODE="Active (deauth)"
+    case "$SCALPEL_MODE" in
+      *Active*) SCALPEL_MODE="active" ;;
+      *) SCALPEL_MODE="passive" ;;
+    esac
     ;;
 esac
 

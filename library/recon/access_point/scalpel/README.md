@@ -61,7 +61,9 @@ cp -r /root/payloads/recon/access_point/scalpel /root/payloads/recon/client/scal
 - **Passive** — lock the channel and wait for a client to reconnect naturally. Quiet
   but slow: WPA sessions only refresh ~every 5 minutes, so it may take several
   minutes. Only reliable if a client is actively present and reconnects.
-- **Auto** (default) — asks when clients are present; drops to passive when none.
+- **Auto** (default) — always asks; pick **Active (deauth)** or **Passive (wait)**
+  regardless of client count. With no clients observed, Active deauths all clients
+  of the BSSID (`FF:FF:FF:FF:FF:FF`).
 
 Run as a **client** payload to surgically deauth exactly one device; run as an **AP**
 payload to deauth all clients of that BSSID (or enter one MAC).
