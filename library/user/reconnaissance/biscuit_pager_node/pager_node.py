@@ -10,7 +10,7 @@ IW = next((p for p in (os.path.join(d, "iw") for d in
            os.environ.get("PATH", "").split(":") + ["/usr/sbin", "/sbin", "/usr/bin", "/bin"])
            if os.access(p, os.X_OK)), "iw")
 
-FW = "Pager:v1.0.0"
+FW = "Pager:v1.1.0"
 HOME_FREQ = 2437
 REC_AP6 = 0x04
 AP6_CODES = {"[OPEN]": 0, "[WEP]": 1, "[WPA_PSK]": 2, "[WPA2_PSK]": 3, "[WPA3_PSK]": 4, "[WPA_WPA2_PSK]": 5,
