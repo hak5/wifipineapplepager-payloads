@@ -133,6 +133,10 @@ class Node:
         self.fw_tries = 0
         self.out = []
         self.sent = 0
+        self.sent_unique = set()
+        self.last_contact = None
+        self.last_ack = None
+        self.status = "searching"
         self.held6 = set()
         self.frames = 0
         self.sweeps = 0
@@ -175,6 +179,8 @@ class Node:
                 self.status = "secure"
                 return
             self.core, self.ap6 = src, b"ap6=1" in txt
+            self.last_contact = time.monotonic()
+            self.status = "joined"
             if self.ap6:
                 self.held6.clear()
             self.fw_tries, now = 0, time.monotonic()
@@ -183,6 +189,7 @@ class Node:
             return
         if self.core is None or src != self.core:
             return
+        self.last_contact = time.monotonic()
         if t == MSG["ROLE_ASSIGN"]:
             if ln == 5:
                 self.role, self.token = txt[0], txt[1:5]
@@ -211,24 +218,30 @@ class Node:
                 self.handle(src, p)
 
     def queue_records(self):
-        body = []
+        body, ids = [], []
         for bssid, ch, ssid, rssi, auth in self.scan.take():
             if not self.ap6:
                 self.held6.add(bssid)
                 continue
             r = ap_rec(REC_AP6, bssid, ch, rssi, AP6_CODES.get(auth, 0x0C), ssid)
             if sum(map(len, body)) + len(r) > 242:
-                self.out.append((len(body), batch_msg(self.batch_seq, body)))
+                self.out.append((len(body), batch_msg(self.batch_seq, body), ids))
                 self.batch_seq += 1
-                body = []
+                body, ids = [], []
             body.append(r)
+            ids.append(bssid)
         if body:
-            self.out.append((len(body), batch_msg(self.batch_seq, body)))
+            self.out.append((len(body), batch_msg(self.batch_seq, body), ids))
             self.batch_seq += 1
 
     def home(self, seconds):
         self.tune(HOME_FREQ)
         now = time.monotonic()
+        # ACKs are radio-level evidence, not confirmation of manager ingestion.
+        if self.last_ack and now - self.last_ack > 20:
+            self.core, self.role = None, 0
+            self.last_ack = None
+            self.status = "searching"
         if self.core is None:
             if now >= self.next["req"]:
                 self.radio.send(b"\xff" * 6, text_msg(MSG["CORE_REQUEST"], 0, b"bsc=1"))
@@ -243,11 +256,20 @@ class Node:
                 self.hb += 1
                 self.next["hb"] = now + 3.0
             for _ in range(min(len(self.out), 12)):
-                n, payload = self.out.pop(0)
+                n, payload, ids = self.out.pop(0)
+                errors = self.radio.stats["tx_err"]
                 self.send(payload)
-                self.sent += n
+                if self.radio.stats["tx_err"] == errors:
+                    self.sent += n
+                    self.sent_unique.update(ids)
+                else:
+                    self.out.insert(0, (n, payload, ids))
+                    break
                 time.sleep(0.008)
+        before = self.radio.stats["acks"]
         self.listen(seconds)
+        if self.radio.stats["acks"] > before:
+            self.last_ack = time.monotonic()
 
     def sweep_plan(self):
         return CH6_ALL if self.sweeps % 4 == 3 else CH6_PSC
@@ -257,6 +279,13 @@ class Node:
             "final": final, "uptime_s": int(time.time() - self.started),
             "biscuit": mac_str(self.core) if self.core else None, "role": self.role, "ap6": self.ap6,
             "seen": len(self.scan.seen), "sent": self.sent,
+            "sent_unique": len(self.sent_unique),
+            "status": self.status,
+            "ack_age_s": round(time.monotonic() - self.last_ack, 1) if self.last_ack else None,
+            "contact_age_s": round(time.monotonic() - self.last_contact, 1) if self.last_contact else None,
+            "queued_networks": sum(item[0] for item in self.out),
+            "tx_errors": self.radio.stats["tx_err"],
+            "channel": channel_6ghz(self.cur_freq or 0),
             "held_6ghz": len(self.held6), "frames": self.frames, "acks": self.radio.stats["acks"],
             "queued": len(self.out), "sweeps": self.sweeps,
             "switch_ms": round(sum(self.switch_ms) / len(self.switch_ms), 1) if self.switch_ms else None,
