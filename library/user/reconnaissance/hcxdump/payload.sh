@@ -10,6 +10,7 @@ CHANNELS_2GHZ="2412,2417,2422,2427,2432,2437,2442,2447,2452,2457,2462,2467,2472,
 CHANNELS_5GHZ="5180,5200,5220,5240,5260,5280,5300,5320,5500,5520,5540,5560,5580,5600,5620,5640,5660,5680,5700,5720,5745,5765,5785,5805,5825,5845,5865,5885"
 OUTPUT_PATH="/root/loot/pcap"
 FILE_NAME="capture_${INTERFACE}_$(date +%Y%m%d_%H%M%S).pcapng"
+LED_COLOR=$(uci get system.@pager[0].led_color)
 
 LOG "Checking dependencies"
 if ! command -v hcxdumptool >/dev/null 2>&1; then
@@ -88,6 +89,7 @@ else
 	PID=$!
 fi
 
+DO_A_BARREL_ROLL
 LOG "Initializing..."
 sleep 10
 if ! kill -0 "$PID" 2>/dev/null; then
@@ -104,4 +106,5 @@ wait $PID
 LOG "Stopped hcxdumptool"
 LOG "Loot saved to $OUTPUT_PATH"
 PINEAPPLE_HOPPING_START
+LED $LED_COLOR
 exit 0
