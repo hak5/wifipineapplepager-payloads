@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 import io
 import json
+import os
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import remote_id_monitor as rid
 
@@ -82,6 +86,42 @@ def pcap(packet):
     global_header = b"\xd4\xc3\xb2\xa1" + struct.pack("<HHIIII", 2, 4, 0, 0, 65535, 127)
     packet_header = struct.pack("<IIII", 1, 0, len(packet), len(packet))
     return global_header + packet_header + packet
+
+
+class StartupCompatibilityTests(unittest.TestCase):
+    def test_worker_self_check(self):
+        self.assertEqual(rid.main(["--self-check"]), 0)
+
+    def test_worker_self_check_subprocess_has_no_side_effects(self):
+        worker = Path(__file__).with_name("remote_id_monitor.py")
+        with tempfile.TemporaryDirectory() as directory:
+            environment = os.environ.copy()
+            environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            result = subprocess.run(
+                [sys.executable, "-B", str(worker), "--self-check"],
+                cwd=directory, env=environment, capture_output=True, text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_launcher_uses_runtime_check_not_py_compile(self):
+        launcher = Path(__file__).with_name("payload.sh").read_text()
+        self.assertIn('"$PYTHON_BIN" -B "$WORKER" --self-check', launcher)
+        self.assertIn("ImportError|ModuleNotFoundError|No module named", launcher)
+        self.assertIn("remote-id-radar-startup.$$.log", launcher)
+        self.assertIn("CONFIRMATION_DIALOG", launcher)
+        self.assertIn("opkg -d mmc --force-reinstall install python3-light", launcher)
+        self.assertIn("Requires internet and persistent storage changes", launcher)
+        self.assertIn("/mmc/usr/bin", launcher)
+        self.assertIn("LD_LIBRARY_PATH", launcher)
+        self.assertIn('return 2', launcher)
+        self.assertNotIn("python3 -m py_compile", launcher)
+        self.assertNotIn("$(python3 ", launcher)
+        self.assertNotIn("< <(python3 ", launcher)
+        self.assertNotIn("\n  python3 ", launcher)
 
 
 class DecoderTests(unittest.TestCase):
@@ -169,6 +209,53 @@ class DecoderTests(unittest.TestCase):
         packet = radiotap_packet(beacon())
         reader = rid.PcapReader(io.BytesIO(pcap(packet)))
         self.assertEqual(list(reader), [packet])
+
+    def test_blue5_status_le_ready_formats(self):
+        ready = (
+            "Scan mode: LE + Classic\nLE scanning: enabled\n",
+            "scanner active=1 classic=1 le=1 coded=0",
+            "LE scan enabled: yes",
+            "blue5 status\nlescan 1",
+            '{"scanner":{"le_scan":true,"classic":true}}',
+        )
+        for output in ready:
+            with self.subTest(output=output):
+                self.assertEqual(rid.classify_blue5_status(output), rid.BLUE5_LE_READY)
+
+    def test_blue5_status_classic_only_or_not_scanning(self):
+        unavailable = (
+            "BT Scan Mode: Classic only",
+            "LE scanning: disabled\nClassic scanning: enabled",
+            "blue5 status\nlescan 0",
+            "scan_le=0",
+            '{"scan":{"le":false,"classic":true}}',
+        )
+        for output in unavailable:
+            with self.subTest(output=output):
+                self.assertEqual(rid.classify_blue5_status(output), rid.BLUE5_LE_UNAVAILABLE)
+
+    def test_blue5_status_unavailable_is_not_assumed_ready(self):
+        for output in ("", "blue5 status: unknown", "adapter hci0"):
+            with self.subTest(output=output):
+                self.assertEqual(rid.classify_blue5_status(output), rid.BLUE5_STATUS_UNAVAILABLE)
+        with mock.patch.object(rid.subprocess, "run", side_effect=FileNotFoundError):
+            status, detail = rid.blue5_le_status()
+        self.assertEqual(status, rid.BLUE5_STATUS_UNAVAILABLE)
+        self.assertIn("not installed", detail)
+
+    def test_blue5_status_distinguishes_absent_daemon(self):
+        self.assertEqual(
+            rid.classify_blue5_status('{"le":true,"daemon_running":false}'),
+            rid.BLUE5_PROCESS_ABSENT,
+        )
+        result = mock.Mock(returncode=1, stdout="failed to connect: blue5 is not running")
+        with mock.patch.object(rid.subprocess, "run", return_value=result) as run:
+            status, _ = rid.blue5_le_status()
+        self.assertEqual(status, rid.BLUE5_PROCESS_ABSENT)
+        run.assert_called_once_with(
+            ["blue5ctl", "status"], stdout=rid.subprocess.PIPE,
+            stderr=rid.subprocess.STDOUT, text=True, timeout=3, check=False,
+        )
 
     def test_btmon_extended_report(self):
         service = b"\xfa\xff\x0d\x09" + basic_id()
@@ -259,6 +346,14 @@ class DecoderTests(unittest.TestCase):
             state.write_text(json.dumps({"status": "scanning", "started": 1, "frames": 10, "decoded": 0, "records": []}))
             self.assertIn("Scanning", rid.render_state(state))
             self.assertEqual(rid.list_state(state), ["No Remote ID devices"])
+            state.write_text(json.dumps({
+                "status": "degraded", "started": 1, "frames": 10,
+                "decoded": 0, "records": [],
+                "capture_errors": ["BLE unavailable: blue5 LE scanning is disabled; scanning Wi-Fi only"],
+            }))
+            rendered = rid.render_state(state)
+            self.assertIn("Scanning Wi-Fi only; BLE unavailable.", rendered)
+            self.assertNotIn("Scanning Wi-Fi + Bluetooth", rendered)
 
     def test_censor_matches_marauder_identifier_rules(self):
         self.assertEqual(rid.censor_identifier("1581FBLKC263C00B145X"), "158XXXXXXXXXXXXXXXXX")

@@ -309,6 +309,112 @@ def parse_advertising_data(data):
     return records
 
 
+BLUE5_LE_READY = "le-ready"
+BLUE5_PROCESS_ABSENT = "process-absent"
+BLUE5_LE_UNAVAILABLE = "le-unavailable"
+BLUE5_STATUS_UNAVAILABLE = "status-unavailable"
+
+
+def _status_value(value):
+    value = str(value).strip().lower()
+    if value in ("1", "on", "yes", "true", "enabled", "running", "active"):
+        return True
+    if value in ("0", "off", "no", "false", "disabled", "stopped", "inactive"):
+        return False
+    return None
+
+
+def classify_blue5_status(output):
+    """Classify defensive blue5ctl status output without depending on one format."""
+    text = str(output or "").strip()
+    lowered = text.lower()
+    if not text:
+        return BLUE5_STATUS_UNAVAILABLE
+
+    # Some blue5ctl builds return JSON while others print human-readable status.
+    try:
+        value = json.loads(text)
+    except (ValueError, TypeError):
+        value = None
+    if isinstance(value, dict):
+        pending = [value]
+        process_running = None
+        le_enabled = None
+        while pending:
+            current = pending.pop()
+            for key, item in current.items():
+                if isinstance(item, dict):
+                    pending.append(item)
+                    continue
+                normalized = re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_")
+                if normalized in ("running", "daemon_running", "process_running", "service_running"):
+                    candidate = _status_value(item)
+                    if candidate is not None:
+                        process_running = candidate
+                if normalized in ("le", "lescan", "le_scan", "le_scanning", "le_enabled", "scan_le", "scan_le_enabled"):
+                    candidate = _status_value(item)
+                    if candidate is not None:
+                        le_enabled = candidate
+        if process_running is False:
+            return BLUE5_PROCESS_ABSENT
+        if le_enabled is not None:
+            return BLUE5_LE_READY if le_enabled else BLUE5_LE_UNAVAILABLE
+
+    if re.search(r"\b(?:blue5|daemon|process|service)(?:\s+status)?\s*[:=]\s*(?:0|off|false|stopped|inactive|not\s+running)\b", lowered):
+        return BLUE5_PROCESS_ABSENT
+    if re.search(r"\bblue5\s+(?:is\s+)?not\s+running\b", lowered):
+        return BLUE5_PROCESS_ABSENT
+    if re.search(r"\b(classic|br/?edr)[ -]?only\b", lowered):
+        return BLUE5_LE_UNAVAILABLE
+    if re.search(r"\b(?:mode|scan mode)\s*[:=]\s*(?:le|ble)(?:\s*(?:only|\+|and)\s*(?:classic|br/?edr))?\b", lowered):
+        return BLUE5_LE_READY
+
+    labels = (
+        r"le(?:\s+scan(?:ning)?)?",
+        r"ble(?:\s+scan(?:ning)?)?",
+        r"scan[_ -]?le",
+        r"lescan",
+    )
+    positive = r"(?:1|on|yes|true|enabled|running|active)"
+    negative = r"(?:0|off|no|false|disabled|stopped|inactive|not\s+scanning)"
+    for label in labels:
+        match = re.search(r"\b" + label + r"\b(?:\s+(?:state|status|enabled))?\s*[:=]\s*(" + positive + "|" + negative + r")\b", lowered)
+        if not match:
+            match = re.search(r"(?m)^\s*" + label + r"\s+(" + positive + "|" + negative + r")\s*$", lowered)
+        if match:
+            return BLUE5_LE_READY if _status_value(match.group(1)) else BLUE5_LE_UNAVAILABLE
+    if re.search(r"\ble\s+scann(?:ing|er)\s+(?:is\s+)?" + positive + r"\b", lowered):
+        return BLUE5_LE_READY
+    if re.search(r"\ble\s+scann(?:ing|er)\s+(?:is\s+)?" + negative + r"\b", lowered):
+        return BLUE5_LE_UNAVAILABLE
+    return BLUE5_STATUS_UNAVAILABLE
+
+
+def blue5_le_status():
+    try:
+        result = subprocess.run(
+            ["blue5ctl", "status"], stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, timeout=3, check=False,
+        )
+    except FileNotFoundError:
+        return BLUE5_STATUS_UNAVAILABLE, "blue5ctl is not installed"
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return BLUE5_STATUS_UNAVAILABLE, str(error)
+
+    output = result.stdout or ""
+    lowered = output.lower()
+    absent_markers = (
+        "connection refused", "not running", "no such file or directory",
+        "failed to connect", "cannot connect", "could not connect",
+        "socket not found", "daemon unavailable",
+    )
+    if result.returncode != 0 and any(marker in lowered for marker in absent_markers):
+        return BLUE5_PROCESS_ABSENT, output.strip()
+    if result.returncode != 0:
+        return BLUE5_STATUS_UNAVAILABLE, output.strip() or "blue5ctl status failed"
+    return classify_blue5_status(output), output.strip()
+
+
 def _btmon_hex_bytes(line):
     values = []
     for token in line.strip().split():
@@ -836,12 +942,15 @@ class RemoteIdMonitor:
             self._reap_process(process)
 
     def ble_loop(self):
-        blue5_running = subprocess.call(
-            ["pgrep", "blue5"], stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        ) == 0
-        if not blue5_running:
-            self._capture_error("BLE: stock blue5 scanner is not running")
+        blue5_status, _status_detail = blue5_le_status()
+        if blue5_status == BLUE5_PROCESS_ABSENT:
+            self._capture_error("BLE unavailable: blue5 is not running; scanning Wi-Fi only")
+            return
+        if blue5_status == BLUE5_LE_UNAVAILABLE:
+            self._capture_error("BLE unavailable: blue5 LE scanning is disabled (Classic-only/not scanning); scanning Wi-Fi only")
+            return
+        if blue5_status != BLUE5_LE_READY:
+            self._capture_error("BLE unavailable: could not verify blue5 LE scan status; scanning Wi-Fi only")
             return
         try:
             process = subprocess.Popen(
@@ -1047,7 +1156,12 @@ def render_state(path, censor=False):
     if state.get("capture_errors"):
         lines.append("WARN " + state["capture_errors"][-1][:54])
     if not records:
-        lines.append("Scanning Wi-Fi + Bluetooth...")
+        ble_unavailable = any(
+            str(error).startswith("BLE unavailable:")
+            for error in state.get("capture_errors", [])
+        )
+        lines.append("Scanning Wi-Fi only; BLE unavailable." if ble_unavailable else
+                     "Scanning Wi-Fi + Bluetooth...")
     visible_records = [record for record in records if not record.get("is_lost")]
     if not visible_records:
         visible_records = records
@@ -1103,6 +1217,7 @@ def detail_state(path, index, censor=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
+    parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--interface", default="wlan1mon")
     parser.add_argument("--wifi-channel", type=int, choices=range(1, 14), default=6)
@@ -1119,6 +1234,8 @@ def main(argv=None):
     parser.add_argument("--get-censor", action="store_true")
     parser.add_argument("--set-censor", choices=("on", "off"))
     args = parser.parse_args(argv)
+    if args.self_check:
+        return 0
     if args.run:
         return run_monitor(args)
     if args.render_state:
