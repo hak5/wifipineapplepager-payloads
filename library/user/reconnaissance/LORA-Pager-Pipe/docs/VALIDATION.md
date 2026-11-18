@@ -101,7 +101,7 @@ in [INSTALL.md](INSTALL.md).
   end-to-end interoperability test. The SQLite database is not KismetDB.
 - Real, authorized upload/import acceptance by WiGLE, Wardrift and WDGWars.
   Upload tests use simulated transports; no capture was sent to these services.
-- Hak5 review and acceptance. No upstream PR has been submitted for this payload.
+- Hak5 review and acceptance remain separate from these validation results.
 
 ## Repeating the capture audit
 
