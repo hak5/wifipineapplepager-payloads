@@ -13,6 +13,7 @@ FILE_NAME="capture_${INTERFACE}_$(date +%Y%m%d_%H%M%S).pcapng"
 LED_COLOR=$(uci get system.@pager[0].led_color)
 
 LOG "Checking dependencies"
+
 if ! command -v hcxdumptool >/dev/null 2>&1; then
 	LOG "Dependencies not met!"
 	install=$(CONFIRMATION_DIALOG "Install hcxdumptool?")
@@ -27,9 +28,11 @@ if ! command -v hcxdumptool >/dev/null 2>&1; then
 			exit 1
 			;;
 	esac
+	
 	case "$install" in
 		$DUCKYSCRIPT_USER_CONFIRMED)
 			LOG "Installing hcxdumptool"
+			
 			if opkg update && opkg install -d mmc hcxdumptool > /dev/null 2>&1; then
 				LOG "hcxdumptool successfully installed!"
 			else
@@ -57,19 +60,17 @@ mkdir -p "$OUTPUT_PATH"
 
 all=false
 resp=$(LIST_PICKER "Pick Band(s)" "2GHZ" "5GHZ" "2+5GHZ" "ALL" "2GHZ")
+
 case "$resp" in
 	"2GHZ")
 		CHANNELS="$CHANNELS_2GHZ"
 		;;
-
 	"5GHZ")
 		CHANNELS="$CHANNELS_5GHZ"
 		;;
-
 	"2+5GHZ")
 		CHANNELS="$CHANNELS_2GHZ,$CHANNELS_5GHZ"
 		;;
-
 	"ALL")
 		CHANNELS=""
 		all=true
@@ -92,6 +93,7 @@ fi
 DO_A_BARREL_ROLL
 LOG "Initializing..."
 sleep 10
+
 if ! kill -0 "$PID" 2>/dev/null; then
     LOG "hcxdumptool failed to start"
     PINEAPPLE_HOPPING_START
