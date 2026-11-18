@@ -17,6 +17,6 @@ Payload for WiFi Pineapple Pager 2.0.0. It scans 6 GHz preferred scanning channe
 - C5 configured as Core with ESP-NOW encryption disabled
 - Pair a replying Core from the Pager hardware menu, or enter its base MAC with the on-device MAC picker; the selection is saved persistently and replies/record ACKs from any other radio are rejected
 - Pager $wlan1mon$ available in monitor mode
-- python3-light installed on the Pager (MMC installations are detected automatically)
+- OpenWrt `python3-light` (MMC installations are detected automatically). If it is missing or incomplete, the payload offers to install it to MMC after explicit confirmation; this requires internet access.
 
 The payload restores the Pager radio configuration when it exits and rejects replies from unpaired radios.

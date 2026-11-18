@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Clean-room C5 Wardriver scan-only node for the WiFi Pineapple Pager."""
-import argparse, json, os, select, socket, struct, subprocess, time
+import argparse, json, os, select, socket, struct, subprocess, sys, time
 
 MAGIC=b"ENOW"; OUI=bytes.fromhex("18fe34"); BROADCAST=b"\xff"*6
 IW_BIN=os.environ.get("IW_BIN","/usr/sbin/iw")
 CORE_REQUEST=1; CORE_REPLY=2; HEARTBEAT=3; TEXT=4; RECORD_ACK=6
 CAPABILITIES=b"C5P1;ROLE=EXTERNAL;BANDS=6"
 HOME_FREQ=2437; PSC=[5,21,37,53,69,85,101,117,133,149,165,181,197,213,229]
+CORE_LINK_TIMEOUT=15.0; PSC_DWELL=.20
 
 def text_message(kind,counter=0,text=b""):
     text=text[:200]
@@ -39,6 +40,15 @@ def radiotap(pkt):
     signal=struct.unpack("<b",values[5])[0] if 5 in values else None
     return length,flags,mhz,signal
 
+def rsn_akms(body):
+    if len(body)<8 or body[:2]!=b"\x01\x00": return None
+    pairwise_count=struct.unpack_from("<H",body,6)[0]
+    off=8+4*pairwise_count
+    if off+2>len(body): return None
+    akm_count=struct.unpack_from("<H",body,off)[0]; off+=2
+    if off+4*akm_count>len(body): return None
+    return [body[off+i*4:off+(i+1)*4] for i in range(akm_count)]
+
 def security(frame):
     privacy=bool(frame[34]&0x10); rsn=None; wpa=False; p=36
     while p+2<=len(frame):
@@ -48,10 +58,14 @@ def security(frame):
         if eid==48: rsn=body
         elif eid==221 and body[:4]==b"\x00\x50\xf2\x01": wpa=True
     if rsn is not None:
-        if b"\x00\x0f\xac\x12" in rsn: return "[OWE]"
-        if b"\x00\x0f\xac\x08" in rsn: return "[WPA3_PSK]"
-        if b"\x00\x0f\xac\x02" in rsn: return "[WPA2_PSK]"
-        return "[WPA2_ENTERPRISE]"
+        akms=rsn_akms(rsn)
+        if akms is None: return "[UNDEFINED]"
+        types={suite[3] for suite in akms if suite[:3]==b"\x00\x0f\xac"}
+        if types&{8,9,24}: return "[WPA3_PSK]"
+        if 18 in types: return "[OWE]"
+        if types&{1,3,5,11,12,13,14,15,16,17}: return "[WPA3_ENTERPRISE]"
+        if types&{2,4,6}: return "[WPA2_PSK]"
+        return "[UNDEFINED]"
     if wpa: return "[WPA_PSK]"
     return "[WEP]" if privacy else "[OPEN]"
 
@@ -137,29 +151,68 @@ def format_status(stats):
         "A: STOP",
     ))
 
-def main():
-    ap=argparse.ArgumentParser(); ap.add_argument("--iface",default="wlan1mon"); ap.add_argument("--core"); ap.add_argument("--stats",default="/tmp/c5-pager-node.json"); ap.add_argument("--render-stats"); ap.add_argument("--discover-seconds",type=float); a=ap.parse_args()
-    if a.render_stats:
-        try:
-            with open(a.render_stats) as f: print(format_status(json.load(f)))
-        except (OSError,ValueError): print(format_status({}))
-        return
+def atomic_write(path,data):
+    tmp="%s.tmp.%d"%(path,os.getpid())
+    with open(tmp,"w") as f: f.write(data)
+    os.replace(tmp,path)
+
+def write_status(stats_path,status_path,stats):
+    atomic_write(stats_path,json.dumps(stats,separators=(",",":")))
+    atomic_write(status_path,format_status(stats)+"\n")
+
+def interface_state(data,iface):
+    def walk(value,key=None):
+        if isinstance(value,list):
+            for item in value:
+                found=walk(item)
+                if found is not None: return found
+        elif isinstance(value,dict):
+            names=(value.get("interface"),value.get("iface"),value.get("ifname"),value.get("name"),value.get("device"),key)
+            if iface in names:
+                hop=value.get("hoprate",value.get("hop_rate",value.get("hopRate")))
+                try: return int(hop),int(value.get("channel") or 0)
+                except (TypeError,ValueError): return None
+            for child_key,item in value.items():
+                found=walk(item,child_key)
+                if found is not None: return found
+        return None
+    return walk(data)
+
+def valid_core_reply(src,payload,wanted):
+    parsed=parse_text_message(payload)
+    if src!=wanted or not parsed or parsed[0] not in (CORE_REPLY,RECORD_ACK): return None
+    return parsed
+
+def link_expired(last_reply,now):
+    return last_reply is not None and now-last_reply>=CORE_LINK_TIMEOUT
+
+def main(argv=None):
+    ap=argparse.ArgumentParser(); ap.add_argument("--self-check",action="store_true"); ap.add_argument("--iface",default="wlan1mon"); ap.add_argument("--core"); ap.add_argument("--stats",default="/tmp/c5-pager-node.json"); ap.add_argument("--status",default="/tmp/c5-pager-node.status"); ap.add_argument("--interface-state"); ap.add_argument("--discover-seconds",type=float); a=ap.parse_args(argv)
+    if a.self_check:
+        assert parse_text_message(text_message(HEARTBEAT,1,CAPABILITIES))==(HEARTBEAT,1,CAPABILITIES); return 0
+    if a.interface_state:
+        try: state=interface_state(json.load(sys.stdin),a.interface_state)
+        except (OSError,ValueError): state=None
+        if state is None or state[0] not in (0,200,1000) or (state[0]==0 and state[1]<=0): return 1
+        print("%d %d"%state); return 0
     radio=Radio(a.iface)
     if a.discover_seconds is not None:
         for mac in discover_cores(radio,a.iface,max(.5,a.discover_seconds)): print(mac.hex(":"))
         return
     if not a.core: ap.error("--core is required")
-    wanted=bytes.fromhex(a.core.replace(":","")); core=None; heartbeat=0; record_counter=struct.unpack("<I",os.urandom(4))[0]; seen={}; queue=[]; attempts={}; sent=0; acked=0; dropped=0; last_ack=None; latest=None; sweeps=0
+    wanted=bytes.fromhex(a.core.replace(":","")); core=None; last_reply=None; heartbeat=0; record_counter=struct.unpack("<I",os.urandom(4))[0]; seen={}; queue=[]; attempts={}; sent=0; acked=0; dropped=0; last_ack=None; latest=None; sweeps=0
     while True:
         tune(a.iface,HOME_FREQ)
+        if core is not None and link_expired(last_reply,time.monotonic()):
+            core=None; last_reply=None
         if core is None:
             radio.send(BROADCAST,text_message(CORE_REQUEST,text=CAPABILITIES))
             for kind,item in radio.receive(.35):
                 if kind=="message":
-                    src,payload=item; parsed=parse_text_message(payload)
-                    if parsed and parsed[0]==CORE_REPLY and src==wanted: core=src
+                    src,payload=item; parsed=valid_core_reply(src,payload,wanted)
+                    if parsed and parsed[0]==CORE_REPLY: core=src; last_reply=time.monotonic()
         else:
-            radio.send(core,text_message(HEARTBEAT,heartbeat,CAPABILITIES)); heartbeat+=1
+            radio.send(core,text_message(HEARTBEAT,heartbeat,CAPABILITIES)); heartbeat=(heartbeat+1)&0xffffffff
             drain_deadline=time.monotonic()+.5
             while queue and time.monotonic()<drain_deadline:
                 rec=queue.pop(0); bssid,ch,rssi,auth,ssid=rec
@@ -170,19 +223,22 @@ def main():
                 acknowledged=False
                 for kind,item in radio.receive(.15):
                     if kind != "message": continue
-                    src,payload=item; parsed=parse_text_message(payload)
-                    if src==core and parsed and parsed[0]==RECORD_ACK and parsed[1]==record_counter and parsed[2]==expected_ack:
-                        acked+=1; last_ack=parsed[2].decode("ascii"); acknowledged=True; break
+                    src,payload=item; parsed=valid_core_reply(src,payload,wanted)
+                    if parsed:
+                        last_reply=time.monotonic()
+                        if parsed[0]==RECORD_ACK and parsed[1]==record_counter and parsed[2]==expected_ack:
+                            acked+=1; last_ack=parsed[2].decode("ascii"); acknowledged=True; break
                 if acknowledged:
                     attempts.pop(bssid,None)
                 else:
                     count=attempts.get(bssid,0)+1
                     if count<3: attempts[bssid]=count; queue.append(rec)
                     else: attempts.pop(bssid,None); dropped+=1
-            radio.receive(.15)
+            for kind,item in radio.receive(.15):
+                if kind=="message" and valid_core_reply(item[0],item[1],wanted): last_reply=time.monotonic()
         for ch in PSC:
             if not tune(a.iface,5950+5*ch): continue
-            for kind,item in radio.receive(.11,beacons=True):
+            for kind,item in radio.receive(PSC_DWELL,beacons=True):
                 if kind!="beacon": continue
                 rec=beacon_record(item)
                 if not rec: continue
@@ -193,8 +249,7 @@ def main():
                 if len(queue)>=256: queue.pop(0)
                 queue.append(rec)
         sweeps+=1
-        tmp=a.stats+".tmp"
-        with open(tmp,"w") as f: json.dump({"core":core.hex(":") if core else None,"seen":len(seen),"queued":len(queue),"sent":sent,"acked":acked,"dropped":dropped,"last_ack":last_ack,"latest":latest,"sweeps":sweeps},f)
-        os.replace(tmp,a.stats)
+        stats={"core":core.hex(":") if core else None,"seen":len(seen),"queued":len(queue),"sent":sent,"acked":acked,"dropped":dropped,"last_ack":last_ack,"latest":latest,"sweeps":sweeps}
+        write_status(a.stats,a.status,stats)
 
-if __name__=="__main__": main()
+if __name__=="__main__": sys.exit(main())
