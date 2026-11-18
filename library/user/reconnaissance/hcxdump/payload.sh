@@ -102,6 +102,7 @@ fi
 
 LOG "Running hcxdumptool"
 LOG "Press B to stop"
+sleep 1
 WAIT_FOR_BUTTON_PRESS B
 kill $PID
 wait $PID
