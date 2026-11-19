@@ -44,8 +44,14 @@ Requires internet and persistent storage changes." || return 2
 }
 install_gui() {
   : >"$SETUP_LOG"; LOG cyan "Installing Pager GUI support..."
-  opkg update >>"$SETUP_LOG" 2>&1 || { bound_log "$SETUP_LOG"; return 1; }
-  opkg -d mmc --force-reinstall install python3-ctypes >>"$SETUP_LOG" 2>&1 || { bound_log "$SETUP_LOG"; return 1; }
+  if ! PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B -c 'import ctypes' >>"$SETUP_LOG" 2>&1; then
+    # A partially unreachable feed makes opkg update return nonzero even when
+    # the package feed we need is healthy. Let the package install decide.
+    opkg update >>"$SETUP_LOG" 2>&1 || true
+    opkg -d mmc --force-reinstall install python3-ctypes >>"$SETUP_LOG" 2>&1 || { bound_log "$SETUP_LOG"; return 1; }
+    configure_python || return 1
+    PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B -c 'import ctypes' >>"$SETUP_LOG" 2>&1 || { bound_log "$SETUP_LOG"; return 1; }
+  fi
   bash "$DIR/install_pagerctl.sh" >>"$SETUP_LOG" 2>&1 || { bound_log "$SETUP_LOG"; return 1; }
   configure_python || return 1; PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B "$GUI" --check >>"$SETUP_LOG" 2>&1; rc=$?; bound_log "$SETUP_LOG"; return "$rc"
 }

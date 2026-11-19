@@ -191,6 +191,14 @@ class StateAndIntegrityTests(unittest.TestCase):
         self.assertNotIn("pineap", source.lower())
         self.assertIn("--wifi-channel 6", source)
 
+    def test_gui_install_skips_opkg_when_ctypes_is_usable(self):
+        source = Path(__file__).with_name("payload.sh").read_text()
+        install_gui = source.split("install_gui() {", 1)[1].split("if ! configure_python", 1)[0]
+        self.assertIn("if ! PYTHONDONTWRITEBYTECODE=1", install_gui)
+        self.assertIn("-c 'import ctypes'", install_gui)
+        self.assertGreater(install_gui.index("opkg update"), install_gui.index("import ctypes"))
+        self.assertIn('opkg update >>"$SETUP_LOG" 2>&1 || true', install_gui)
+
     def test_production_gui_keeps_python_light_imports(self):
         source = Path(gui.__file__).read_text()
         self.assertNotIn("pathlib", source)
