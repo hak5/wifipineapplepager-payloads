@@ -246,8 +246,31 @@ def _measure(record, valid_key, value_key, suffix, decimals=1):
     return (("%." + str(decimals) + "f %s") % (value, suffix))
 
 
-def _position(point):
-    return "GPS unavailable" if point is None else "%.6f, %.6f" % point
+def _position(point, censor=False):
+    if point is None:
+        return "GPS unavailable"
+    return "CENSORED" if censor else "%.6f, %.6f" % point
+
+
+def gps_badge(state):
+    status = state.get("gps_status") if isinstance(state, dict) else None
+    if not isinstance(status, dict):
+        return "GPS STATUS UNKNOWN", "amber"
+    gps_state = status.get("state")
+    satellites = status.get("satellites_tracked")
+    suffix = " %s SAT" % satellites if isinstance(satellites, int) else ""
+    if gps_state == "fix":
+        return "GPS FIX" + suffix, "green"
+    if gps_state == "searching":
+        readiness = str(status.get("readiness") or "").lower()
+        if "no signal" in readiness:
+            return "GPS NO SIGNAL" + suffix, "red"
+        if "weak" in readiness:
+            return "GPS WEAK" + suffix, "amber"
+        return "GPS SEARCH" + suffix, "amber"
+    if gps_state == "not-detected":
+        return "GPS NOT DETECTED", "red"
+    return "GPS STATUS UNKNOWN", "amber"
 
 
 def _colors(p):
@@ -257,13 +280,18 @@ def _colors(p):
             "amber": p.rgb(249, 193, 78)}
 
 
-def draw_map(p, state, colors):
+def draw_map(p, state, colors, censor=False):
     x, y, width, height = MAP_RECT
-    projection = map_projection(state, width, height)
     p.fill_rect(x, y, width, height, colors["panel"])
     p.rect(x, y, width, height, colors["grid"])
     p.hline(x, y + height // 2, width, colors["grid"])
     p.vline(x + width // 2, y, height, colors["grid"])
+    label, color = gps_badge(state)
+    _text(p, x + 170, y + 5, label, colors[color])
+    if censor:
+        _text(p, x + 92, y + 62, "POSITION CENSORED", colors["amber"], 2)
+        return None
+    projection = map_projection(state, width, height)
     project = projection["project"]
     for trail in projection["trails"]:
         previous = None
@@ -289,7 +317,7 @@ def draw_main(p, state, selected=0, censor=False):
     detected = state.get("detected_count", len(recs))
     _text(p, 12, 31, "TOTAL", c["muted"]); _text(p, 12, 47, detected, c["cyan"], 4)
     _text(p, 12, 86, "ACTIVE", c["muted"]); _text(p, 12, 102, active, c["green"], 4)
-    draw_map(p, state, c)
+    draw_map(p, state, c, censor)
     if recs:
         selected = min(max(0, selected), len(recs) - 1)
         _text(p, 12, 151, "TARGET %d/%d" % (selected + 1, len(recs)), c["muted"])
@@ -314,14 +342,16 @@ def draw_aircraft(p, record, index, total, censor=False):
     _field(p, 12, 35, "TYPE / STATUS", "%s / %s" % (
         {0:"None",1:"Aeroplane",2:"Helicopter",3:"Gyroplane",4:"Hybrid Lift",5:"Ornithopter",6:"Glider",7:"Kite",8:"Balloon",9:"Captive",10:"Airship",11:"Parachute",12:"Rocket",13:"Tethered",14:"Ground",15:"Other"}.get(record.get("ua_type"), "Unknown"),
         {0:"Undeclared",1:"Ground",2:"Airborne",3:"Emergency",4:"RID failure"}.get(record.get("operational_status"), "Unknown")), c)
-    _field(p, 12, 72, "RSSI / TRANSPORT / CH", "%s dBm  %s  %s" % (record.get("rssi", "--"), ",".join(record.get("transports", []))[:22], record.get("channel", "--")), c)
-    point = record_point(record); _field(p, 12, 109, "LOCATION", _position(point), c)
+    _field(p, 12, 72, "RSSI / TRANSPORT / CH / AGE", "%s dBm  %s  %s  %ss" % (record.get("rssi", "--"), ",".join(record.get("transports", []))[:18], record.get("channel", "--"), record.get("last_seen_age_s", 0)), c)
+    point = record_point(record); _field(p, 12, 109, "LOCATION", _position(point, censor), c)
     altitude = _measure(record, "geo_altitude_valid", "geo_altitude_m", "m")
     speed = _measure(record, "horizontal_speed_valid", "horizontal_speed_mps", "m/s")
     heading = _measure(record, "direction_valid", "direction_deg", "deg", 0)
     _field(p, 12, 146, "ALT / SPEED / HEADING", "%s  %s  %s" % (altitude, speed, heading), c)
     bearing = _finite(record.get("bearing_deg"))
-    if gps_fields and bearing is not None and _finite(record.get("distance_m")) is not None:
+    if censor:
+        _field(p, 330, 109, "FROM PAGER", "CENSORED", c, c["amber"])
+    elif gps_fields and bearing is not None and _finite(record.get("distance_m")) is not None:
         _field(p, 330, 109, "FROM PAGER", "%s / %.0f deg" % (_distance(record.get("distance_m")), bearing), c, c["green"])
     else:
         _field(p, 330, 109, "FROM PAGER", "GPS unavailable", c, c["amber"])
@@ -332,11 +362,13 @@ def draw_operator(p, record, index, total, censor=False):
     c = _colors(p); p.clear(c["bg"]); point = operator_point(record)
     _text(p, 12, 5, "OPERATOR %d/%d" % (index + 1, total), c["magenta"], 2)
     _field(p, 12, 39, "OPERATOR ID", operator_id(record, censor)[:36], c)
-    _field(p, 12, 82, "LOCATION", _position(point), c)
+    _field(p, 12, 82, "LOCATION", _position(point, censor), c)
     altitude = _measure(record, "operator_altitude_valid", "operator_altitude_geo_m", "m")
     _field(p, 12, 125, "ALTITUDE", altitude, c)
     operator_bearing = _finite(record.get("operator_bearing_deg"))
-    if operator_bearing is not None and _finite(record.get("operator_distance_m")) is not None:
+    if censor:
+        _field(p, 245, 125, "FROM PAGER", "CENSORED", c, c["amber"])
+    elif operator_bearing is not None and _finite(record.get("operator_distance_m")) is not None:
         _field(p, 245, 125, "FROM PAGER", "%s / %.0f deg" % (_distance(record.get("operator_distance_m")), operator_bearing), c, c["green"])
     else:
         _field(p, 245, 125, "FROM PAGER", "GPS unavailable", c, c["amber"])

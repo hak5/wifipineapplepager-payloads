@@ -113,14 +113,34 @@ class RenderTests(unittest.TestCase):
         self.assertIn("GPS unavailable", self.texts(pager))
 
     def test_censor_never_leaks_identifiers_at_display_sink(self):
-        state = {"records": [record()], "active_count": 1}
+        state = {"records": [record()], "active_count": 1,
+                 "gps_status": {"state": "fix", "satellites_tracked": 8}}
+        state["records"][0].update(distance_m=123.4, bearing_deg=45.0,
+                                   operator_distance_m=130.0, operator_bearing_deg=50.0)
         for page in range(gui.page_count(state)):
             pager = FakePager(); gui.draw_page(pager, state, page, 0, censor=True)
             output = " ".join(self.texts(pager))
             self.assertNotIn("SERIAL-SECRET-123", output)
             self.assertNotIn("OPERATOR-SECRET", output)
             self.assertNotIn("8c:1e:d9:d1:cb:bc", output)
+            self.assertNotIn("40.000000", output)
+            self.assertNotIn("-74.000000", output)
+            self.assertNotIn("123 m", output)
+            self.assertNotIn("45 deg", output)
+            self.assertNotIn("130 m", output)
+            self.assertNotIn("50 deg", output)
+            self.assertIn("CENSORED", output)
         self.assertEqual(gui.identity(state["records"][0], True), "SERXXXXXXXXXXXXXX")
+        pager = FakePager(); gui.draw_main(pager, state, censor=True)
+        self.assertFalse(any(call[0] in ("line", "fill_circle") for call in pager.calls))
+
+    def test_gps_badges_distinguish_hardware_search_and_fix(self):
+        self.assertEqual(gui.gps_badge({"gps_status": {"state": "not-detected"}}),
+                         ("GPS NOT DETECTED", "red"))
+        self.assertEqual(gui.gps_badge({"gps_status": {"state": "searching", "readiness": "no signal", "satellites_tracked": 0}}),
+                         ("GPS NO SIGNAL 0 SAT", "red"))
+        self.assertEqual(gui.gps_badge({"gps_status": {"state": "fix", "satellites_tracked": 7}}),
+                         ("GPS FIX 7 SAT", "green"))
 
     def test_malformed_state_loader_and_draw(self):
         with tempfile.TemporaryDirectory() as directory:

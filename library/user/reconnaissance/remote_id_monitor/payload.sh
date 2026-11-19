@@ -2,7 +2,7 @@
 # Title: Remote ID Radar
 # Author: JustCallMeKoko
 # Description: Passively detects and maps ASTM/OpenDroneID broadcasts over Wi-Fi and Bluetooth
-# Version: 0.2.0
+# Version: 0.2.1
 # Category: Reconnaissance
 LAUNCH_DIR="$(cd "$(dirname "$0")" && pwd)"
 export PATH="/usr/sbin:/usr/bin:/sbin:/bin:/mmc/usr/sbin:/mmc/usr/bin:/mmc/sbin:/mmc/bin:$PATH"
