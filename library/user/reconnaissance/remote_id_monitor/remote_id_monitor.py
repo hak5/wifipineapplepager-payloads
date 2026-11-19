@@ -30,6 +30,8 @@ LEGACY_REMOTE_ID_OUI = b"\x90\x3a\xe6"
 OPEN_DRONE_ID_VENDOR_TYPE = 0x0D
 OPEN_DRONE_ID_BLE_APP_CODE = 0x0D
 LOST_AFTER_SECONDS = 15
+GPS_STALE_SECONDS = 10
+MAX_TRACKED_RECORDS = 256
 CSV_INTERVAL_SECONDS = 5
 TRANSPORT_WIFI_BEACON = "wifi-beacon"
 TRANSPORT_WIFI_NAN = "wifi-nan"
@@ -737,6 +739,7 @@ class RemoteIdMonitor:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.records = {}
+        self.detected_count = 0
         self.frames = 0
         self.ble_frames = 0
         self.decoded = 0
@@ -744,6 +747,7 @@ class RemoteIdMonitor:
         self.event_seq = 0
         self.started = time.time()
         self.gps = None
+        self.gps_updated = 0
         self.capture_errors = []
         self.processes = []
         self.process_lock = threading.Lock()
@@ -810,6 +814,15 @@ class RemoteIdMonitor:
                 "mac": mac, "first_seen": now, "last_seen": now,
                 "packet_count": 0, "transports": [], "history": [],
             })
+            record["_record_key"] = key
+            if is_new:
+                self.detected_count += 1
+                if len(self.records) > MAX_TRACKED_RECORDS:
+                    oldest_key = min(
+                        (candidate for candidate in self.records if candidate != key),
+                        key=lambda candidate: self.records[candidate].get("last_seen", 0),
+                    )
+                    del self.records[oldest_key]
             record["last_seen"] = now
             record["packet_count"] += 1
             record["mac"] = mac
@@ -863,11 +876,20 @@ class RemoteIdMonitor:
 
     def public_record(self, record):
         result = {key: value for key, value in record.items() if not key.startswith("_")}
-        if self.gps and record.get("has_location"):
+        result["record_key"] = record.get("_record_key") or record.get("uas_id") or record.get("mac")
+        gps = self.gps if self.gps and time.time() - self.gps_updated < GPS_STALE_SECONDS else None
+        if gps and record.get("has_location"):
             drone_lat = record["latitude_e7"] / 1e7
             drone_lon = record["longitude_e7"] / 1e7
-            result["distance_m"] = distance_m(self.gps[0], self.gps[1], drone_lat, drone_lon)
-            result["bearing_deg"] = bearing_deg(self.gps[0], self.gps[1], drone_lat, drone_lon)
+            result["distance_m"] = distance_m(gps[0], gps[1], drone_lat, drone_lon)
+            result["bearing_deg"] = bearing_deg(gps[0], gps[1], drone_lat, drone_lon)
+        if gps and record.get("has_operator_location"):
+            operator_lat = record["operator_latitude_e7"] / 1e7
+            operator_lon = record["operator_longitude_e7"] / 1e7
+            result["operator_distance_m"] = distance_m(
+                gps[0], gps[1], operator_lat, operator_lon)
+            result["operator_bearing_deg"] = bearing_deg(
+                gps[0], gps[1], operator_lat, operator_lon)
         return result
 
     def snapshot(self, status="scanning"):
@@ -882,6 +904,7 @@ class RemoteIdMonitor:
                 status = "degraded"
             return {
                 "status": status,
+                "detected_count": self.detected_count,
                 "active_count": active_count,
                 "started": self.started,
                 "updated": time.time(),
@@ -890,7 +913,7 @@ class RemoteIdMonitor:
                 "decoded": self.decoded,
                 "malformed": self.malformed,
                 "event_seq": self.event_seq,
-                "gps": self.gps,
+                "gps": self.gps if self.gps and now - self.gps_updated < GPS_STALE_SECONDS else None,
                 "capture_errors": list(self.capture_errors),
                 "wifi_alive": self.wifi_alive,
                 "ble_alive": self.ble_alive,
@@ -997,10 +1020,21 @@ class RemoteIdMonitor:
                 try:
                     report = json.loads(line)
                     if report.get("class") == "TPV" and report.get("mode", 0) >= 2:
-                        self.gps = (float(report["lat"]), float(report["lon"]))
+                        latitude, longitude = float(report["lat"]), float(report["lon"])
+                        if -90 <= latitude <= 90 and -180 <= longitude <= 180 and (latitude or longitude):
+                            with self.lock:
+                                self.gps = (latitude, longitude)
+                                self.gps_updated = time.time()
+                    elif report.get("class") == "TPV":
+                        with self.lock:
+                            self.gps = None
+                            self.gps_updated = 0
                 except (ValueError, KeyError, TypeError):
                     continue
         finally:
+            with self.lock:
+                self.gps = None
+                self.gps_updated = 0
             self._reap_process(process)
 
     def write_gpx(self):
