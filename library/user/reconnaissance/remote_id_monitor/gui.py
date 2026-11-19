@@ -288,9 +288,6 @@ def draw_map(p, state, colors, censor=False):
     p.vline(x + width // 2, y, height, colors["grid"])
     label, color = gps_badge(state)
     _text(p, x + 170, y + 5, label, colors[color])
-    if censor:
-        _text(p, x + 92, y + 62, "POSITION CENSORED", colors["amber"], 2)
-        return None
     projection = map_projection(state, width, height)
     project = projection["project"]
     for trail in projection["trails"]:

@@ -1,6 +1,6 @@
 # Remote ID Radar
 
-Remote ID Radar v0.2.1 is a passive ASTM/OpenDroneID monitor for the Hak5 WiFi Pineapple Pager. It watches the Pager's existing monitor interface and Bluetooth controller without transmitting attack traffic. While monitoring, it temporarily tunes wlan1mon to Remote ID channel 6 and restores the prior channel when stopped.
+Remote ID Radar v0.2.2 is a passive ASTM/OpenDroneID monitor for the Hak5 WiFi Pineapple Pager. It watches the Pager's existing monitor interface and Bluetooth controller without transmitting attack traffic. While monitoring, it temporarily tunes wlan1mon to Remote ID channel 6 and restores the prior channel when stopped.
 
 ## Features
 
@@ -14,7 +14,7 @@ Remote ID Radar v0.2.1 is a passive ASTM/OpenDroneID monitor for the Hak5 WiFi P
 - Merges Wi-Fi and Bluetooth observations that advertise the same UAS ID.
 - Saves rate-limited JSONL events, CSV telemetry, and periodically checkpointed GPX waypoints under `/mmc/root/loot/remote_id_monitor` when MMC storage is available, otherwise `/root/loot/remote_id_monitor`.
 - Tunes the monitor interface to channel 6 for Wi-Fi Remote ID and restores its prior channel during cleanup without changing persistent PineAP configuration.
-- Provides an optional persistent censor mode that masks on-screen identifiers and all position-derived UI output, including coordinates, map geometry, range, and bearing.
+- Provides an optional persistent censor mode that masks on-screen identifiers, exact coordinates, range, and bearing while preserving the tile-free relative map geometry.
 
 ## Usage
 

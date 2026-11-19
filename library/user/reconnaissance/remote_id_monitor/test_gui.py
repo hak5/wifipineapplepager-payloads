@@ -129,10 +129,12 @@ class RenderTests(unittest.TestCase):
             self.assertNotIn("45 deg", output)
             self.assertNotIn("130 m", output)
             self.assertNotIn("50 deg", output)
-            self.assertIn("CENSORED", output)
         self.assertEqual(gui.identity(state["records"][0], True), "SERXXXXXXXXXXXXXX")
         pager = FakePager(); gui.draw_main(pager, state, censor=True)
-        self.assertFalse(any(call[0] in ("line", "fill_circle") for call in pager.calls))
+        self.assertTrue(any(call[0] == "line" for call in pager.calls))
+        self.assertTrue(any(call[0] == "fill_circle" for call in pager.calls))
+        pager = FakePager(); gui.draw_aircraft(pager, state["records"][0], 0, 1, censor=True)
+        self.assertIn("CENSORED", self.texts(pager))
 
     def test_gps_badges_distinguish_hardware_search_and_fix(self):
         self.assertEqual(gui.gps_badge({"gps_status": {"state": "not-detected"}}),
