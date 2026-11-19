@@ -7,7 +7,28 @@ IW_BIN=os.environ.get("IW_BIN","/usr/sbin/iw")
 CORE_REQUEST=1; CORE_REPLY=2; HEARTBEAT=3; TEXT=4; RECORD_ACK=6
 CAPABILITIES=b"C5P1;ROLE=EXTERNAL;BANDS=6"
 HOME_FREQ=2437; PSC=[5,21,37,53,69,85,101,117,133,149,165,181,197,213,229]
+DEDUP_SECONDS=30; MAX_QUEUE=256; MAX_UNIQUE_DEVICES=4096; MAX_RECENT=8192
 CORE_LINK_TIMEOUT=15.0; PSC_DWELL=.20
+
+def accept_record(bssid,now,recent,queued_bssids,window=DEDUP_SECONDS):
+    """Accept one BSSID only when it is outside both dedupe lanes."""
+    if now-recent.get(bssid,-999)<window or bssid in queued_bssids:
+        return False
+    recent[bssid]=now
+    return True
+
+def bounded_wait(deadline,now,cap=.05):
+    """Return a non-negative select timeout at the edge of a receive window."""
+    return max(0.0,min(cap,deadline-now))
+
+def prune_recent(recent,now,window=DEDUP_SECONDS*4,limit=MAX_RECENT):
+    """Bound the dedupe cache by both age and entry count."""
+    cutoff=now-window
+    for bssid,when in list(recent.items()):
+        if when<cutoff: recent.pop(bssid,None)
+    if len(recent)>limit:
+        for bssid,_ in sorted(recent.items(),key=lambda item:item[1])[:len(recent)-limit]:
+            recent.pop(bssid,None)
 
 def text_message(kind,counter=0,text=b""):
     text=text[:200]
@@ -104,7 +125,9 @@ class Radio:
     def receive(self,seconds,beacons=False):
         end=time.monotonic()+seconds
         while time.monotonic()<end:
-            ready,_,_=select.select([self.sock],[],[],min(.05,end-time.monotonic()))
+            timeout=bounded_wait(end,time.monotonic())
+            if timeout<=0: break
+            ready,_,_=select.select([self.sock],[],[],timeout)
             if not ready: continue
             try:
                 pkt=self.sock.recv(4096)
@@ -148,7 +171,7 @@ def format_status(stats):
         f"CH: {channel}  RSSI: {rssi} dBm",
         f"SEEN: {stats.get('seen',0)}  QUEUE: {stats.get('queued',0)}",
         f"TX: {stats.get('sent',0)}  ACK: {stats.get('acked',0)}  DROP: {stats.get('dropped',0)}",
-        "A: STOP",
+        "B: STOP",
     ))
 
 def atomic_write(path,data):
@@ -187,20 +210,31 @@ def link_expired(last_reply,now):
     return last_reply is not None and now-last_reply>=CORE_LINK_TIMEOUT
 
 def main(argv=None):
-    ap=argparse.ArgumentParser(); ap.add_argument("--self-check",action="store_true"); ap.add_argument("--iface",default="wlan1mon"); ap.add_argument("--core"); ap.add_argument("--stats",default="/tmp/c5-pager-node.json"); ap.add_argument("--status",default="/tmp/c5-pager-node.status"); ap.add_argument("--interface-state"); ap.add_argument("--discover-seconds",type=float); a=ap.parse_args(argv)
+    ap=argparse.ArgumentParser(); ap.add_argument("--self-check",action="store_true"); ap.add_argument("--iface",default="wlan1mon"); ap.add_argument("--core"); ap.add_argument("--stats",default="/tmp/c5-pager-node.json"); ap.add_argument("--status",default="/tmp/c5-pager-node.status"); ap.add_argument("--render-stats"); ap.add_argument("--interface-state"); ap.add_argument("--discover-seconds",type=float); a=ap.parse_args(argv)
     if a.self_check:
         assert parse_text_message(text_message(HEARTBEAT,1,CAPABILITIES))==(HEARTBEAT,1,CAPABILITIES); return 0
     if a.interface_state:
         try: state=interface_state(json.load(sys.stdin),a.interface_state)
         except (OSError,ValueError): state=None
-        if state is None or state[0] not in (0,200,1000) or (state[0]==0 and state[1]<=0): return 1
+        if state is None or state[0] not in (0,200,1000): return 1
         print("%d %d"%state); return 0
+    if a.render_stats:
+        try:
+            with open(a.render_stats) as f: print(format_status(json.load(f)))
+        except (OSError,ValueError): print(format_status({}))
+        return
     radio=Radio(a.iface)
     if a.discover_seconds is not None:
         for mac in discover_cores(radio,a.iface,max(.5,a.discover_seconds)): print(mac.hex(":"))
         return
     if not a.core: ap.error("--core is required")
-    wanted=bytes.fromhex(a.core.replace(":","")); core=None; last_reply=None; heartbeat=0; record_counter=struct.unpack("<I",os.urandom(4))[0]; seen={}; queue=[]; attempts={}; sent=0; acked=0; dropped=0; last_ack=None; latest=None; sweeps=0
+    wanted=bytes.fromhex(a.core.replace(":",""))
+    core=None; last_reply=None; heartbeat=0; record_counter=struct.unpack("<I",os.urandom(4))[0]
+    recent={}; unique_devices=set(); unique_capped=False
+    queue=[]; queued_bssids=set(); attempts={}
+    sent=0; acked=0; dropped=0; deduped=0; frames=0
+    last_ack=None; last_ack_at=None; latest=None; sweeps=0
+    channel_activity={ch:0.0 for ch in PSC}; started=time.monotonic()
     while True:
         tune(a.iface,HOME_FREQ)
         if core is not None and link_expired(last_reply,time.monotonic()):
@@ -210,9 +244,10 @@ def main(argv=None):
             for kind,item in radio.receive(.35):
                 if kind=="message":
                     src,payload=item; parsed=valid_core_reply(src,payload,wanted)
-                    if parsed and parsed[0]==CORE_REPLY: core=src; last_reply=time.monotonic()
+                    if parsed and parsed[0]==CORE_REPLY:
+                        core=src; last_reply=time.monotonic()
         else:
-            radio.send(core,text_message(HEARTBEAT,heartbeat,CAPABILITIES)); heartbeat=(heartbeat+1)&0xffffffff
+            radio.send(core,text_message(HEARTBEAT,heartbeat,CAPABILITIES)); heartbeat+=1
             drain_deadline=time.monotonic()+.5
             while queue and time.monotonic()<drain_deadline:
                 rec=queue.pop(0); bssid,ch,rssi,auth,ssid=rec
@@ -227,29 +262,48 @@ def main(argv=None):
                     if parsed:
                         last_reply=time.monotonic()
                         if parsed[0]==RECORD_ACK and parsed[1]==record_counter and parsed[2]==expected_ack:
-                            acked+=1; last_ack=parsed[2].decode("ascii"); acknowledged=True; break
+                            acked+=1; last_ack=parsed[2].decode("ascii"); last_ack_at=time.monotonic(); acknowledged=True; break
                 if acknowledged:
-                    attempts.pop(bssid,None)
+                    attempts.pop(bssid,None); queued_bssids.discard(bssid)
                 else:
                     count=attempts.get(bssid,0)+1
                     if count<3: attempts[bssid]=count; queue.append(rec)
-                    else: attempts.pop(bssid,None); dropped+=1
+                    else:
+                        attempts.pop(bssid,None); queued_bssids.discard(bssid); dropped+=1
             for kind,item in radio.receive(.15):
                 if kind=="message" and valid_core_reply(item[0],item[1],wanted): last_reply=time.monotonic()
+        sweep_activity={ch:0 for ch in PSC}
         for ch in PSC:
             if not tune(a.iface,5950+5*ch): continue
             for kind,item in radio.receive(PSC_DWELL,beacons=True):
                 if kind!="beacon": continue
                 rec=beacon_record(item)
                 if not rec: continue
-                now=time.monotonic(); bssid=rec[0]
+                now=time.monotonic(); bssid=rec[0]; frames+=1; sweep_activity[ch]+=1
                 latest={"ssid":rec[4].decode("utf-8","replace"),"channel":rec[1],"rssi":rec[2],"bssid":bssid.hex(":")}
-                if now-seen.get(bssid,-999)<30: continue
-                seen[bssid]=now
-                if len(queue)>=256: queue.pop(0)
-                queue.append(rec)
+                if bssid not in unique_devices:
+                    if len(unique_devices)<MAX_UNIQUE_DEVICES: unique_devices.add(bssid)
+                    else: unique_capped=True
+                if not accept_record(bssid,now,recent,queued_bssids):
+                    deduped+=1; continue
+                if len(queue)>=MAX_QUEUE:
+                    evicted=queue.pop(0); queued_bssids.discard(evicted[0]); attempts.pop(evicted[0],None); dropped+=1
+                queue.append(rec); queued_bssids.add(bssid)
         sweeps+=1
-        stats={"core":core.hex(":") if core else None,"seen":len(seen),"queued":len(queue),"sent":sent,"acked":acked,"dropped":dropped,"last_ack":last_ack,"latest":latest,"sweeps":sweeps}
+        for ch in PSC:
+            channel_activity[ch]=channel_activity[ch]*.65+sweep_activity[ch]
+        # Bound the short-term dedupe cache without losing the session device count.
+        prune_recent(recent,time.monotonic())
+        now=time.monotonic()
+        stats={
+            "paired_core":wanted.hex(":"),"core":core.hex(":") if core else None,
+            "devices":len(unique_devices),"devices_capped":unique_capped,
+            "seen":len(unique_devices),"queued":len(queue),"sent":sent,"acked":acked,
+            "dropped":dropped,"deduped":deduped,"frames":frames,"last_ack":last_ack,
+            "ack_age_s":None if last_ack_at is None else int(max(0,now-last_ack_at)),
+            "latest":latest,"sweeps":sweeps,"uptime_s":int(now-started),
+            "channels":PSC,"channel_activity":[round(channel_activity[ch],1) for ch in PSC],
+        }
         write_status(a.stats,a.status,stats)
 
 if __name__=="__main__": sys.exit(main())

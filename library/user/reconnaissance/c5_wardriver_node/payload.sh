@@ -2,11 +2,11 @@
 # Title: C5 Wardriver Pager Node
 # Author: JustCallMeKoko
 # Description: Adds Wi-Fi 6 GHz observations to a C5 Wardriver Core over ESP-NOW
-# Version: 0.4.0
+# Version: 0.5.0
 # Category: Reconnaissance
 
 LAUNCH_DIR="$(cd "$(dirname "$0")" && pwd)"
-export PATH="/usr/sbin:/usr/bin:/sbin:/bin:/mmc/usr/bin:$PATH"
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin:/mmc/usr/sbin:/mmc/usr/bin:/mmc/sbin:/mmc/bin:$PATH"
 if [ -f "$LAUNCH_DIR/c5_pager_node.py" ]; then
   DIR="$LAUNCH_DIR"
 elif [ -f /root/payloads/user/reconnaissance/c5_wardriver_node/c5_pager_node.py ]; then
@@ -18,25 +18,54 @@ else
   exit 1
 fi
 IFACE=wlan1mon; STATS=/tmp/c5-pager-node.json; STATUS=/tmp/c5-pager-node.status; LOGFILE=/tmp/c5-pager-node.log
+GUI_LOG=/tmp/c5-pager-node-gui.log; SETUP_LOG=/tmp/c5-pager-node-gui-setup.log
+LOCK=/tmp/c5-pager-node.lock
 CORE_CONFIG=/root/.config/c5-wardriver/core_mac
-RADIO_SET=0; OLD_HOPRATE=""; OLD_CHANNEL=""; PID=""
+RADIO_SET=0; DISPLAY_SET=0; OLD_HOPRATE=""; OLD_CHANNEL=""
+PID=""; GUI_PID=""
+if ! mkdir "$LOCK" 2>/dev/null; then
+  LOCK_PID=$(cat "$LOCK/pid" 2>/dev/null || true)
+  if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" 2>/dev/null && \
+     tr '\0' ' ' <"/proc/$LOCK_PID/cmdline" 2>/dev/null | grep -q 'c5_wardriver_node/payload.sh'; then
+    ERROR_DIALOG "C5 Wardriver Node is already running."
+    exit 1
+  fi
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null || { ERROR_DIALOG "Could not recover the C5 node lock."; exit 1; }
+fi
+printf "%s\n" "$$" >"$LOCK/pid"
+stop_pid() {
+  local pid="$1" count=0
+  [ -n "$pid" ] || return 0
+  kill "$pid" 2>/dev/null || true
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do sleep 0.2; count=$((count+1)); done
+  kill -9 "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+}
 cleanup() {
-  if [ -n "$PID" ]; then kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; PID=""; fi
+  stop_pid "$GUI_PID"; GUI_PID=""
+  stop_pid "$PID"; PID=""
   if [ "$RADIO_SET" = 1 ]; then
     case "$OLD_HOPRATE" in
-      200) _pineap INTERFACE SET "$IFACE" HOP fast >/dev/null 2>&1 ;;
-      1000) _pineap INTERFACE SET "$IFACE" HOP slow >/dev/null 2>&1 ;;
-      0) _pineap INTERFACE SET "$IFACE" CHANNEL "$OLD_CHANNEL" >/dev/null 2>&1 ;;
+      200) _pineap INTERFACE SET "$IFACE" HOP fast >/dev/null 2>&1 || true ;;
+      1000) _pineap INTERFACE SET "$IFACE" HOP slow >/dev/null 2>&1 || true ;;
+      0) _pineap INTERFACE SET "$IFACE" CHANNEL "$OLD_CHANNEL" >/dev/null 2>&1 || true ;;
     esac
     RADIO_SET=0
   fi
+  if [ "$DISPLAY_SET" = 1 ]; then
+    UI_RELEASE >/dev/null 2>&1 || true
+    DISPLAY_SET=0
+  fi
+  rm -f "$LOCK/pid"
+  rmdir "$LOCK" 2>/dev/null || true
 }
 trap cleanup EXIT
 trap 'exit 0' INT TERM
-confirm() {
+confirmed() {
   local response
   response=$(CONFIRMATION_DIALOG "$1") || return 1
-  [ "$response" = "$DUCKYSCRIPT_USER_CONFIRMED" ]
+  [ -n "${DUCKYSCRIPT_USER_CONFIRMED:-}" ] && [ "$response" = "$DUCKYSCRIPT_USER_CONFIRMED" ]
 }
 configure_python() {
   PYTHON_BIN=""
@@ -56,7 +85,7 @@ configure_python() {
   fi
 }
 install_python() {
-  if ! confirm "C5 Wardriver Node needs Python 3.\n\nInstall python3-light to MMC now?\n\nRequires internet and persistent storage changes."; then
+  if ! confirmed "C5 Wardriver Node needs Python 3.\n\nInstall python3-light to MMC now?\n\nRequires internet and persistent storage changes."; then
     return 2
   fi
   INSTALL_LOG=/tmp/c5-pager-node-python-install.$$.log
@@ -65,6 +94,15 @@ install_python() {
   LOG cyan "Installing or repairing python3-light on MMC..."
   opkg -d mmc --force-reinstall install python3-light >>"$INSTALL_LOG" 2>&1 || { ERROR_DIALOG "Python installation failed. See $INSTALL_LOG"; return 1; }
   configure_python || { ERROR_DIALOG "Python installed but is not executable. See $INSTALL_LOG"; return 1; }
+}
+install_gui() {
+  : >"$SETUP_LOG"
+  LOG cyan "Installing Pager GUI support..."
+  opkg update >>"$SETUP_LOG" 2>&1 || return 1
+  opkg -d mmc --force-reinstall install python3-ctypes >>"$SETUP_LOG" 2>&1 || return 1
+  bash "$DIR/install_pagerctl.sh" >>"$SETUP_LOG" 2>&1 || return 1
+  configure_python || return 1
+  PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B "$DIR/gui.py" --check >>"$SETUP_LOG" 2>&1
 }
 if ! configure_python; then
   install_python
@@ -93,16 +131,24 @@ if ! PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B "$DIR/c5_pager_node.py" --self-c
 fi
 rm -f "$STARTUP_LOG"
 iw dev "$IFACE" info >/dev/null 2>&1 || { ERROR_DIALOG "wlan1mon is unavailable."; exit 1; }
+: >"$SETUP_LOG"
+if ! PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B "$DIR/gui.py" --check >>"$SETUP_LOG" 2>&1; then
+  if ! confirmed "JCMK live dashboard needs pagerctl and python3-ctypes.\n\nDownload the pinned GUI runtime and install python3-ctypes to MMC?\n\nRequires internet and persistent storage changes."; then
+    LOG yellow "GUI setup cancelled"
+    exit 0
+  fi
+  install_gui || { ERROR_DIALOG "GUI setup failed. See $SETUP_LOG"; exit 1; }
+fi
 valid_mac() { echo "$1" | grep -Eq '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'; }
 prepare_radio() {
-  [ "$RADIO_SET" = 1 ] && return 0
-  RADIO_STATE=$(_pineap INTERFACE LIST format=json | "$PYTHON_BIN" "$DIR/c5_pager_node.py" --interface-state "$IFACE") || {
-    ERROR_DIALOG "Could not read the current $IFACE channel state."; return 1;
-  }
+  [ "$RADIO_SET" = 1 ] && return
+  RADIO_STATE=$(_pineap INTERFACE LIST format=json | "$PYTHON_BIN" "$DIR/c5_pager_node.py" --interface-state "$IFACE") || return 1
   read -r OLD_HOPRATE OLD_CHANNEL <<<"$RADIO_STATE"
-  _pineap INTERFACE SET "$IFACE" CHANNEL 6 >/dev/null 2>&1 || {
-    ERROR_DIALOG "Could not lock $IFACE to channel 6."; return 1;
-  }
+  if [ "$OLD_HOPRATE" = 0 ] && [ "${OLD_CHANNEL:-0}" -le 0 ]; then
+    OLD_CHANNEL=$(iw dev "$IFACE" info 2>/dev/null | awk '$1=="channel" {print $2; exit}')
+    [ -n "$OLD_CHANNEL" ] || return 1
+  fi
+  _pineap INTERFACE SET "$IFACE" CHANNEL 6 >/dev/null 2>&1 || return 1
   RADIO_SET=1
 }
 save_core() {
@@ -127,7 +173,7 @@ else
 fi
 case "$action" in
   "Pair nearby Core")
-    prepare_radio || exit 1
+    prepare_radio || { ERROR_DIALOG "Could not take temporary control of $IFACE."; exit 1; }
     LOG yellow "Searching for C5 Wardriver Cores..."
     CANDIDATES=()
     while IFS= read -r mac; do valid_mac "$mac" && CANDIDATES+=("$mac"); done < <("$PYTHON_BIN" "$DIR/c5_pager_node.py" --iface "$IFACE" --discover-seconds 6)
@@ -137,7 +183,7 @@ case "$action" in
     else
       CORE_MAC=$(LIST_PICKER "Select C5 Core" "${CANDIDATES[@]}" "${CANDIDATES[0]}") || exit 0
     fi
-    confirm "Pair with $CORE_MAC?" || exit 0
+    confirmed "Pair with $CORE_MAC?" || exit 0
     save_core
     LOG green "Paired Core: $CORE_MAC"
     ;;
@@ -151,38 +197,26 @@ case "$action" in
   *) exit 0 ;;
 esac
 valid_mac "$CORE_MAC" || { ERROR_DIALOG "A valid C5 Core is required."; exit 1; }
-prepare_radio || exit 1
+prepare_radio || { ERROR_DIALOG "Could not take temporary control of $IFACE."; exit 1; }
 rm -f "$STATS" "$STATUS"; : >"$LOGFILE"
 start_worker() {
   printf "[%s] starting node worker\n" "$(date -Iseconds 2>/dev/null || date)" >>"$LOGFILE"
   "$PYTHON_BIN" "$DIR/c5_pager_node.py" --iface "$IFACE" --core "$CORE_MAC" --stats "$STATS" --status "$STATUS" >>"$LOGFILE" 2>&1 & PID=$!
 }
 start_worker
-LOG cyan "C5 WARDRIVER 6 GHz NODE"
-LAST_STATUS=""; LAST_LOG_TIME=0
-while true; do
-  if ! kill -0 "$PID" 2>/dev/null; then
-    wait "$PID" 2>/dev/null
-    LOG red "Node worker stopped; restarting..."
-    sleep 2
-    start_worker
-  fi
-  if [ -s "$STATUS" ]; then
-    status=$(cat "$STATUS"); now=$(date +%s)
-    if { [ "$status" != "$LAST_STATUS" ] && [ $((now-LAST_LOG_TIME)) -ge 10 ]; } || [ $((now-LAST_LOG_TIME)) -ge 30 ]; then
-      if echo "$status" | grep -q "CORE: LINKED"; then LOG green "$status"; else LOG yellow "$status"; fi
-      LAST_STATUS="$status"; LAST_LOG_TIME=$now
-    fi
-  fi
-
-  timeout 2 WAIT_FOR_BUTTON_PRESS A >/dev/null 2>&1
-  rc=$?
-  [ "$rc" -eq 0 ] && break
-  [ "$rc" -eq 124 ] || sleep 2
-done
-kill "$PID" 2>/dev/null; wait "$PID" 2>/dev/null; PID=""
+UI_TAKEOVER >/dev/null 2>&1 || { ERROR_DIALOG "Could not take over the Pager display."; exit 1; }
+DISPLAY_SET=1
+PYTHONDONTWRITEBYTECODE=1 "$PYTHON_BIN" -B "$DIR/gui.py" --stats "$STATS" --node-pid "$PID" 2>"$GUI_LOG" &
+GUI_PID=$!
+wait "$GUI_PID"; GUI_RC=$?; GUI_PID=""
+cleanup
+trap - EXIT
+if [ "$GUI_RC" -ne 0 ]; then
+  ERROR_DIALOG "JCMK dashboard stopped unexpectedly. See $GUI_LOG"
+  exit "$GUI_RC"
+fi
 if [ -s "$STATS" ]; then
-  summary=$("$PYTHON_BIN" -c 'import json,sys; s=json.load(open(sys.argv[1])); print("Core: %s\n6 GHz seen: %d\nRecords sent: %d\nCore ACKs: %d"%(s.get("core") or "not found",s["seen"],s["sent"],s.get("acked",0)))' "$STATS")
+  summary=$("$PYTHON_BIN" -c 'import json,sys; s=json.load(open(sys.argv[1])); print("Core: %s\nDevices: %d\nRecords sent: %d\nCore ACKs: %d\nDuplicates suppressed: %d"%(s.get("core") or "not found",s.get("devices",0),s.get("sent",0),s.get("acked",0),s.get("deduped",0)))' "$STATS")
   PROMPT "$summary"
 else
   ERROR_DIALOG "Node stopped before producing status. See $LOGFILE"
