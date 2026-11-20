@@ -29,12 +29,15 @@ ASD_STAN_OUI = b"\xfa\x0b\xbc"
 LEGACY_REMOTE_ID_OUI = b"\x90\x3a\xe6"
 OPEN_DRONE_ID_VENDOR_TYPE = 0x0D
 OPEN_DRONE_ID_BLE_APP_CODE = 0x0D
-LOST_AFTER_SECONDS = 15
+LOST_AFTER_SECONDS = 30
+GPS_STALE_SECONDS = 10
+MAX_TRACKED_RECORDS = 256
 CSV_INTERVAL_SECONDS = 5
 TRANSPORT_WIFI_BEACON = "wifi-beacon"
 TRANSPORT_WIFI_NAN = "wifi-nan"
 TRANSPORT_BLE = "ble"
 IW_COMMAND = "/usr/sbin/iw" if os.path.exists("/usr/sbin/iw") else "iw"
+PINEAP_COMMAND = "/usr/bin/_pineap" if os.path.exists("/usr/bin/_pineap") else "_pineap"
 UA_TYPES = {
     0: "None", 1: "Aeroplane", 2: "Helicopter", 3: "Gyroplane",
     4: "Hybrid Lift", 5: "Ornithopter", 6: "Glider", 7: "Kite",
@@ -415,6 +418,72 @@ def blue5_le_status():
     return classify_blue5_status(output), output.strip()
 
 
+def parse_pineap_gps_status(output):
+    """Parse the Pager's native pineapd GPS status into a stable state model."""
+    text = str(output or "").strip()
+    if not text:
+        return {"state": "unavailable", "detected": False, "source": "pineapd"}
+    fields = {}
+    for match in re.finditer(r"([A-Za-z][A-Za-z0-9]*)=((?:(?!\s+[A-Za-z][A-Za-z0-9]*=).)*)", text):
+        fields[match.group(1).lower()] = match.group(2).strip().rstrip("/").strip()
+    gps_keys = ("fix", "location", "protocol", "baud", "readiness",
+                "satstracked", "satsstrong", "signalquality")
+    if not any(key in fields for key in gps_keys):
+        return {"state": "unavailable", "detected": False, "source": "pineapd"}
+    protocol = fields.get("protocol", "").lower()
+    baud_match = re.match(r"\s*(\d+)", fields.get("baud", ""))
+    baud = int(baud_match.group(1)) if baud_match else 0
+    detected = bool(protocol and protocol not in ("none", "unknown") and baud > 0)
+    try:
+        fix_value = int(fields.get("fix", "0"))
+    except ValueError:
+        fix_value = 0
+    location = fields.get("location", "")
+    point = None
+    try:
+        latitude, longitude = [float(value) for value in location.split(",", 1)]
+        if -90 <= latitude <= 90 and -180 <= longitude <= 180 and (latitude or longitude):
+            point = (latitude, longitude)
+    except (TypeError, ValueError):
+        pass
+    result = {
+        "state": "fix" if fix_value > 0 and point else ("searching" if detected else "not-detected"),
+        "detected": detected,
+        "source": "pineapd",
+        "fix": fix_value,
+        "protocol": protocol or None,
+        "baud": baud or None,
+        "readiness": fields.get("readiness") or None,
+    }
+    for source, destination in (("satstracked", "satellites_tracked"),
+                                ("satsstrong", "satellites_strong"),
+                                ("signalquality", "signal_quality")):
+        value = re.match(r"\s*(\d+)", fields.get(source, ""))
+        result[destination] = int(value.group(1)) if value else None
+    if point:
+        result["point"] = point
+    return result
+
+
+def pineap_gps_status():
+    try:
+        result = subprocess.run(
+            [PINEAP_COMMAND, "GPS", "STATUS", "format=json"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"state": "unavailable", "detected": False,
+                "source": "pineapd", "error": str(error)}
+    parsed = parse_pineap_gps_status(result.stdout)
+    if parsed.get("state") != "unavailable":
+        return parsed
+    if result.returncode != 0:
+        return {"state": "unavailable", "detected": False,
+                "source": "pineapd", "error": (result.stdout or "").strip()}
+    return parsed
+
+
 def _btmon_hex_bytes(line):
     values = []
     for token in line.strip().split():
@@ -737,6 +806,7 @@ class RemoteIdMonitor:
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.records = {}
+        self.detected_count = 0
         self.frames = 0
         self.ble_frames = 0
         self.decoded = 0
@@ -744,6 +814,8 @@ class RemoteIdMonitor:
         self.event_seq = 0
         self.started = time.time()
         self.gps = None
+        self.gps_updated = 0
+        self.gps_status = {"state": "unavailable", "detected": False, "source": "pineapd"}
         self.capture_errors = []
         self.processes = []
         self.process_lock = threading.Lock()
@@ -810,6 +882,15 @@ class RemoteIdMonitor:
                 "mac": mac, "first_seen": now, "last_seen": now,
                 "packet_count": 0, "transports": [], "history": [],
             })
+            record["_record_key"] = key
+            if is_new:
+                self.detected_count += 1
+                if len(self.records) > MAX_TRACKED_RECORDS:
+                    oldest_key = min(
+                        (candidate for candidate in self.records if candidate != key),
+                        key=lambda candidate: self.records[candidate].get("last_seen", 0),
+                    )
+                    del self.records[oldest_key]
             record["last_seen"] = now
             record["packet_count"] += 1
             record["mac"] = mac
@@ -863,11 +944,20 @@ class RemoteIdMonitor:
 
     def public_record(self, record):
         result = {key: value for key, value in record.items() if not key.startswith("_")}
-        if self.gps and record.get("has_location"):
+        result["record_key"] = record.get("_record_key") or record.get("uas_id") or record.get("mac")
+        gps = self.gps if self.gps and time.time() - self.gps_updated < GPS_STALE_SECONDS else None
+        if gps and record.get("has_location"):
             drone_lat = record["latitude_e7"] / 1e7
             drone_lon = record["longitude_e7"] / 1e7
-            result["distance_m"] = distance_m(self.gps[0], self.gps[1], drone_lat, drone_lon)
-            result["bearing_deg"] = bearing_deg(self.gps[0], self.gps[1], drone_lat, drone_lon)
+            result["distance_m"] = distance_m(gps[0], gps[1], drone_lat, drone_lon)
+            result["bearing_deg"] = bearing_deg(gps[0], gps[1], drone_lat, drone_lon)
+        if gps and record.get("has_operator_location"):
+            operator_lat = record["operator_latitude_e7"] / 1e7
+            operator_lon = record["operator_longitude_e7"] / 1e7
+            result["operator_distance_m"] = distance_m(
+                gps[0], gps[1], operator_lat, operator_lon)
+            result["operator_bearing_deg"] = bearing_deg(
+                gps[0], gps[1], operator_lat, operator_lon)
         return result
 
     def snapshot(self, status="scanning"):
@@ -875,13 +965,16 @@ class RemoteIdMonitor:
             now = time.time()
             records = [self.public_record(record) for record in self.records.values()]
             for record in records:
-                record["is_lost"] = now - record.get("last_seen", 0) >= LOST_AFTER_SECONDS
+                age = max(0, now - record.get("last_seen", 0))
+                record["last_seen_age_s"] = int(age)
+                record["is_lost"] = age >= LOST_AFTER_SECONDS
             records.sort(key=lambda item: item.get("last_seen", 0), reverse=True)
             active_count = sum(1 for record in records if not record["is_lost"])
             if status == "scanning" and self.capture_errors:
                 status = "degraded"
             return {
                 "status": status,
+                "detected_count": self.detected_count,
                 "active_count": active_count,
                 "started": self.started,
                 "updated": time.time(),
@@ -890,7 +983,8 @@ class RemoteIdMonitor:
                 "decoded": self.decoded,
                 "malformed": self.malformed,
                 "event_seq": self.event_seq,
-                "gps": self.gps,
+                "gps": self.gps if self.gps and now - self.gps_updated < GPS_STALE_SECONDS else None,
+                "gps_status": dict(self.gps_status),
                 "capture_errors": list(self.capture_errors),
                 "wifi_alive": self.wifi_alive,
                 "ble_alive": self.ble_alive,
@@ -985,23 +1079,18 @@ class RemoteIdMonitor:
             self._reap_process(process)
 
     def gps_loop(self):
-        try:
-            process = subprocess.Popen(["gpspipe", "-w"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        except OSError:
-            return
-        self._register_process(process)
-        try:
-            for line in process.stdout:
-                if self.stop_event.is_set():
-                    break
-                try:
-                    report = json.loads(line)
-                    if report.get("class") == "TPV" and report.get("mode", 0) >= 2:
-                        self.gps = (float(report["lat"]), float(report["lon"]))
-                except (ValueError, KeyError, TypeError):
-                    continue
-        finally:
-            self._reap_process(process)
+        while not self.stop_event.is_set():
+            status = pineap_gps_status()
+            with self.lock:
+                self.gps_status = status
+                point = status.get("point") if status.get("state") == "fix" else None
+                if point:
+                    self.gps = tuple(point)
+                    self.gps_updated = time.time()
+                else:
+                    self.gps = None
+                    self.gps_updated = 0
+            self.stop_event.wait(2.0)
 
     def write_gpx(self):
         points = []
@@ -1170,7 +1259,7 @@ def render_state(path, censor=False):
         identity = short_identity(record, censor)[:24]
         rssi = f"{record.get('rssi')}dBm" if "rssi" in record else "RSSI ?"
         line = f"[{transport or '?'}] {identity}  {rssi}"
-        if "distance_m" in record:
+        if "distance_m" in record and not censor:
             distance = record["distance_m"]
             distance_text = f"{distance:.0f}m" if distance < 1000 else f"{distance / 1000:.1f}km"
             line += f"  {distance_text} {direction_name(record['bearing_deg'])}"
@@ -1199,16 +1288,18 @@ def detail_state(path, index, censor=False):
              f"Type: {UA_TYPES.get(record.get('ua_type'), 'Unknown')}",
              f"Status: {STATUS_TYPES.get(record.get('operational_status'), 'Unknown')}"]
     if record.get("has_location"):
-        lines.append(f"Drone: {record['latitude_e7'] / 1e7:.7f}, {record['longitude_e7'] / 1e7:.7f}")
+        lines.append("Drone: [censored]" if censor else
+                     f"Drone: {record['latitude_e7'] / 1e7:.7f}, {record['longitude_e7'] / 1e7:.7f}")
         if record.get("geo_altitude_valid"):
             lines.append(f"Altitude: {record['geo_altitude_m']:.1f} m")
-        if "distance_m" in record:
+        if "distance_m" in record and not censor:
             lines.append(f"Range: {record['distance_m']:.0f} m @ {record['bearing_deg']:.0f} deg")
     if record.get("operator_id"):
         operator_id = censor_identifier(record["operator_id"]) if censor else record["operator_id"]
         lines.append("Operator: " + operator_id)
     if record.get("has_operator_location"):
-        lines.append(f"Operator pos: {record['operator_latitude_e7'] / 1e7:.7f}, {record['operator_longitude_e7'] / 1e7:.7f}")
+        lines.append("Operator pos: [censored]" if censor else
+                     f"Operator pos: {record['operator_latitude_e7'] / 1e7:.7f}, {record['operator_longitude_e7'] / 1e7:.7f}")
     if record.get("description"):
         description = censor_name(record["description"]) if censor else record["description"]
         lines.append("Note: " + description)
