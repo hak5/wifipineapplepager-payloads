@@ -1,80 +1,69 @@
-# [mobile2gps](https://github.com/ryanpohlner/mobile2gps)
+# Mobile2GPS
 
-A payload for the Hak5 WiFi Pineapple Pager that lets you use your mobile phone as the Pager's GPS.
+Use your phone as the WiFi Pineapple Pager's GPS for wardriving. Connect to the Pager's Management AP and share your location through a web page. No phone app or separate GPS receiver needed.
 
-## How It Works
-
-mobile2gps creates a bridge between your mobile phone's location data and the Pager's GPS system:
-
-1. **Fake GPS Device**: The server creates a pseudo-terminal (PTY) that acts as a fake serial GPS device
-2. **gpsd Integration**: The server starts `gpsd` (GPS daemon) and points it to the fake GPS device
-3. **HTTPS Server**: A web server runs on port 1993, serving a web page that uses the browser's Geolocation API
-4. **Connectivity**: Your mobile phone connects to the Pager's Management AP, allowing it to access the web server at `https://172.16.52.1:1993`
-5. **Data Conversion**: Your mobile browser sends GPS coordinates to the web server, which converts them to NMEA GPRMC sentences
-6. **GPS Feed**: The NMEA sentences are written to the fake GPS device, which gpsd reads and makes available to the Pager's GPS system
+Requires Pager firmware **2.0.0 or newer**.
 
 ## Installation
 
-1. Download the payload (using `git clone`, the [ZIP](https://github.com/ryanpohlner/mobile2gps/archive/refs/heads/main.zip), or a payload downloader on the Pager)
-2. [Build](#building) or [download](https://github.com/ryanpohlner/mobile2gps/releases/) the `mobile2gps` server binary and place it in the payload folder
-3. Copy  `payload.sh`, `mobile2gps` (the binary), and `index.html` to `/mmc/root/payloads/user/general/mobile2gps` on your Pager
+Install directly on the Pager through:
 
-## <a name="building"></a>Building
+**Pager Portal > Payloads > Get Payloads > User Payloads > general > Mobile2GPS > Install**
 
-Pre-compiled server binaries are available [here](https://github.com/ryanpohlner/mobile2gps/releases/).
+This downloads the payload script but not the server binary. Running the payload will prompt you to download the server binary. The Pager needs internet access for the download.
 
-It is not recommended to try building on the Pager.
+Alternatively, [build the server binary yourself](#building) or download it from [Releases](https://github.com/ryanpohlner/mobile2gps/releases/), then copy `Mobile2GPS` to `/mmc/root/payloads/user/general/Mobile2GPS/` on the Pager.
 
-This folder contains build scripts that automatically configure cross-compilation for the Pager's architecture (MIPS 24KEc soft-float).
+## Using Mobile2GPS
 
-**Prerequisites:** Go 1.21 or later must be installed on your computer. 
+1. Open **Mobile2GPS** under **Payloads > General** on the Pager and select **Start server**.
+2. Enable the Pager's Management AP and connect your phone to it.
+3. Open [https://172.16.52.1:1993](https://172.16.52.1:1993) in your phone's browser. The server uses a self-signed certificate, so accept the certificate warning for this address.
+4. Press **Start** on the page and allow location access. Enable Precise Location if your phone offers it.
+5. Select **GPS status** in the payload menu to check the coordinates reported by the Pager's selected GPS source.
 
-### Windows
+Keep the page open in the foreground. Turn on **NoSleep** to help prevent the screen from locking; switching apps or locking the phone can interrupt updates.
 
-1. Install [Go](https://go.dev/dl/) if you haven't already
-2. Open PowerShell in the project directory
-3. Run the build script:
-   ```powershell
-   .\build.ps1
-   ```
+**Exit (server stays on)** closes the menu while sharing continues. When finished, select **Stop server** to shut down Mobile2GPS and restore the previous GPS selection. GPS mode, serial device, and baud rate are configured automatically.
 
-### Linux / macOS
+## Status and troubleshooting
 
-1. Install Go if you haven't already:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt-get install golang-go
-   
-   # macOS (using Homebrew)
-   brew install go
-   
-   # Or download from https://go.dev/dl/
-   ```
-2. Build using the Makefile:
-   ```bash
-   make build
-   ```
+`OK` means the phone has a fresh location with reported accuracy of 100 metres or better, and uploads to the server are succeeding.
 
-## FAQ / Issues
+- **POOR ACCURACY:** The reported accuracy is worse than 100 metres, so the position is marked invalid. Check Precise Location and try moving outdoors.
+- **NO FIX:** No fresh location is available. Check the browser's location permission and keep the page open.
+- **PAGER LINK ERROR / PAGER TIMEOUT:** Check that the server is running and your phone is still connected to the Management AP.
 
-**Q: The connection between my phone and the Pager is unstable.**
+Locations expire after three seconds without fresh data. Old positions are discarded rather than saved for later upload.
 
-A: The Pager's Management AP does not have internet access (unless it is also connected to a network with Client Mode). Without internet access, your phone might switch to a different known network you are in range of. How you handle this problem will vary. iOS will pop-up a prompt to "Keep Trying Wi-Fi" to stay connected to the Management AP. You may want/need to delete the known network(s) to prevent switching. 
+If your phone keeps disconnecting, check whether it is switching to another Wi-Fi network. Choose to stay connected to the Management AP even if the phone reports no internet access.
 
-If the Pager is in Client Mode (connected to a network, like your home Wi-Fi) while you are connected to the Management AP, going outside the range of the client network may also trigger your phone to try switching networks.
+## Building
 
-**Q: mobile2gps reports a valid position but the Pager's GPS settings shows my position is 0, 0.**
+Install [Go](https://go.dev/dl/) 1.21 or newer on your computer, then run from the project directory:
 
-A: Try restarting the Pager and run mobile2gps again.
+Windows (PowerShell):
 
-**Q: Do I need to configure the Serial Device or Baud Rate on the Pager?**
+```powershell
+.\build.ps1
+```
 
-A: No, mobile2gps interacts directly with gpsd. These settings are ignored and have no effect.
+Linux / macOS:
+
+```sh
+make build
+```
+
+Both produce a `Mobile2GPS` binary for the Pager's MIPS little-endian, soft-float architecture.
+
+## How it works
+
+The Go server receives browser coordinates over HTTPS and converts them to NMEA GPRMC sentences. It feeds these through a virtual serial device to gpsd, using `GPS_CONFIGURE` to select gpsd as the Pager's GPS source.
 
 ## Acknowledgements
 
-- **iphone-gpsd** by Balint Seeber - https://spench.net/drupal/software/iphone-gps
-- **NoSleep.js** by Rich Tibbett - https://github.com/richtr/NoSleep.js
+- [iphone-gpsd](https://spench.net/drupal/software/iphone-gps) by Balint Seeber
+- [NoSleep.js](https://github.com/richtr/NoSleep.js) by Rich Tibbett
 
 ## Support me
 
