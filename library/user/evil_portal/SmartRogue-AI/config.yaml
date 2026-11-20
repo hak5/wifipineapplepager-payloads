@@ -1,0 +1,22 @@
+system:
+  interface: "wlan0"          # Wireless interface for monitoring/AP
+  monitor_interface: "wlan0mon"
+  log_level: "INFO"           # DEBUG, INFO, WARNING, ERROR
+  timeout: 30                 # Client tracking timeout in seconds
+
+captive_portal:
+  dns_server: "192.168.1.1"
+  dhcp_range: "192.168.1.10-192.168.1.100"
+  port: 80
+  templates_dir: "/etc/smartrogue/templates"
+  default_template: "generic"
+
+exfiltration:
+  webhook_url: "https://api.example.com/webhook"
+  api_key: "YOUR_SECRET_KEY"
+  upload_interval: 60         # Seconds between batch uploads
+
+fingerprinting:
+  enabled: true
+  sensitivity: "high"         # low, medium, high
+  whitelist_ouis: ["00:11:22:33:44:55"]

