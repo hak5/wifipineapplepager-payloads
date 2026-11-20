@@ -1,5 +1,5 @@
 /*
- * Loot Browser - walk /root/loot on the Pager screen, read the text files, and show an info card for
+ * Loot Reader - walk /root/loot on the Pager screen, read the text files, and show an info card for
  * anything that can't be shown on the device (pcap, handshakes, images...), with where to grab it.
  *
  * Read-only: it opens files only to read them, and never writes, moves or deletes anything. Browsing
