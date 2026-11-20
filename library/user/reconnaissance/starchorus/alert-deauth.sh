@@ -2,7 +2,7 @@
 # Title: Starchorus deauth/disassoc alert
 # Description: Writes one line per firmware alert to the Starchorus alerts.log, in a directory of its own (time and addresses only). Sends nothing.
 # Author: Starchorus
-# Version: 0.2.7
+# Version: 0.2.8
 # Contract: 4
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
@@ -15,7 +15,7 @@
 # should add a signal is the owner's choice and has not been made). The Contract line is the interface number the Starchorus scripts share (see payload.sh): this file
 # fixes the line format of alerts.log that the collector parses, so a change to that format moves the number in both. The alert name and the message text are not written: the text is free text from the
 # firmware, and the log holds times and addresses only. SOURCE is the address the frames claim, which in a flood is usually not the sender's, so it is kept as
-# received and is no lead to anyone. The log is kept to its last 2,000 lines, so that a flood of events cannot fill the flash. Install: copy this file to
+# received and is no lead to anyone. The log is cut back to its last 2,000 lines once it passes 2,200, so that a flood of events cannot fill the flash and the cut is not paid at every event. Install: copy this file to
 # /root/payloads/alerts/deauth_flood_detected/starchorus/payload.sh and make it executable (the README of the payload says how). Exit status: 0, always.
 
 # A directory of its own, not STARCHORUS_DIR: uhttpd or python3 serve that directory whole where the Pager has one, and this log holds other people's addresses.
@@ -42,11 +42,11 @@ mac "${_ALERT_DENIAL_CLIENT_MAC_ADDRESS:-}"; cl=$MAC
 # The line is all digits, "deauth", "-", tabs and addresses, so one tr over it lower-cases the addresses and nothing else.
 line=$(printf '%s\tdeauth\t%s\t%s\t%s\t%s' "$now" "$ap" "$src" "$dst" "$cl" | tr 'A-F' 'a-f')
 
-# One append, then the cap: the last 2,000 lines, through a file of the same directory (a rename, so the collector never reads half a file). Always returns 0.
+# One append, then the cap: past 2,200 lines the last 2,000 are kept, through a file of the same directory (a rename, so the collector never reads half a file). Always returns 0.
 record() {
     printf '%s\n' "$line" >> "$LOG" || return 0
     n=$(wc -l < "$LOG"); n=${n##* }
-    if [ "${n:-0}" -gt 2000 ]; then
+    if [ "${n:-0}" -gt 2200 ]; then   # the cut, a rewrite of the whole file, comes once in two hundred events, not at every one
         if ! { tail -n 2000 "$LOG" > "$LOG.$$" && mv "$LOG.$$" "$LOG"; }; then rm -f "$LOG.$$"; fi
     fi
     return 0

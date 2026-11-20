@@ -9,7 +9,7 @@
 #               no injection, no association/connection, no channel jamming, no active
 #               features of the device's AP service. It only RECEIVES what the air already carries.
 # Author:       Starchorus
-# Version:      0.2.7
+# Version:      0.2.8
 # Contract:     4
 # Category:     reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -20,9 +20,10 @@
 #
 # ---------------------------------------------------------------------------------------------
 # PASSIVITY CONTRACT (read this):
-#   Allowed here      : monitor-mode RX (airodump-ng with NO injection, tcpdump, tshark),
-#                       reading an existing recon SQLite DB read-only, channel *tuning*
-#                       (receiver retuning is not a transmission), and, opt-in only
+#   Allowed here      : monitor-mode RX (tcpdump -p on a monitor interface; airodump-ng with NO injection,
+#                       and channel tuning, only on a monitor interface this run made itself, which it makes
+#                       only when told to: STARCHORUS_CREATE_MON=1), reading an existing recon SQLite DB
+#                       read-only, and, opt-in only
 #                       (STARCHORUS_SOURCE=pineap), the AP service's two read-only recon list
 #                       commands (RECON APS / RECON DEVICES, format=json; docs/device-notes.md V-3).
 #                       Opt-in only (STARCHORUS_TRAFFIC=1): one more read-only command of the AP service,
@@ -70,7 +71,7 @@
 #                        each: 46 s for 2,100 devices).  (default recent)
 #   STARCHORUS_RECON_DB       Path to recon SQLite DB, or "auto" to find it. (default auto)
 #   STARCHORUS_ALLOW_ACTIVE   1 = allow the ACTIVE `iw scan` fallback.       (default 0 = never)
-#   STARCHORUS_CREATE_MON     1 = allow creating a monitor VIF if none.      (default 1)
+#   STARCHORUS_CREATE_MON     1 = may add a monitor VIF of its own: only on a free radio, never while a recon.db can be read.  (default 0)
 #   STARCHORUS_MAX_AGE        recon.db and pineap only: show only devices seen in the
 #                        last N seconds (live-presence view). 0 = off,
 #                        show the full accumulated history.             (default 0)
@@ -213,7 +214,7 @@ IFACE=${STARCHORUS_IFACE:-auto}
 SOURCE=${STARCHORUS_SOURCE:-auto}
 RECON_DB=${STARCHORUS_RECON_DB:-auto}
 ALLOW_ACTIVE=${STARCHORUS_ALLOW_ACTIVE:-0}
-CREATE_MON=${STARCHORUS_CREATE_MON:-1}
+CREATE_MON=${STARCHORUS_CREATE_MON:-0}
 MAX_AGE=${STARCHORUS_MAX_AGE:-0}
 CAPDIR=${STARCHORUS_CAPDIR:-$OUTDIR/cap}
 TMPDIR_RAM=${STARCHORUS_TMPDIR:-/tmp}
@@ -243,7 +244,7 @@ BT_SYSFS=${STARCHORUS_SYSFS_BT:-/sys/class/bluetooth}   # tests only: where the 
 WL_FILE=${STARCHORUS_WATCH_FILE:-}                # the watch list (0.2.7): a text file of addresses and names the operator writes by hand; empty = $OUTDIR/watch.list (wl_look)
 WL_ON=0             # 1 = the watch list is a readable regular file with something in it this cycle (wl_look)
 HOMING_BSSID=${STARCHORUS_HOMING_BSSID:-}         # "aa:bb:cc:dd:ee:ff" or empty (then $OUTDIR/homing.target, if it exists)
-HOMING_PEAK=""; HOMING_POLLS=0               # peak hold across cycles (a new maximum resets, 12 quiet cycles decay it)
+HOMING_PEAK=""; HOMING_POLLS=0; HOMING_TGT=""  # peak hold across cycles for HOMING_TGT alone (a new maximum resets, 12 quiet cycles decay it, a new target starts afresh)
 
 OUTFILE=$OUTDIR/starchorus.json
 CAPPREFIX=$CAPDIR/starchorus
@@ -254,6 +255,7 @@ CENTER_LABEL="This device"
 # Runtime state (filled in by setup)
 MONIF=""            # the monitor interface we ended up using
 CREATED_MON=0       # 1 if we created it and must tear it down on exit
+MON_ID=""           # its ifindex:wdev when it was made: cleanup removes it only while it still has them
 CAP_METHOD=""       # airodump | tcpdump  (only meaningful when SOURCE resolves to capture)
 RESOLVED=none
 OUI_PATH=""         # resolved OUI file ("" = none found -> no vendor field)
@@ -268,6 +270,8 @@ BTCO_PATH=""        # the Bluetooth company list in use ("" = none: the blue5 so
 BTCO_STATE=""       # last logged company-list state: setup_btco logs only when it changes
 BTCO_MEMO=""        # id<TAB>name lines of the company identifiers earlier cycles looked up (an empty name = not in the list), at most 512; emptied by setup_btco
 STARTED_AIRODUMP=0  # 1 if THIS instance started airodump (only then does cleanup stop it)
+CSV_HOLD=""         # build_from_csv: why nothing was published this cycle (airodump gone, the CSV stale); run_cycle says it once per episode (bt_issue) and keeps the last document
+SA_KEEP_CSV=0       # 1 = start_airodump leaves the capture CSVs in CAPDIR alone (a --once beside the daemon: its airodump writes them)
 AD_PID=""           # the pid of that airodump: cleanup stops this one, never the one a later start wrote into the shared pidfile
 LOCK_BUDGET=100     # cache_lock: wait at most this long (0.1-s units) for a live holder
 LOCK_BUSY_UNTIL=0   # epoch until which cache writes are skipped after a lock give-up (backoff)
@@ -339,6 +343,8 @@ BT5_RAM=0           # 1 = BT5_DB is a copy of ours to remove after reading
 BT5_MAX=4194304     # cap on the blue5.db copy: above this, no Bluetooth this cycle (it is ~40 KB on the device; RAM only)
 BT5_SV=""           # 1 = blue5.db answered only the narrow query (no mfr, appearance or svc16 column, an older firmware): no classes until the vendor re-check retries the full one
 BT5_SVLOG=0         # 1 = the narrow-query line has been logged; the return to the full query is logged once as well
+BT5_SW=""           # 1 = blue5.db answered only without the W-select (no first_seen column: a schema no firmware is known to have): the rule bt_fixed_new is silent until the re-check retries the select
+BT5_SWLOG=0         # 1 = that line has been logged; the return is logged once as well
 WIDS_SEEN=""        # the WIDS memory (STARCHORUS_WIDS=1): one line per access point, bssid|family|channel|since|last|pending family|pending channel|pending since|alarm type|alarm time|alarm count, at most 500; in memory, like BT_HELD
 BT_HELD=""          # last cycle's Bluetooth records (tab separated: the B fields, last_seen, carry); in memory, like RS_DOCV: a file would outlive a killed collector
 BT_CUR=" "          # the log keys raised in this cycle, and BT_LOGGED = those of the cycle before: a message is logged once per episode (bt_issue)
@@ -362,15 +368,19 @@ BT_MAXB=8388608     # a window's text over this many bytes: the monitor is stopp
 # seconds a nap really sleeps then), BT_SIGLOG / BT_SIGMSG = a log of the signals bt_sig sends and a directory that receives INT and TERM instead of
 # the processes.
 BT_PROC=${STARCHORUS_PROC_BT:-/proc}; BT_FAKE=""; BT_FAKE_NAP=""; BT_SIGLOG=""; BT_SIGMSG=""
-# The window length: whole seconds from 5 to 15, anything else is 5, the shortest (the daemon says so once at start, see the main section).
-BT_WIN_BAD=""
-case $BT_WIN in
-    ''|*[!0-9]*) BT_WIN_BAD=$BT_WIN ;;
-    *) BT_WIN_N=$BT_WIN
-       while [ "${#BT_WIN_N}" -gt 1 ] && [ "${BT_WIN_N#0}" != "$BT_WIN_N" ]; do BT_WIN_N=${BT_WIN_N#0}; done
-       if [ "$BT_WIN_N" -ge 5 ] && [ "$BT_WIN_N" -le 15 ]; then BT_WIN=$BT_WIN_N; else BT_WIN_BAD=$BT_WIN; fi ;;
-esac
-[ -z "$BT_WIN_BAD" ] || BT_WIN=5
+# The window length: whole seconds from 5 to 15, anything else is 5, the shortest (the daemon says so once at start, see the main section). Digits only,
+# leading zeros dropped (never octal); three digits or more are out of range before the shell has to read them as a number (twenty digits would fail its
+# test). $1 = the setting; sets BT_WIN, and BT_WIN_BAD to the rejected text (empty = fine). A function for the same reason as alert_window.
+bt_window_value() {
+    BT_WIN_BAD=""; BT_WIN=5
+    case $1 in
+        ''|*[!0-9]*) BT_WIN_BAD=$1 ;;
+        *) BW_N=$1
+           while [ "${#BW_N}" -gt 1 ] && [ "${BW_N#0}" != "$BW_N" ]; do BW_N=${BW_N#0}; done
+           if [ "${#BW_N}" -le 2 ] && [ "$BW_N" -ge 5 ] && [ "$BW_N" -le 15 ]; then BT_WIN=$BW_N; else BT_WIN_BAD=$1; fi ;;
+    esac
+}
+bt_window_value "$BT_WIN"
 BT_MON_S=$((BT_WIN + 8))     # the monitor's own dead-man timer: it covers the readiness wait, the pid lookup and the scan
 # The alert window: whole seconds from 60 to 86400, anything else is 600, said once at start (the main section). A function, so that the self-test
 # can put many values through it without starting a collector for each. $1 = the setting; sets ALERT_WIN, and ALERT_WIN_BAD to the rejected text (empty = fine).
@@ -483,7 +493,8 @@ is_own_child() {
 }
 
 # Is $1 the pid of a LIVE process whose command line contains $2? --stop and --status believe a pidfile only while its
-# pid still runs what was started there: the loop runs this script, the capture runs airodump.
+# pid still runs what was started there: the loop runs this script (and pid_meant wants it run as a loop), the capture runs
+# airodump-ng with this collector's -w prefix (the word 'airodump' alone would also name a tail on its log).
 pid_ours() {
     pid_alive "$1" || return 1
     if [ -d "/proc/$1" ]; then
@@ -496,32 +507,68 @@ pid_ours() {
     return 1
 }
 
+# The identity rule, on `ps w` lines (the pid first, then a STAT, TIME or TTY column, then the command): print the pid of every line that runs this
+# script as a loop, that is the script as the command itself or as the argument of a shell (sh, ash, bash, dash; a `{thread}` word may stand first, as
+# BusyBox prints it when the comm differs), with no later "--" flag (--stop, --once, --status, --selftest). A line that merely names the file (an
+# editor, a tail, md5sum, a wrapper such as `timeout`) is no loop and is never signalled. The columns before the command are not counted: the word
+# before the script is a shell, or the STAT, TIME or TTY column, or the thread word. $1 = the pid never to print (the caller).
+loop_ident() {
+    awk -v s="$SELF_BASE" -v me="$1" '
+        $1 == me { next }
+        function col(x) { return (x ~ /^[A-Z][A-Za-z<>+]*$/ || x ~ /^[0-9]+:[0-9][0-9]/ || x ~ /^(\?|-|pts\/[0-9]+|tty[A-Za-z0-9]*)$/) }   # a STAT, TIME or TTY column
+        { k = 0; n = length(s)
+          for (i = 2; i <= NF; i++) if ($i == s || (length($i) > n && substr($i, length($i) - n) == "/" s)) { k = i; break }
+          if (!k) next
+          j = k - 1; while (j > 2 && length($j) > 1 && substr($j, 1, 1) == "-") j--   # the flags of a shell before the script (sh -x ./script)
+          p = $j; b = p; sub(/.*\//, "", b)
+          if (b == "sh" || b == "ash" || b == "bash" || b == "dash") { q = $(j - 1); if (substr(q, 1, 1) != "{" && !col(q)) next }   # the shell must be the command itself, not the argument of a wrapper (timeout, nohup) or of a reader (cmp)
+          else if (substr(p, 1, 1) != "{" && !col(p)) next
+          for (i = k + 1; i <= NF; i++) if (substr($i, 1, 2) == "--") next
+          print $1 }'
+}
+# The pids of the collector DAEMON LOOPS as `ps w` shows them, this process left out (the rule above).
+loop_list() {
+    # shellcheck disable=SC2009  # busybox pgrep/pkill -f are unreliable here; ps+awk is the portable way
+    ps w 2>/dev/null | loop_ident "$$"
+}
+# Does the pid pid_ours has just said yes to (its command line is in oc) run this script as a LOOP? The loop pidfile is believed only for such a pid:
+# the script's name anywhere in a command line (an editor on it, a tail) is not enough. The rule is loop_ident's, on one line made from that command
+# line; $2 = the word the caller matched, and any other word (the airodump's -w prefix) is judged by pid_ours alone.
+pid_meant() {
+    [ "$2" = "$SELF_BASE" ] || return 0
+    [ -n "$(printf '%s S 0:00 %s\n' "$1" "$oc" | loop_ident 0)" ]
+}
+
 # Kill every running collector DAEMON LOOP, with or without a pidfile (the backstop for the pidfile
-# logic): command lines naming this script but NO "--" flag, so --stop/--once/--status/--selftest
-# runs, including THIS one, never match; our own PID is skipped.
+# logic): the loops loop_list finds, so --stop/--once/--status/--selftest runs, including THIS one,
+# never match, and nor does a process that merely names the file; our own PID is skipped.
 #
 # One collector runs per device: a start or a stop stops every collector loop, not only this OUTDIR's,
 # so the two never share the monitor interface / radio. That is deliberate but must be honest, so each
 # loop this kills that is NOT the one named by this OUTDIR's pidfile is logged with its pid and working
 # directory. $1 is the context ("stop" from --stop, "replace" at daemon start-up); $2, when given, is
-# the pid of this OUTDIR's own loop (already reported by stop_pidfile), which is killed but not logged.
+# the pid of this OUTDIR's own loop, which stop_pidfile has signalled already: it is left alone here (a second
+# TERM would land in its cleanup) and not logged. The list is read whole before any pid is judged: on BusyBox the
+# helpers that read it (the subshell of the command substitution, loop_list's pipeline and its awk) show in `ps w`
+# with the script's command line, and the substitution returns only once every one of them has ended and been
+# reaped. A body run beside the listing (list | while) could find such a helper alive at the gate and gone before
+# is_own_child, and report it as a loop in 'unknown directory'. A pid that is gone when its turn comes is passed
+# over (the helpers are; a loop may also have left by itself): nothing is stopped, so nothing is said.
 kill_loops() {
     _kl_ctx=${1:-stop}
     _kl_own=${2:-}
-    # shellcheck disable=SC2009  # busybox pgrep/pkill -f are unreliable here; ps+grep is the portable way
-    ps w 2>/dev/null | grep "$SELF_BASE" | grep -v grep | grep -v -- '--' | awk '{print $1}' | \
-    while read -r p; do
-        [ "$p" = "$$" ] && continue
-        is_own_child "$p" && continue   # this run's own subshells, e.g. the one running this loop
-        if [ "$p" != "$_kl_own" ]; then
-            _kl_dir=$(loop_cwd "$p")
-            if [ "$_kl_ctx" = replace ]; then
-                log "replaced collector loop pid $p in $_kl_dir: one collector per device"
-            else
-                log "also stopped collector loop pid $p in $_kl_dir (one collector per device)"
-            fi
+    for _kl_p in $(loop_list); do   # the whole list first (see above); the loop runs in this shell, so its names carry the _kl_ prefix
+        [ "$_kl_p" = "$$" ] && continue
+        [ "$_kl_p" = "$_kl_own" ] && continue   # this OUTDIR's own loop: stop_pidfile has signalled it once; a second TERM would cut its cleanup short
+        kill -0 "$_kl_p" 2>/dev/null || [ -d "/proc/$_kl_p" ] || continue   # gone since the list was read: nothing is stopped, so nothing is said (see above)
+        is_own_child "$_kl_p" && continue   # a process of this run that still runs (the listing's own helpers have ended)
+        _kl_dir=$(loop_cwd "$_kl_p")
+        if [ "$_kl_ctx" = replace ]; then
+            log "replaced collector loop pid $_kl_p in $_kl_dir: one collector per device"
+        else
+            log "also stopped collector loop pid $_kl_p in $_kl_dir (one collector per device)"
         fi
-        kill "$p" 2>/dev/null
+        kill "$_kl_p" 2>/dev/null
     done
 }
 
@@ -547,8 +594,7 @@ loop_naps() {
 # The pids are read before the TERM, as kill_loops reads them; one that no longer runs this script is gone (pid_ours). 0 = none left,
 # 1 = one still runs after the wait (said once).
 replace_loops() {
-    # shellcheck disable=SC2009  # see kill_loops()
-    rl_old=$(ps w 2>/dev/null | grep "$SELF_BASE" | grep -v grep | grep -v -- '--' | awk '{print $1}')
+    rl_old=$(loop_list)
     kill_loops replace
     rl_n=0
     while :; do
@@ -564,40 +610,71 @@ replace_loops() {
     done
 }
 
+# Daemon start-up, the claim: one start at a time. Two starts in the same moment would each take the other for a foreign loop (kill_loops) and
+# both would go, leaving no collector. A directory in PIDDIR (mkdir is atomic) holds the starting pid: a second start finds it and gives way
+# while that pid runs this script, waits a moment for a pid not yet written, and takes over a lock whose holder is gone (a start killed with -9,
+# a reboot: PIDDIR lives on eMMC). Held from before replace_loops until the loop pidfile is written; cleanup drops it on any earlier exit.
+# 0 = claimed (or no lock could be made: the start goes on without one, said once), 1 = another start holds it.
+START_LOCK=""
+start_claim() {
+    sc_d="$PIDDIR/starchorus-start.lock"; sc_n=0
+    while ! mkdir "$sc_d" 2>/dev/null; do
+        [ -d "$sc_d" ] || { log "cannot make $sc_d; starting without the start lock"; return 0; }
+        sc_p=$(cat "$sc_d/pid" 2>/dev/null)
+        if [ -n "$sc_p" ] && pid_ours "$sc_p" "$SELF_BASE"; then return 1; fi
+        sc_n=$((sc_n + 1)); [ "$sc_n" -le 4 ] || return 1
+        if [ -z "$sc_p" ] && [ "$sc_n" -le 2 ]; then sleep 1; continue; fi   # just made, its pid not written yet: a moment
+        # stale (its holder is gone): taken away by a rename, which only one of two starters wins; one re-made meanwhile (another pid inside) goes back,
+        # unless a further start has taken the name in that moment: then the copy is dropped (a plain mv would nest it inside the new lock and report success)
+        if mv "$sc_d" "$sc_d.stale.$$" 2>/dev/null; then
+            sc_got=$(cat "$sc_d.stale.$$/pid" 2>/dev/null)
+            if [ -z "$sc_got" ] || [ "$sc_got" = "$sc_p" ]; then rm -rf "$sc_d.stale.$$" 2>/dev/null
+            else [ -e "$sc_d" ] || mv "$sc_d.stale.$$" "$sc_d" 2>/dev/null; rm -rf "$sc_d.stale.$$" 2>/dev/null; fi
+        fi
+    done
+    echo "$$" > "$sc_d/pid"; START_LOCK=$sc_d
+    return 0
+}
+start_release() {
+    [ -n "$START_LOCK" ] || return 0
+    [ "$(cat "$START_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$START_LOCK" 2>/dev/null
+    START_LOCK=""
+}
+
 # --------------------------------------------------------------------------- --stop / --status
 stop_pidfile() {   # $1 = pidfile, $2 = label, $3 = what its command line holds: kill the pid it names only while it is ours (sets stopped=1), drop the file
     [ -f "$1" ] || return 0
     sp=$(cat "$1" 2>/dev/null)
-    if pid_ours "$sp" "$3"; then
-        kill "$sp" 2>/dev/null && log "stopped $2 pid $sp" && stopped=1
+    if pid_ours "$sp" "$3" && pid_meant "$sp" "$3"; then
+        kill "$sp" 2>/dev/null && { log "stopped $2 pid $sp"; stopped=1; SP_KILLED=$sp; }
     elif pid_alive "$sp"; then
         log "left pid $sp alone: it is no $2 any more (stale $(basename "$1"))"
     fi
     rm -f "$1"
 }
 stop_instances() {
-    stopped=0
-    own_loop=$(cat "$LOOP_PIDFILE" 2>/dev/null)   # read before stop_pidfile removes the file
+    stopped=0; SP_KILLED=""
     stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE"
+    own_sig=$SP_KILLED   # the loop stop_pidfile signalled, if any: kill_loops leaves it alone (one TERM)
     # backstop: any collector loop without a live pidfile (e.g. its pidfile was overwritten by a re-run)
-    # shellcheck disable=SC2009  # see kill_loops(): ps+grep is the portable count here
-    before=$(ps w 2>/dev/null | grep "$SELF_BASE" | grep -v grep | grep -v -- '--' | grep -vc "^ *$$ ")
-    kill_loops stop "$own_loop"
+    before=$(loop_list | grep -c .)
+    kill_loops stop "$own_sig"
     [ "${before:-0}" -gt 0 ] 2>/dev/null && stopped=1
-    stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump
+    stop_pidfile "$AIRODUMP_PIDFILE" airodump "-w $CAPPREFIX"
     [ "$stopped" = "1" ] || log "nothing running for this OUTDIR ($OUTDIR)"
 }
 
 status_pidfile() {   # $1 = label, $2 = pidfile, $3 = what the command line of a running one holds
-    if [ -f "$2" ] && pid_ours "$(cat "$2" 2>/dev/null)" "$3"; then
-        log "$1 RUNNING (pid $(cat "$2"))"
+    stq_p=$(cat "$2" 2>/dev/null)
+    if [ -f "$2" ] && pid_ours "$stq_p" "$3" && pid_meant "$stq_p" "$3"; then
+        log "$1 RUNNING (pid $stq_p)"
     else
         log "$1 not running"
     fi
 }
 status_instances() {
     status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE"
-    status_pidfile airodump "$AIRODUMP_PIDFILE" airodump
+    status_pidfile airodump "$AIRODUMP_PIDFILE" "-w $CAPPREFIX"
     [ -f "$OUTFILE" ] && log "last JSON: $OUTFILE ($(wc -c < "$OUTFILE" 2>/dev/null) bytes)"
 }
 
@@ -633,15 +710,19 @@ existing_monitors() {
 # The radio is judged by its phy, not by the name: a phy that holds any mgmt interface (mgmt_iface) or any interface of
 # type AP is skipped whole, so wlan0cli, which shares phy0 with wlan0mgmt on the device, is never taken, nor a client
 # beside a management AP that a firmware names otherwise. The names reach awk through the environment (a value of two
-# lines given with -v is fatal to some awks). Prefer the recon radio (wlan1*).
+# lines given with -v is fatal to some awks). Prefer wlan1* (the Pager's tri-band radio). Asked with "free" (for a monitor
+# interface of our own), a phy that holds a connected interface (an ssid line) or an interface of any type but managed (a
+# mesh point, say) is skipped too: that radio is in use. The opt-in ACTIVE scan asks without it.
 candidate_base_iface() {
     mg=$(mgmt_iface)
     if have iw; then
-        iw dev 2>/dev/null | SC_MG="$mg" awk '
+        iw dev 2>/dev/null | SC_MG="$mg" SC_FREE="${1:-}" awk '
             BEGIN { n = split(ENVIRON["SC_MG"], m, "\n"); for (i = 1; i <= n; i++) if (m[i] != "") mgn[m[i]] = 1 }
             /^phy#/                  { phy=$1; ifc="" }
             /^[[:space:]]*Interface/ { ifc=$2; k++; nm[k]=ifc; ph[k]=phy; if (ifc in mgn) bad[phy]=1 }
             /type AP/                { bad[phy]=1 }
+            /^[[:space:]]*ssid /     { if (ENVIRON["SC_FREE"] == "free") bad[phy]=1 }
+            /^[[:space:]]*type /     { if (ENVIRON["SC_FREE"] == "free" && $2 != "managed") bad[phy]=1 }
             /type managed/ && ifc != "" { man[k]=1 }
             END {
                 for (i = 1; i <= k; i++) {
@@ -652,9 +733,9 @@ candidate_base_iface() {
     fi
 }
 
-# Create a monitor VIF on the recon adapter WITHOUT disturbing the mgmt link.
-# We deliberately avoid `airmon-ng start` as a first resort because its check-kill can
-# tear down processes on the mgmt radio; we add a VIF with `iw` instead.
+# Add a monitor VIF of our own on the free radio candidate_base_iface found: `iw phy ... interface add` leaves every other
+# interface as it is. There is no fallback: `airmon-ng start` takes down or removes the interface it starts from, which is
+# not ours to touch.
 create_monitor() {
     base=$1
     [ -z "$base" ] && return 1
@@ -670,8 +751,10 @@ create_monitor() {
                 printf '%s\n' "$newif"; return 0
             fi
         fi
+        return 1
     fi
-    # Last resort: airmon-ng (may rename to <base>mon). Only if iw path failed.
+    # Not reached: a base comes from iw alone (candidate_base_iface), and a failed iw path returns above. The lines below
+    # stay as they are pinned (tools/passivity-check.sh, SECURITY.md).
     if have airmon-ng; then
         out=$(airmon-ng start "$base" 2>/dev/null)
         m=$(printf '%s\n' "$out" | awk 'tolower($0) ~ /monitor mode.*enabled|vif enabled/ {for(i=1;i<=NF;i++) if($i ~ /mon$/){print $i}}' | tail -1)
@@ -703,18 +786,34 @@ setup_monitor_iface() {
         return 0
     fi
     if [ "$CREATE_MON" = "1" ]; then
-        base=$(candidate_base_iface)
+        # never while a recon database can be read: the radio may be the recon service's, briefly without its interface
+        if [ -n "$(find_recon_db)" ]; then
+            log "a recon database can be read, so no monitor interface of our own is made"
+            return 1
+        fi
+        base=$(candidate_base_iface free)
+        if [ -n "$base" ] && [ -z "$(mon_ident "$base")" ]; then
+            log "iw shows no ifindex and wdev for $base, so no interface of our own is made (it could not be told apart at the end)"
+            return 1
+        fi
         if [ -n "$base" ]; then
             m=$(create_monitor "$base")
             if [ -n "$m" ]; then
-                MONIF=$m; CREATED_MON=1
+                MONIF=$m; CREATED_MON=1; MON_ID=$(mon_ident "$m")
                 log "created monitor interface $MONIF on base $base"
                 return 0
             fi
         fi
-        log "could not create a monitor interface (no non-mgmt adapter found?)"
+        log "could not create a monitor interface (no free radio, or iw could not add one)"
     fi
     return 1
+}
+
+# The identity of an interface as iw reports it (a read): "ifindex:wdev". Another program can make an interface of the same
+# name after this run made its own; cleanup removes the interface only while it still has the identity it was made with.
+mon_ident() {
+    have iw || return 1
+    iw dev "$1" info 2>/dev/null | awk '/^[[:space:]]*ifindex /{i=$2} /^[[:space:]]*wdev /{w=$2} END{ if (i != "" && w != "") print i ":" w }'
 }
 
 # --------------------------------------------------------------------------- recon DB locate
@@ -743,11 +842,12 @@ find_recon_db() {
 }
 
 # --------------------------------------------------------------------------- source decision
-# Resolve SOURCE=auto to a concrete method, honouring the passivity contract and the
-# single-recon-radio contention rule:
-#   * a monitor iface we did NOT create may belong to the channel-hopping recon engine; a 2nd
-#     capture on that PHY would fight it, so the engine's recon DB is preferred (zero contention);
-#   * a monitor VIF of our OWN gets our own passive capture (self-contained).
+# Resolve SOURCE=auto to a concrete method, honouring the passivity contract:
+#   * a monitor iface we did NOT create may belong to the channel-hopping recon engine, so the
+#     engine's recon DB is preferred; without one, such an interface is only listened to
+#     (tcpdump -p, never airodump-ng, which changes channels);
+#   * a monitor VIF of our OWN (STARCHORUS_CREATE_MON=1, made only while no recon DB can be read)
+#     gets our own passive capture.
 # On the device this resolves to `recondb`: wlan1mon belongs to the Recon engine (CREATED_MON=0)
 # and sqlite3 is pre-installed; airodump-ng is not, so the capture fallback there is tcpdump.
 # Force a source with STARCHORUS_SOURCE=recondb|capture if auto guesses wrong.
@@ -773,9 +873,8 @@ resolve_source() {
     if [ -n "$dbpath" ] && have sqlite3; then
         RESOLVED=recondb; return 0
     fi
-    if [ -n "$MONIF" ] && { have airodump-ng || have tcpdump; }; then
-        log "WARNING: capturing on pre-existing monitor $MONIF; if the device's recon engine"
-        log "         owns this radio, channel-hop contention is possible (still RX-only)."
+    if [ -n "$MONIF" ] && have tcpdump; then
+        log "listening on $MONIF, an interface this run did not make: tcpdump -p only, its channel is left as it is"
         RESOLVED=capture; return 0
     fi
     if [ "$ALLOW_ACTIVE" = "1" ] && have iw; then
@@ -790,7 +889,12 @@ resolve_source() {
 start_airodump() {
     [ -n "$MONIF" ] || return 1
     mkdir -p "$CAPDIR"
-    rm -f "$CAPDIR"/starchorus-*.csv 2>/dev/null
+    if [ "$SA_KEEP_CSV" != 1 ]; then   # a daemon start; a --once beside the daemon (SA_KEEP_CSV, set in main) leaves the daemon's airodump and its CSVs alone
+        # an airodump a loop killed with -9 (no cleanup) may still run under the pidfile's pid: stopped first, else it would write beside this one
+        sa_old=$(cat "$AIRODUMP_PIDFILE" 2>/dev/null)
+        if pid_ours "$sa_old" "-w $CAPPREFIX"; then kill "$sa_old" 2>/dev/null && log "stopped an airodump left by an earlier run (pid $sa_old)"; fi
+        rm -f "$CAPDIR"/starchorus-*.csv 2>/dev/null
+    fi
     # only the interface this run made is brought up; one it found (the recon service's, or STARCHORUS_IFACE) is used as it is
     if [ "$CREATED_MON" = 1 ]; then
         have ip && ip link set "$MONIF" up 2>/dev/null
@@ -805,11 +909,29 @@ start_airodump() {
     return 0
 }
 
+# The capture's method, once at the start: airodump-ng (it changes channels, and keeps its CSV fresh) only on the interface
+# this run made; any other interface is listened to with tcpdump -p bursts. $1 = the first argument of the run (--once).
+start_capture() {
+    [ "$RESOLVED" = "capture" ] || return 0
+    [ "$1" != "--once" ] || SA_KEEP_CSV=1
+    if [ "$CREATED_MON" = 1 ] && have airodump-ng; then
+        start_airodump || log "airodump start failed; will fall back to tcpdump bursts"
+    elif have airodump-ng; then
+        log "airodump-ng changes channels, so it runs only on an interface this run made"
+    fi
+    [ "$CAP_METHOD" = "" ] && CAP_METHOD="tcpdump"
+    if [ "$CAP_METHOD" = "tcpdump" ] && { [ -z "$MONIF" ] || ! have tcpdump; }; then
+        log "nothing here can listen (tcpdump and an interface are needed): each cycle publishes an empty document"
+    fi
+    return 0
+}
+
 # --------------------------------------------------------------------------- teardown
 # cleanup() only tidies up: a trap handler that merely returns does NOT terminate the shell (after a
 # caught SIGTERM the interrupted `sleep` returns and the loop would resume as an orphan whose pidfile
-# is gone), so the INT/TERM/HUP traps run cleanup AND exit; the EXIT trap runs cleanup alone. It clears
-# the four traps first so it never re-enters itself. A Bluetooth window that is still open ends with bt_end abort (first thing, within about 2.5 s).
+# is gone), so the INT/TERM/HUP traps run cleanup AND exit; the EXIT trap runs cleanup alone. It ignores
+# the three signals and clears the EXIT trap first, so it never re-enters itself and a second TERM (a stop
+# that signals twice) cannot cut it short; the start lock of a start that ends here goes with it. A Bluetooth window that is still open ends with bt_end abort (first thing, within about 2.5 s).
 # INSTANCE-SCOPED: the EXIT trap fires for every `--once` too, and a crond `--once` regularly overlaps
 # the daemon's cycle (DB copy + queries take a second or more on the device's MIPS CPU). So cleanup touches
 # ONLY what THIS process created: its own pid-stamped temp files, the loop pidfile only if it names
@@ -821,17 +943,19 @@ cleanup() {
     # a $! of an earlier job is harmless, since bt_is rejects a pid that is not that tool
     if [ "$BT_ARM" = m ] && [ -z "$BT_MPID" ]; then BT_MPID=$bt_last; fi
     if [ "$BT_ARM" = s ] && [ -z "$BT_SPID" ]; then BT_SPID=$bt_last; fi
-    trap - INT TERM HUP EXIT
+    trap '' INT TERM HUP; trap - EXIT
+    start_release
     [ -z "$BT_MPID$BT_SPID" ] || bt_end abort
     # the airodump THIS instance started, by its own pid; the shared pidfile only while it still names that one (a later start may have written its own)
     if [ "$STARTED_AIRODUMP" = "1" ] && [ -n "$AD_PID" ]; then
-        pid_ours "$AD_PID" airodump && kill "$AD_PID" 2>/dev/null
+        pid_ours "$AD_PID" "-w $CAPPREFIX" && kill "$AD_PID" 2>/dev/null
         [ "$(cat "$AIRODUMP_PIDFILE" 2>/dev/null)" = "$AD_PID" ] && rm -f "$AIRODUMP_PIDFILE"
     fi
     [ "$(cat "$LOOP_PIDFILE" 2>/dev/null)" = "$$" ] && rm -f "$LOOP_PIDFILE"
     # This instance's pid-stamped temp files only: the output files of a cycle cut short by the signal (each post-pass's own:
-    # .c center, .h homing, .v vendor, .l layers), an OUI index build, the pineap side files and security cache in the making, the RAM copy of recon.db.
-    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.c" "$OUTFILE.tmp.$$.h" "$OUTFILE.tmp.$$.v" "$OUTFILE.tmp.$$.l" "$OUTFILE.tmp.$$.w" "$OUTFILE.gen$$" "${OUI_CACHE:-$CAPDIR/oui-cache.txt}.gat.$$" 2>/dev/null
+    # .c center, .h homing, .v vendor, .l layers, .g the re-stamped document of a skipped cycle), an OUI index build, the pineap side files and security cache
+    # in the making, the RAM copies of recon.db and blue5.db.
+    rm -f "$OUTFILE.tmp.$$" "$OUTFILE.tmp.$$.c" "$OUTFILE.tmp.$$.h" "$OUTFILE.tmp.$$.v" "$OUTFILE.tmp.$$.l" "$OUTFILE.tmp.$$.w" "$OUTFILE.tmp.$$.g" "${OUI_CACHE:-$CAPDIR/oui-cache.txt}.gat.$$" 2>/dev/null
     # the Bluetooth window's files of this process (the pid file only when no tool is left, bt_end abort decides), the RECON CHANNELS call and its file
     rm -f "$TMPDIR_RAM/starchorus-bt-$$.txt.out" "$TMPDIR_RAM/starchorus-bt-$$.txt.co" "$TMPDIR_RAM/starchorus-bt-$$.held" "$TMPDIR_RAM/starchorus-bt-$$.new" "$TMPDIR_RAM/starchorus-bt-$$.stat" \
           "$TMPDIR_RAM/starchorus-bt-$$.wseen" "$TMPDIR_RAM/starchorus-bt-$$.wnew" "$TMPDIR_RAM/starchorus-wl-$$.stat" \
@@ -840,13 +964,16 @@ cleanup() {
     rm -rf "$CAPDIR"/oui-index.new.$$.* 2>/dev/null
     rm -f "$TMPDIR_RAM/starchorus-pineap-$$.unk" "$TMPDIR_RAM/starchorus-pineap-$$.neg" "$TMPDIR_RAM/starchorus-pineap-$$.all" "${PSEC:-$TMPDIR_RAM/starchorus-sec.txt}.new.$$" 2>/dev/null
     rm -f "$TMPDIR_RAM/starchorus-recon-$$.db" "$TMPDIR_RAM/starchorus-recon-$$.db-wal" "$TMPDIR_RAM/starchorus-recon-$$.db-shm" "$TMPDIR_RAM/starchorus-recon-$$.db-err" 2>/dev/null
+    rm -f "$TMPDIR_RAM/starchorus-bt5-$$.db" "$TMPDIR_RAM/starchorus-bt5-$$.db-wal" "$TMPDIR_RAM/starchorus-bt5-$$.db-shm" 2>/dev/null
     [ -n "$VENDOR_NEWF" ] && rm -f "$VENDOR_NEWF" 2>/dev/null
     [ "${CACHE_LOCKED:-0}" -gt 0 ] 2>/dev/null && CACHE_LOCKED=1  # release fully, whatever the depth
     cache_unlock
-    if [ "$CREATED_MON" = "1" ] && [ -n "$MONIF" ]; then
-        # only the VIF we created; never the mgmt radio or a VIF we reused
+    if [ "$CREATED_MON" = "1" ] && [ -n "$MONIF" ] && [ -n "$MON_ID" ] && [ "$(mon_ident "$MONIF")" = "$MON_ID" ]; then
+        # only the VIF we created, while it is still that VIF (the same ifindex and wdev); never the mgmt radio or a VIF we reused
         if have iw; then iw dev "$MONIF" del 2>/dev/null; fi
         log "removed monitor interface $MONIF"
+    elif [ "$CREATED_MON" = "1" ] && [ -n "$MONIF" ]; then
+        log "left $MONIF in place: it cannot be shown to be the interface this run made"
     fi
 }
 
@@ -1087,7 +1214,10 @@ bt_blue5_done() {
 #     bits (public, random-static/resolvable/non-resolvable) as the window path does, not a bare "random";
 #   * rssi is rssi_avg (steadier than the last sample) and must be a real reading (-127..-1); reports is packets, floored at 1; company
 #     is kept only as a real id (0 and 65535 mean "no id"); the name BLOB has TAB/LF/CR turned to spaces and is cut to 32;
-#   * only addresses seen within BT_HOLD (120 s) of ts are kept, and never one stamped later than ts (a clock that moved back);
+#   * only addresses seen within BT_HOLD (120 s) before ts are kept, and up to 60 s after it: the copy is taken a few seconds after ts, so a row
+#     the firmware refreshed in between is kept, not dropped (AWK_LAYERS clamps such a stamp to ts); later than that is a clock that moved back.
+#     This test stands first in each WHERE clause, its older edge before its newer one: the table keeps every scan session, so all but a few
+#     of its rows are older than the hold and are dismissed on one comparison, before any text function runs;
 #   * one row per address, the newest, via MAX(last_seen) with its bare columns in a sub-query (the single-aggregate form SQLite defines);
 #   * fields 11-13, the class columns of the firmware's 2.0 schema (device-notes §2c), cut IN SQL so that only what the table in AWK_LAYERS can
 #     name leaves the database: of mfr the first three bytes as hex (the company id, little-endian, and the byte after it: Apple's message
@@ -1097,12 +1227,19 @@ bt_blue5_done() {
 #     service FFFA, little-endian, then the app code 0D): the decoder in AWK_LAYERS reads the broadcast's messages from it; any other service
 #     data stays in the database. With BT5_SV=1 (a database that lacks the columns, an older firmware: bt_blue5_read sets it when the full
 #     query gives no sentinel) the same statement carries four empty fields instead, so the B-line keeps its 14 fields and the layer its
-#     records; the vendor re-check clears BT5_SV and the full query is tried again;
+#     records; the vendor re-check clears BT5_SV and the full query is tried again; with BT5_SW=1 (a table without first_seen, which the
+#     W-select below needs; bt_blue5_read sets it when the query answers only without that select) the W-select is left out and the rule
+#     bt_fixed_new is silent; the re-check clears BT5_SW as well;
 #   * with STARCHORUS_WIDS=1 a second SELECT adds W-lines (W, addr, strongest rssi, reports, first_seen, last_seen) for bt_fixed_new in
 #     AWK_LAYERS: public or random-static addresses whose first row is younger than ten minutes, heard within the hold, stronger than -50 dBm
 #     with three reports or more, and only from a database whose oldest row is older than an hour (a fresh database makes nothing new); eight at most.
-#     The first row of an address comes from one grouped pass over the table joined on the address (a derived table SQLite indexes once), not from a
-#     subquery per row: on a table of two thousand rows the per-row form cost 25 times the B query and grew with the square of the rows (7 November 2026).
+#     The first row of an address may lie in an earlier scan session, so the strongest signal, the reports and the first and the last stamp are
+#     taken over every row of the address, but only for the addresses heard within the hold (the IN list, a handful): the select goes through
+#     the table twice, once for the list and once for the rows of the listed addresses, and sorts nothing but those rows. The table has no index
+#     on the address alone, and a form that groups all of it and joins the groups on the address costs the Pager about a second of CPU per cycle
+#     at ten thousand rows (docs/device-notes.md section 6a). The unary plus before mac keeps the planner to the plain pass where the database
+#     carries statistics (it would otherwise walk the key of scan and address once per scan session); the oldest row is asked for with EXISTS,
+#     which stops at the first old one.
 bt_blue5_sql() {
     if [ "$BT5_SV" = 1 ]; then b5_cx="'', '', '', ''"; b5_ci=""
     else
@@ -1113,15 +1250,20 @@ bt_blue5_sql() {
         b5_ci="mfr, appearance, svc16, svcd,"
     fi
     b5_w=""
-    [ "$WIDS" != 1 ] || b5_w="SELECT 'W', lower(substr(mac,1,2)||':'||substr(mac,3,2)||':'||substr(mac,5,2)||':'||substr(mac,7,2)||':'||substr(mac,9,2)||':'||substr(mac,11,2)), r, pk, fs, ls
-FROM (SELECT d.mac AS mac, MAX(d.rssi_avg) AS r, MIN(CAST(TOTAL(d.packets) AS INTEGER), 2147483647) AS pk, f.fs AS fs, MAX(d.last_seen) AS ls
-      FROM bt_device AS d
-      JOIN (SELECT mac, MIN(first_seen) AS fs FROM bt_device WHERE typeof(first_seen)='integer' GROUP BY mac) AS f ON f.mac=d.mac
-      WHERE d.transports=1 AND length(d.mac)=12 AND d.mac NOT GLOB '*[^0-9A-Fa-f]*'
-        AND typeof(d.rssi_avg)='integer' AND d.rssi_avg BETWEEN -127 AND -1 AND typeof(d.last_seen)='integer' AND typeof(d.packets)='integer'
-        AND (d.le_random=0 OR (instr('0123456789ABCDEF',substr(upper(d.mac),1,1))-1)/4=3)
-      GROUP BY d.mac, f.fs)
-WHERE fs IS NOT NULL AND fs>=$2-600 AND ls<=$2 AND ls>=$2-120 AND r>-50 AND pk>=3 AND (SELECT MIN(first_seen) FROM bt_device WHERE typeof(first_seen)='integer')<=$2-3600
+    # b5_f: the rows the W-select counts for an address (LE, a 12-hex address, whole-number readings, public or random-static)
+    b5_f="transports=1 AND length(mac)=12 AND mac NOT GLOB '*[^0-9A-Fa-f]*'
+        AND typeof(rssi_avg)='integer' AND rssi_avg BETWEEN -127 AND -1 AND typeof(last_seen)='integer' AND typeof(packets)='integer'
+        AND (le_random=0 OR (instr('0123456789ABCDEF',substr(upper(mac),1,1))-1)/4=3)"
+    [ "$WIDS" != 1 ] || [ "$BT5_SW" = 1 ] || b5_w="SELECT 'W', lower(substr(mac,1,2)||':'||substr(mac,3,2)||':'||substr(mac,5,2)||':'||substr(mac,7,2)||':'||substr(mac,9,2)||':'||substr(mac,11,2)), r, pk, fs, ls
+FROM (SELECT mac, MAX(CASE WHEN $b5_f THEN rssi_avg END) AS r,
+             MIN(CAST(TOTAL(CASE WHEN $b5_f THEN packets END) AS INTEGER), 2147483647) AS pk,
+             MIN(CASE WHEN typeof(first_seen)='integer' THEN first_seen END) AS fs,
+             MAX(CASE WHEN $b5_f THEN last_seen END) AS ls
+      FROM bt_device
+      WHERE +mac IN (SELECT mac FROM bt_device WHERE last_seen>=$2-120 AND last_seen<=$2+60 AND $b5_f)
+      GROUP BY mac)
+WHERE fs IS NOT NULL AND fs>=$2-600 AND ls<=$2+60 AND ls>=$2-120 AND r>-50 AND pk>=3
+  AND EXISTS (SELECT 1 FROM bt_device WHERE typeof(first_seen)='integer' AND first_seen<=$2-3600)
 ORDER BY r DESC LIMIT 8;"
     sqlite3 -readonly -noheader -bail -separator "$RECON_TAB" "$1" "
 SELECT 'B',
@@ -1141,9 +1283,9 @@ SELECT 'B',
   $b5_cx
 FROM (SELECT mac, le_random, rssi_avg, packets, company, name, connectable, $b5_ci MAX(last_seen) AS lastseen
       FROM bt_device
-      WHERE transports=1 AND length(mac)=12 AND mac NOT GLOB '*[^0-9A-Fa-f]*'
+      WHERE last_seen>=$2-120 AND last_seen<=$2+60
+        AND transports=1 AND length(mac)=12 AND mac NOT GLOB '*[^0-9A-Fa-f]*'
         AND rssi_avg IS NOT NULL AND rssi_avg BETWEEN -127 AND -1
-        AND last_seen<=$2 AND last_seen>=$2-120
       GROUP BY mac)
 ORDER BY rssi_avg DESC;
 $b5_w
@@ -1154,8 +1296,9 @@ SELECT '#STARCHORUS_BT5OK#';
 # last_seen. 0 = a complete read, the records (maybe none) in $BT_F.out; 1 = transient (no copy, a bad clock, or no complete answer:
 # the caller makes it a void cycle, mode 2, so the held records fade instead of the layer blinking off). The blue5 tools are never run.
 # The company name, which blue5.db does not hold, is filled from the company list (btco_fill) when one is in use. A copy that gives the full
-# query no complete answer is asked the narrow one once (BT5_SV=1, kept until the vendor re-check clears it): a database without the class
-# columns keeps its Bluetooth layer, without classes, and the switch is logged once each way; a copy that answers neither is the transient case.
+# query no complete answer is asked without the W-select, then the narrow one, then the narrow one without the W-select (BT5_SW=1 and BT5_SV=1,
+# kept until the vendor re-check clears them): a database without the class columns keeps its Bluetooth layer, without classes, one without
+# first_seen keeps it with the rule bt_fixed_new silent, and each switch is logged once each way; a copy that answers no form is the transient case.
 bt_blue5_read() {
     case $1 in ''|0|*[!0-9]*) return 1 ;; esac
     bt_blue5_copy "$BLUE5_DB" || return 1
@@ -1163,15 +1306,29 @@ bt_blue5_read() {
     br_raw=$(bt_blue5_sql "$BT5_DB" "$1")
     case $br_raw in
         *"#STARCHORUS_BT5OK#"*)
-            if [ "$BT5_SV" != 1 ] && [ "$BT5_SVLOG" = 1 ]; then log "Bluetooth: blue5.db answers the full query again (mfr, appearance, svc16, svcd); classes and Remote ID are back"; BT5_SVLOG=0; fi ;;
+            if [ "$BT5_SV" != 1 ] && [ "$BT5_SVLOG" = 1 ]; then log "Bluetooth: blue5.db answers the full query again (mfr, appearance, svc16, svcd); classes and Remote ID are back"; BT5_SVLOG=0; fi
+            if [ "$BT5_SW" != 1 ] && [ "$BT5_SWLOG" = 1 ]; then log "Bluetooth: blue5.db answers with first_seen again; the rule 'new fixed address' (bt_fixed_new) is back"; BT5_SWLOG=0; fi ;;
         *)
-            if [ "$BT5_SV" != 1 ]; then
-                BT5_SV=1; br_raw=$(bt_blue5_sql "$BT5_DB" "$1")
-                case $br_raw in
-                    *"#STARCHORUS_BT5OK#"*) [ "$BT5_SVLOG" = 1 ] || log "Bluetooth: blue5.db has no mfr, appearance, svc16 or svcd column (an older firmware); addresses without a class or Remote ID until the next re-check"; BT5_SVLOG=1 ;;
-                    *) BT5_SV="" ;;
-                esac
-            fi ;;
+            # no complete answer: the parts a schema may lack are left out one at a time, first the W-select (first_seen), then the class columns, then
+            # both; the first form that answers is kept until the re-check (BT5_SW, BT5_SV), each switch logged once. A part an earlier cycle left out
+            # is never asked for again here, and without the W-select (WIDS off) there is nothing to leave out of it. A copy that answers no form is the
+            # transient case below, the flags as they were.
+            br_sv=$BT5_SV; br_sw=$BT5_SW
+            for br_try in 01 10 11; do
+                br_s=${br_try%?}; br_x=${br_try#?}
+                [ "$br_s$br_x" != "${br_sv:-0}${br_sw:-0}" ] || continue
+                [ "$br_s" -ge "${br_sv:-0}" ] && [ "$br_x" -ge "${br_sw:-0}" ] || continue
+                [ "$br_x" = 0 ] || [ "$WIDS" = 1 ] || continue
+                BT5_SV=${br_s#0}; BT5_SW=${br_x#0}
+                br_raw=$(bt_blue5_sql "$BT5_DB" "$1")
+                case $br_raw in *"#STARCHORUS_BT5OK#"*) break ;; esac
+            done
+            case $br_raw in
+                *"#STARCHORUS_BT5OK#"*)
+                    if [ "$BT5_SV" = 1 ] && [ "$br_sv" != 1 ] && [ "$BT5_SVLOG" != 1 ]; then log "Bluetooth: blue5.db has no mfr, appearance, svc16 or svcd column (an older firmware); addresses without a class or Remote ID until the next re-check"; BT5_SVLOG=1; fi
+                    if [ "$BT5_SW" = 1 ] && [ "$br_sw" != 1 ] && [ "$BT5_SWLOG" != 1 ]; then log "Bluetooth: blue5.db has no first_seen column (a schema no firmware is known to have): the layer keeps its records, the rule 'new fixed address' (bt_fixed_new) is silent until the next re-check"; BT5_SWLOG=1; fi ;;
+                *) BT5_SV=$br_sv; BT5_SW=$br_sw ;;
+            esac ;;
     esac
     bt_blue5_done
     case $br_raw in *"#STARCHORUS_BT5OK#"*) ;; *) return 1 ;; esac
@@ -1945,7 +2102,7 @@ AWK_LAYERS='
             if (mode == 1 && btsrc == "blue5") {
                 f = ENVIRON["SC_BTP"]
                 while ((getline line < f) > 0) {
-                    if (split(line, c, "\t") >= 6 && c[1] == "W" && c[2] ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ && c[4] ~ /^[0-9]+$/ && c[4] + 0 > 0 && c[6] ~ /^[0-9]+$/ && c[6] + 0 <= ts) wcand("bt_fixed_new", c[6] + 0, c[2], c[4] + 0, 5)
+                    if (split(line, c, "\t") >= 6 && c[1] == "W" && c[2] ~ /^[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]$/ && c[4] ~ /^[0-9]+$/ && c[4] + 0 > 0 && c[6] ~ /^[0-9]+$/ && c[6] + 0 <= ts + 60) wcand("bt_fixed_new", (c[6] + 0 > ts ? ts : c[6] + 0), c[2], c[4] + 0, 5)
                 }
                 close(f)
             }
@@ -1986,7 +2143,7 @@ AWK_LAYERS='
             while ((getline line < f) > 0) {
                 if (split(line, c, "\t") >= 9 && c[1] == "B") {
                     ls = (c[10] ~ /^[0-9]+$/) ? c[10] + 0 : ts   # a blue5 B-line carries the real last_seen in a 10th field; a window line has none (-> ts, heard now)
-                    if (ls > ts) ls = ts                         # never later than the document that holds it (a clock that moved back)
+                    if (ls > ts) ls = ts                         # never later than the document that holds it (a row the firmware refreshed between ts and the copy, or a clock that moved back)
                     if (ls >= ts - hold) {
                         riA = (c[2] in hid) ? hid[c[2]] : ""; riP = ""
                         if (c[14] != "" && rcand < 8 && ridec(c[14])) { rcand++; riA = ridmerge(riA); riP = ridpos() }   # field 14 (blue5 only): the Remote ID service data; eight decoded addresses a cycle, the strongest first
@@ -2088,7 +2245,7 @@ alerts_look() {
 }
 # $1 = the document (rewritten in place, or left alone when the pass failed its shape check), $2 = the Bluetooth mode (see AWK_LAYERS). Reads $ts,
 # BT_HELD, the window's parse output, the RECON CHANNELS file of this process and, when alerts_look set AL_ON, the last 256 KiB of alerts.log: a snapshot,
-# so that the awk reads a file that stays as it is while a companion alert appends to the log (the companion keeps 2,000 lines of about 90 bytes, so a
+# so that the awk reads a file that stays as it is while a companion alert appends to the log (the companion keeps at most 2,200 lines of about 90 bytes, so a
 # log of its own is read whole; a larger one is somebody else's, and its first line, cut in the middle, is skipped and said). Returns post_keep's answer;
 # BT_HELD_NEW = the records for the next cycle. The alert lines the awk skipped are said once per episode.
 add_layers() {
@@ -2318,7 +2475,7 @@ btco_fill() {
         { L[++nl] = $0; if (NF >= 7 && $6 ~ /^[0-9]+$/ && $7 == "") { k = sprintf("%04X", $6 + 0); if (!(k in nm) && !(k in miss)) { miss[k] = 1; nmiss++ } } }
         END {
             if (nmiss && (getline l < tbl) > 0) {   # a list that cannot be read this cycle records nothing
-                do { if (l ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][\t ]/) { k = toupper(substr(l, 1, 4)); if ((k in miss) && !(k in got)) { v = substr(l, 6); sub(/^[\t ]+/, "", v); sub(/[\r\t ]+$/, "", v); if (v != "") got[k] = substr(v, 1, 48) } } } while ((getline l < tbl) > 0)
+                do { if (l ~ /^[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][\t ]/) { k = toupper(substr(l, 1, 4)); if ((k in miss) && !(k in got)) { v = substr(l, 6); sub(/^[\t ]+/, "", v); sub(/[\r\t ]+$/, "", v); gsub(/[\t]+/, " ", v); if (v != "") got[k] = substr(v, 1, 48) } } } while ((getline l < tbl) > 0)
                 close(tbl)
                 for (k in miss) { nm[k] = (k in got) ? got[k] : ""; print k "\t" nm[k] > co }
                 close(co)
@@ -2655,8 +2812,9 @@ cache_break() {
     stdir=$(mktemp -d "$1.stale.XXXXXX" 2>/dev/null) || return 3
     if mv "$1" "$stdir/" 2>/dev/null; then
         lgot=$(cat "$stdir/${1##*/}/pid" 2>/dev/null)
-        if [ "$lgot" != "$2" ] && [ "$lgot" != "$$" ] && holder_alive "$lgot" && [ ! -e "$1" ]; then
-            # a live holder took a fresh lock between our check and the rename: give it back
+        if [ ! -e "$1" ] && [ "$lgot" != "$$" ] && { { [ -n "$2" ] && [ "$lgot" != "$2" ]; } || { [ -z "$2" ] && [ -n "$lgot" ] && holder_alive "$lgot"; }; }; then
+            # not the lock we were told is stale (a waiter took a fresh one between our check and the rename, its pid maybe not written yet), or, on the
+            # grace path for a pid-less lock, a live holder's: give it back
             mv "$stdir/${1##*/}" "$1" 2>/dev/null
             rm -rf "$stdir" 2>/dev/null
             return 1
@@ -2743,8 +2901,13 @@ cache_append() {
     cn0=$(wc -l < "$OUI_CACHE" 2>/dev/null | tr -d ' ')
     nt=0; file_terminated "$1" && nt=1
     # SC_TERM: see AWK_CAPPEND.
+    if ! { true >> "$OUI_CACHE"; } 2>/dev/null; then   # not writable: vendor_dropped says it once, and the shell's own "cannot create" stays out of the log (true, not the special builtin ':', whose failed redirection ends a dash subshell)
+        vendor_dropped "nothing was added to $OUI_CACHE (no write access, or no room)"
+        cache_unlock
+        return 0
+    fi
     # shellcheck disable=SC2094  # awk finishes reading the cache in BEGIN before its first print
-    clean_ctrl < "$1" | SC_CACHE="$OUI_CACHE" SC_TERM="$nt" awk "$AWK_CAPPEND" >> "$OUI_CACHE"
+    clean_ctrl < "$1" | SC_CACHE="$OUI_CACHE" SC_TERM="$nt" awk "$AWK_CAPPEND" >> "$OUI_CACHE"   # awk's own stderr stays open: a write error cut short is worth a line
     cn1=$(wc -l < "$OUI_CACHE" 2>/dev/null | tr -d ' ')
     if [ "${cn1:-0}" -gt "${cn0:-0}" ] 2>/dev/null; then
         VENDOR_DROP_LOGGED=0; log "vendor cache: $((cn1 - cn0)) new prefix(es), $cn1 lines"
@@ -2793,6 +2956,12 @@ sweep_stale_tmp() {
     for f in "$OUTFILE".tmp.*; do
         [ -e "$f" ] || continue
         p=${f##*.tmp.}; p=${p%%.*}
+        case "$p" in ''|*[!0-9]*) continue ;; esac
+        holder_alive "$p" || rm -f "$f" 2>/dev/null
+    done
+    for f in "$OUTFILE".gen*; do   # the name a 0.2.7 collector gave the re-stamped document of a skipped cycle: one left by a hard kill goes with its dead pid
+        [ -e "$f" ] || continue
+        p=${f##*.gen}
         case "$p" in ''|*[!0-9]*) continue ;; esac
         holder_alive "$p" || rm -f "$f" 2>/dev/null
     done
@@ -2858,6 +3027,21 @@ build_from_csv() {
     # shellcheck disable=SC2012  # need mtime order; busybox has no portable stat -c, ls -t is fine
     csv=$(ls -1t "$CAPDIR"/starchorus-*.csv 2>/dev/null | head -1)
     [ -s "$csv" ] || return 1
+    # a CSV airodump no longer writes is no capture: the airodump this run started must still run (its pid, by identity), and the file must have been
+    # written within four intervals, 15 s at least (airodump rewrites it every 2 s); else nothing is published this cycle, said once per episode
+    if [ "$STARTED_AIRODUMP" = 1 ] && [ -n "$AD_PID" ] && ! pid_ours "$AD_PID" "-w $CAPPREFIX"; then
+        CSV_HOLD="airodump (pid $AD_PID) is gone: no capture this cycle"; return 1
+    fi
+    if [ "$STARTED_AIRODUMP" = 1 ]; then   # the cadence is known only for the airodump this run started; a CSV handed in (a test, a replay) is read as it is
+        bc_m=$(file_mtime "$csv"); bc_lim=$((INTERVAL * 4)); [ "$bc_lim" -ge 15 ] || bc_lim=15
+        case $bc_m in
+            ''|*[!0-9]*) ;;
+            *) if [ "${1:-0}" -gt 0 ] 2>/dev/null && [ $(($1 - bc_m)) -gt "$bc_lim" ]; then
+                   CSV_HOLD="the capture CSV is $(($1 - bc_m)) s old (airodump writes it every 2 s): no capture this cycle"; return 1
+               fi ;;
+        esac
+    fi
+    CSV_HOLD=""
     clean_ctrl < "$csv" | awk -v ts="$1" -v center="$CENTER_LABEL" -v src="airodump-csv" \
       "$AWK_JSON_HELPERS"'
         function trim(s){ sub(/^[ ]+/,"",s); sub(/[ ]+$/,"",s); return s }
@@ -2871,7 +3055,7 @@ build_from_csv() {
             chan=trim($4)+0
             spd=trim($5)        # airodump "Speed": max rate the AP advertises (-1 = unknown)
             priv=trim($6); ciph=trim($7); auth=trim($8)
-            pow=trim($9)
+            pow=trim($9); if(pow !~ /^-?[0-9]+$/ || pow+0 >= -1) pow=""   # the -1 of airodump means not measured (null below); a reading lies under it
             # ESSID is field 14; Key is the LAST field. Rejoin 14..NF-1 so ESSIDs that
             # themselves contain commas survive; drop the trailing Key column.
             essid=""
@@ -2892,7 +3076,7 @@ build_from_csv() {
         mode=="sta" {
             mac=trim($1)
             if(!ismac(mac)) next
-            pow=trim($4)
+            pow=trim($4); if(pow !~ /^-?[0-9]+$/ || pow+0 >= -1) pow=""   # as for the access points
             abss=trim($6)
             if(ismac(abss) && (abss in ap_index)){
                 k=ap_index[abss]
@@ -2930,8 +3114,8 @@ build_from_csv() {
 build_from_tcpdump() {
     [ -n "$MONIF" ] || return 1
     have tcpdump || return 1
-    # as in start_airodump: only the interface this run made, never one it found
-    if [ "$CREATED_MON" = 1 ]; then
+    # as in start_airodump: only the interface this run made, never one it found, and each cycle only while it is still that one
+    if [ "$CREATED_MON" = 1 ] && [ -n "$MON_ID" ] && [ "$(mon_ident "$MONIF")" = "$MON_ID" ]; then
         have ip && ip link set "$MONIF" up 2>/dev/null
     fi
     burst=$INTERVAL
@@ -2943,14 +3127,15 @@ build_from_tcpdump() {
 
 # Grab one burst of management frames. `timeout` bounds it to one cycle. If timeout is missing
 # we background tcpdump and kill it after $burst seconds. Split out so --selftest can feed text.
+# -p: the interface is never asked for promiscuous mode (it may be another program's).
 tcpdump_burst() {
     burst=$1
     filt='(type mgt subtype beacon) or (type mgt subtype probe-req) or (type mgt subtype probe-resp)'
     if have timeout; then
-        timeout "$burst" tcpdump -i "$MONIF" -l -e -s 256 "$filt" 2>/dev/null
+        timeout "$burst" tcpdump -p -i "$MONIF" -l -e -s 256 "$filt" 2>/dev/null
     else
         tf="$CAPDIR/tcpdump.$$"
-        tcpdump -i "$MONIF" -l -e -s 256 "$filt" >"$tf" 2>/dev/null &
+        tcpdump -p -i "$MONIF" -l -e -s 256 "$filt" >"$tf" 2>/dev/null &
         tdpid=$!
         i=0
         while [ "$i" -lt "$burst" ]; do sleep 1; i=$((i+1)); done
@@ -3088,14 +3273,15 @@ recondb_query() {
     return "$rq_rc"
 }
 # After a batch: 0 iff the file RQ_ERRF says the pass failed, and RQ_WHY is then the reason in a few words. Failed: sqlite3 named a damaged or unreadable database
-# (malformed, disk I/O, not a database), or it ended by a signal or a crash (an exit status of 2 or more). NOT failed: an exit status of 1 on its own. The CLI
+# (malformed, disk I/O, not a database), could not open, lock or write it (locked, unable to open, disk full, read-only: a held pass, not an empty document), or
+# it ended by a signal or a crash (an exit status of 2 or more). NOT failed: an exit status of 1 on its own. The CLI
 # gives 1 after ANY statement that did not prepare, and the schema-family alternatives of the batch fail on purpose ("no such table", "no such column"): a healthy
 # database ends with 1 as a matter of course. A batch that found no access point at all stays "no data this cycle", as before.
 recondb_failed() {
     RQ_WHY=""
     [ -n "$RQ_ERRF" ] && [ -s "$RQ_ERRF" ] || return 1
     # Read with builtins, no process (it was an awk): the same words as before, the last "#starchorus-exit N" line wins.
-    rf_m=0; rf_d=0; rf_n=0; rf_x=0
+    rf_m=0; rf_d=0; rf_n=0; rf_x=0; rf_o=""
     {
         while IFS= read -r rf_l || [ -n "$rf_l" ]; do
             case $rf_l in
@@ -3110,11 +3296,18 @@ recondb_failed() {
             case $rf_l in *[Mm]alformed*) rf_m=1 ;; esac
             case $rf_l in *'disk I/O'*) rf_d=1 ;; esac
             case $rf_l in *'not a database'*) rf_n=1 ;; esac
+            case $rf_l in
+                *'database is locked'*) rf_o="database is locked" ;;
+                *'unable to open database'*) rf_o="unable to open the database" ;;
+                *'disk is full'*) rf_o="the disk is full" ;;
+                *'attempt to write a readonly database'*) rf_o="a write to a read-only database" ;;
+            esac
         done < "$RQ_ERRF"
     } 2>/dev/null
     if [ "$rf_m" = 1 ]; then RQ_WHY="the copy is malformed"
     elif [ "$rf_d" = 1 ]; then RQ_WHY="disk I/O error"
     elif [ "$rf_n" = 1 ]; then RQ_WHY="the copy is not a database"
+    elif [ -n "$rf_o" ]; then RQ_WHY="the copy could not be read ($rf_o)"
     elif [ "$rf_x" -ge 2 ] 2>/dev/null; then RQ_WHY="the database reader ended with status $rf_x"
     fi
     [ -n "$RQ_WHY" ]
@@ -3386,6 +3579,12 @@ sweep_stale_workcopies() {
         [ -e "$f" ] || continue
         case $f in *.pid) continue ;; esac
         p=${f##*/starchorus-bt-}; p=${p##*/starchorus-traffic-}; p=${p%%.*}
+        case $p in ''|*[!0-9]*) continue ;; esac
+        holder_alive "$p" || rm -f "$f" 2>/dev/null
+    done
+    for f in "$TMPDIR_RAM"/starchorus-bt5-*.db "$TMPDIR_RAM"/starchorus-bt5-*.db-wal "$TMPDIR_RAM"/starchorus-bt5-*.db-shm; do   # the RAM copy of blue5.db (bt_blue5_copy)
+        [ -e "$f" ] || continue
+        p=${f##*/starchorus-bt5-}; p=${p%%.*}
         case $p in ''|*[!0-9]*) continue ;; esac
         holder_alive "$p" || rm -f "$f" 2>/dev/null
     done
@@ -3994,7 +4193,16 @@ build_from_iwscan() {
     scanif=$IFACE; [ "$scanif" = "auto" ] && scanif=$(candidate_base_iface)
     [ -n "$scanif" ] || return 1
     log "ACTIVE iw scan on $scanif (transmits probe requests) -- opted in via STARCHORUS_ALLOW_ACTIVE=1"
-    iw dev "$scanif" scan 2>/dev/null | clean_ctrl | awk -v ts="$1" -v center="$CENTER_LABEL" -v src="iw-scan-ACTIVE" \
+    iw dev "$scanif" scan 2>/dev/null | iwscan_parse "$1"
+    return 0
+}
+
+# stdin = the text `iw dev ... scan` prints -> the document (text only: no process here reaches the air). Every rule is anchored to its own line
+# shape, the keyword first on its line, and the SSID line ends the reading of that line, so an SSID that carries "freq:", "signal:", "RSN:",
+# "WPA:" or "Privacy" (air data, anyone's choice) cannot overwrite the fields it names. A hidden SSID, which iw prints as "\x00" bytes, is the
+# empty string. $1 = ts.
+iwscan_parse() {
+    clean_ctrl | awk -v ts="$1" -v center="$CENTER_LABEL" -v src="iw-scan-ACTIVE" \
       "$AWK_JSON_HELPERS"'
         function flush(   f,ch){
             if(bss==""){ return }
@@ -4011,19 +4219,18 @@ build_from_iwscan() {
         }
         BEGIN{ n=0 }
         /^BSS / { flush(); bss=substr($2,1,17); next }
-        /freq:/ { for(i=1;i<=NF;i++) if($i=="freq:"){ freq=$(i+1) } }
-        /signal:/ { for(i=1;i<=NF;i++) if($i=="signal:"){ sig=int($(i+1)); haversig=1 } }
-        /SSID:/ { s=$0; sub(/^[^:]*SSID:[ ]?/,"",s); ssid=s }
-        /RSN:/ { rsn=1 }
-        /WPA:/ { wpa=1 }
-        /Privacy/ { wep=1 }   # capability Privacy w/o RSN/WPA implies WEP
+        /^[ \t]*SSID:/ { s=$0; sub(/^[ \t]*SSID:[ ]?/,"",s); if(s ~ /^(\\x00)+$/) s=""; ssid=s; next }
+        /^[ \t]*freq: / { for(i=1;i<=NF;i++) if($i=="freq:"){ freq=$(i+1) }; next }
+        /^[ \t]*signal: / { for(i=1;i<=NF;i++) if($i=="signal:"){ sig=int($(i+1)); haversig=1 }; next }
+        /^[ \t]*RSN:/ { rsn=1; next }
+        /^[ \t]*WPA:/ { wpa=1; next }
+        /^[ \t]*capability:.*Privacy/ { wep=1; next }   # capability Privacy w/o RSN/WPA implies WEP
         END{
             flush()
             doc_head(); printf "  \"aps\": [\n"
             for(i=0;i<n;i++) printf "%s%s", out[i], (i<n-1?",\n":"\n")
             printf "  ],\n  \"unassociated\": [\n\n  ]\n}\n"
         }'
-    return 0
 }
 
 # --------------------------------------------------------------------------- spec §14.6: the AP-service CLI allowlist
@@ -4220,9 +4427,14 @@ add_homing() {
 # One cycle's homing step on the file $1 (the finished document): keeps the peak, inserts the field, drops the result if the shape changed.
 apply_homing() {
     # No usable target: drop the peak. homing_off comes first: with no target at all no process is started.
-    if homing_off || { ht=$(homing_target); [ -z "$ht" ]; }; then HOMING_PEAK=""; HOMING_POLLS=0; return 0; fi
+    if homing_off || { ht=$(homing_target); [ -z "$ht" ]; }; then HOMING_PEAK=""; HOMING_POLLS=0; HOMING_TGT=""; return 0; fi
+    if [ "$ht" != "$HOMING_TGT" ]; then HOMING_PEAK=""; HOMING_POLLS=0; HOMING_TGT=$ht; fi   # a new target starts its own peak hold
     if own_bssids | grep -qx "$ht"; then return 0; fi
-    hd=$(homing_dbm "$ht" < "$1"); [ -n "$hd" ] || return 0
+    hd=$(homing_dbm "$ht" < "$1")
+    if [ -z "$hd" ]; then   # the target is not in this document: a quiet cycle; twelve in a row drop the peak, as a weaker reading would
+        HOMING_POLLS=$((HOMING_POLLS + 1)); [ "$HOMING_POLLS" -lt 12 ] || { HOMING_PEAK=""; HOMING_POLLS=0; }
+        return 0
+    fi
     if [ -z "$HOMING_PEAK" ] || [ "$hd" -ge "$HOMING_PEAK" ] || [ "$HOMING_POLLS" -ge 12 ]; then HOMING_PEAK=$hd; HOMING_POLLS=0; else HOMING_POLLS=$((HOMING_POLLS + 1)); fi
     hg=$(sed -n 's/^  "generated": \([0-9][0-9]*\),$/\1/p' "$1" | head -n 1); [ -n "$hg" ] || hg=0
     add_homing "\"homing\": {\"bssid\": \"$ht\", \"dbm\": $hd, \"peak\": $HOMING_PEAK, \"t\": $hg}" < "$1" > "$1.h" 2>/dev/null
@@ -4238,10 +4450,13 @@ doc_whole() {
 }
 
 # --------------------------------------------------------------------------- empty document
+# $1 -> the body of a JSON string: control bytes other than TAB dropped; backslash, quote and TAB escaped by the awk escaper every builder uses; one line
+json_text() { printf '%s' "$1" | tr -d '\000-\010\012-\037\177' | LC_ALL=C awk "$AWK_JSON_HELPERS"'{ printf "%s", jesc($0) }'; }
 write_empty() {
     ts=$1; reason=$2
+    case $ts in ''|*[!0-9]*) ts=0 ;; esac
     printf '{\n  "generated": %s,\n  "center": {"label": "%s"%s},\n  "source": "none",\n  "note": "%s",\n  "aps": [],\n  "unassociated": []\n}\n' \
-        "$ts" "$CENTER_LABEL" "$(center_extra)" "$reason"
+        "$ts" "$(json_text "$CENTER_LABEL")" "$(center_extra)" "$(json_text "$reason")"
 }
 
 # --------------------------------------------------------------------------- recon.db: a cycle with nothing new
@@ -4355,7 +4570,7 @@ rs_keepdoc() {   # $1 = the document, $2 = its line count when the caller has it
 # RS_DOCV with a new "generated" and nothing else, put over $2 (default $OUTFILE; run_cycle asks for its work file, so that the per-cycle layers go
 # on before anything is published). Same line count and closing brace or it is dropped (return 1).
 refresh_generated() {   # $1 = now, $2 = where the document goes
-    rg_t="$OUTFILE.gen$$"
+    rg_t="$OUTFILE.tmp.$$.g"   # a .tmp.<pid>.* name: cleanup and the start-up sweep (sweep_stale_tmp) cover it
     # the new "generated" and, on the center line, the interval as the loop announces it now (what center_extra would write: INTERVAL, or more after a slow cycle)
     rg_iv=$INTERVAL; case $rg_iv in ''|*[!0-9]*) rg_iv=5 ;; esac
     [ "$PACE_MORE" -gt 0 ] 2>/dev/null && rg_iv=$((rg_iv + PACE_MORE))
@@ -4379,7 +4594,7 @@ refresh_generated() {   # $1 = now, $2 = where the document goes
 run_cycle() {
     ts=$(date +%s 2>/dev/null); [ -n "$ts" ] || ts=0
     tmp="$OUTFILE.tmp.$$"
-    ok=1; CENTER_DONE=0; rc_skip=0; RQ_HOLD=""; RQ_TORN=""
+    ok=1; CENTER_DONE=0; rc_skip=0; RQ_HOLD=""; RQ_TORN=""; CSV_HOLD=""
     BT_CUR=" "; BT_RC=3; TR_PID=""
     if [ "$BLUETOOTH" = 1 ]; then bt_pick; [ "$BT_SRC" = window ] && { bt_begin; BT_RC=$?; }; fi
     # RECON CHANNELS is called on the first cycle and then every second one: the AP service's command-line client is about 48 ticks a call on the device, and its own
@@ -4392,6 +4607,7 @@ run_cycle() {
         capture)
             if [ "$CAP_METHOD" = "airodump" ]; then
                 build_from_csv "$ts" 2>/dev/null > "$tmp" || ok=0
+                [ -z "$CSV_HOLD" ] || bt_issue csvhold "$CSV_HOLD"   # the builder's stderr is closed above: its reason is said here, once per episode
             else
                 build_from_tcpdump "$ts" 2>/dev/null > "$tmp" || ok=0
             fi
@@ -4435,7 +4651,8 @@ run_cycle() {
     fi
     # Guard: never publish an empty, failed or cut-off temp over a good file. The base document must have the shape every builder gives it (doc_whole: "{"
     # first, "}" last, one "aps" line): a build that was cut short and still said 0 (a full /tmp, an awk that lost its output) fails it, and so does a pass whose
-    # copy of recon.db could not be read (RQ_HOLD). Neither is an answer about the air: rc_hold says why, the document published last stays, and the cycle is
+    # copy of recon.db could not be read (RQ_HOLD), or whose airodump is gone or its CSV stale (CSV_HOLD). None is an answer about the air: rc_hold says why,
+    # the document published last stays, and the cycle is
     # reported as failed. A pass that merely found nothing still publishes the explicit empty document, so that the front-end always has valid JSON.
     rs_good=0; rc_hold=""; rc_keep=0; rc_pub=0
     if [ "$ok" = 1 ] && [ -s "$tmp" ]; then rs_good=1; fi
@@ -4444,6 +4661,7 @@ run_cycle() {
         bt_issue shape "the document of this cycle came out incomplete (a full disk, or a build that was cut short); the last document stays"
     fi
     if [ -n "$RQ_HOLD" ]; then rs_good=0; rc_hold=$RQ_HOLD; fi      # said where it was found (build_from_recondb)
+    if [ -n "$CSV_HOLD" ]; then rs_good=0; rc_hold=$CSV_HOLD; fi    # the airodump this run started is gone, or its CSV is stale (build_from_csv; said above, once per episode)
     if [ "$rs_good" != 1 ] && [ -z "$rc_hold" ]; then
         { write_empty "$ts" "no data this cycle (source=$RESOLVED)" > "$tmp"; } 2>/dev/null
         if ! doc_whole "$tmp"; then
@@ -4964,7 +5182,8 @@ lay_selftest() {
         [ "$lay_m" = "$lay_x" ] || lay_wok=0
     done
     STARCHORUS_OUTDIR="$lay_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_BT_WINDOW=20 sh "$0" --once > /dev/null 2> "$LAY/w.log"
-    if [ "$lay_wok" = 1 ] && ! grep -q 'Bluetooth' "$LAY/w.log"; then st_pass "STARCHORUS_BT_WINDOW: 5 to 15 whole seconds are taken (a leading zero is no octal), anything else is 5 with one log line; with Bluetooth off the collector says nothing about it"; else st_fail "STARCHORUS_BT_WINDOW: ($lay_wok) $(grep Bluetooth "$LAY/w.log" | head -n 2)"; fi
+    # the positive control of the bare negative below: the run got as far as resolving its source (a collector that died silently would say nothing either)
+    if [ "$lay_wok" = 1 ] && grep -q 'resolved data source:' "$LAY/w.log" && ! grep -q 'Bluetooth' "$LAY/w.log"; then st_pass "STARCHORUS_BT_WINDOW: 5 to 15 whole seconds are taken (a leading zero is no octal), anything else is 5 with one log line; with Bluetooth off the collector says nothing about it"; else st_fail "STARCHORUS_BT_WINDOW: ($lay_wok) $(grep Bluetooth "$LAY/w.log" | head -n 2)"; fi
     # the default: no STARCHORUS_BT_WINDOW at all, or an empty one, is a window of 5 s and no complaint (the loop above always names a value, so it cannot tell the default from the fallback)
     lay_dk=1
     for lay_dw in unset empty; do
@@ -5040,10 +5259,11 @@ lay_selftest() {
         b5_dup=0; printf '%s' "$b5_line" | grep -q '"addr": "aa:bb:cc:00:00:0a", "addr_type": "public", "rssi": -40, "reports": 7' && b5_dup=1
         b5_sub=0; printf '%s' "$b5_line" | grep -q '"addr": "c0:aa:bb:00:00:02", "addr_type": "random-static"' && printf '%s' "$b5_line" | grep -q '"addr": "40:aa:bb:00:00:03", "addr_type": "random-resolvable"' && b5_sub=1
         b5_nm=0; printf '%s' "$b5_line" | grep -q '"name": "t n"' && b5_nm=1
-        b5_ex=0; printf '%s' "$b5_line" | grep -q -e ':00:06' -e ':00:07' -e ':00:09' && b5_ex=1
-        if [ "$b5_rc" = 0 ] && [ "$b5_ar" = 0 ] && [ "$b5_cnt" = 5 ] && [ "$b5_src" = 1 ] && [ "$b5_win" = 0 ] && [ "$b5_dup" = 1 ] && [ "$b5_sub" = 1 ] && [ "$b5_nm" = 1 ] && [ "$b5_ex" = 0 ] && json_ok < "$b5/doc.json"; then
-            st_pass "blue5: bt_blue5_read maps blue5.db read-only to 5 records (newest per address, LE/rssi/age/MAC filtered, subtype from the address top bits, TAB in a name -> space, 0/65535 company dropped); center bt_source=blue5, no bt_window"
-        else st_fail "blue5 read: rc $b5_rc ar $b5_ar cnt $b5_cnt src $b5_src win $b5_win dup $b5_dup sub $b5_sub nm $b5_nm ex $b5_ex"; fi
+        b5_ex=0; printf '%s' "$b5_line" | grep -q -e ':00:06' -e ':00:07' -e ':00:09' -e ':00:0c' && b5_ex=1
+        b5_gap=0; printf '%s' "$b5_line" | grep -q '"addr": "aa:bb:cc:00:00:0b"[^}]*"last_seen": 1000000' && b5_gap=1
+        if [ "$b5_rc" = 0 ] && [ "$b5_ar" = 0 ] && [ "$b5_cnt" = 6 ] && [ "$b5_src" = 1 ] && [ "$b5_win" = 0 ] && [ "$b5_dup" = 1 ] && [ "$b5_sub" = 1 ] && [ "$b5_nm" = 1 ] && [ "$b5_ex" = 0 ] && [ "$b5_gap" = 1 ] && json_ok < "$b5/doc.json"; then
+            st_pass "blue5: bt_blue5_read maps blue5.db read-only to 6 records (newest per address, LE/rssi/age/MAC filtered, a row stamped 3 s after the clock kept at the clock and one 61 s after it dropped, subtype from the address top bits, TAB in a name -> space, 0/65535 company dropped); center bt_source=blue5, no bt_window"
+        else st_fail "blue5 read: rc $b5_rc ar $b5_ar cnt $b5_cnt src $b5_src win $b5_win dup $b5_dup sub $b5_sub nm $b5_nm ex $b5_ex gap $b5_gap"; fi
         # the company list names the identifier the database holds (76 = 004C): that record gets company_name; an identifier the list lacks (12) stays bare
         printf '0000\tEricsson AB\n004C\tApple, Inc.\n0076\tCreative Technology Ltd.\n' > "$b5/companies.txt"; b5_sCP=$BTCO_PATH; BTCO_PATH="$b5/companies.txt"; BT_HELD=""
         bt_blue5_read "$b5_ts"; b5_nrc=$?; lay_doc "$b5_ts" > "$b5/doc2.json"; add_layers "$b5/doc2.json" 1 blue5
@@ -5119,6 +5339,35 @@ lay_selftest() {
         if [ "$b5o_rc/$b5o_sv/$b5o_rc2/$b5o_sv2/$b5o_n/$b5o_rc3/$b5o_sv3/$b5o_n3/$b5o_rc4/$b5o_sv4/$b5o_b/$b5o_same" = 0/1/0/1/1/0/1/0/0//1/1 ] && ! grep -q '"class"' "$b5/o.json"; then
             st_pass "blue5 class: a database without the columns (the 0.2.6 schema) answers the narrow query, logged once, BT5_SV until the re-check clears it; its records are byte-identical to the 2.0 fixture's at the same clock"
         else st_fail "blue5 class: narrow schema (rc/sv $b5o_rc/$b5o_sv then $b5o_rc2/$b5o_sv2, logged $b5o_n; rich with BT5_SV $b5o_rc3/$b5o_sv3 logged $b5o_n3; cleared $b5o_rc4/$b5o_sv4 back $b5o_b; same lines $b5o_same)"; fi
+        # a table without first_seen (no firmware is known to have one): with Alert Rules on the W-select for bt_fixed_new shares the -bail call, so the full and
+        # the narrow query both fail; the query is asked without that select, logged once, the records are those of the control at the same clock, no W-line
+        # is written, BT5_SW holds until the re-check clears it and the return is logged once; without Alert Rules the full query answers at once (control)
+        b5w_sW=$WIDS; WIDS=1; BLUE5_DB="$LAY_BLUE5_NOFS"; BT_HELD=""; ts=$b5_ts; BT5_SV=""; BT5_SW=""; BT5_SVLOG=0; BT5_SWLOG=0
+        bt_blue5_read "$b5_ts" 2> "$b5/w.log"; b5w_rc=$?; b5w_f="$BT5_SV/$BT5_SW"; b5w_wl=$(grep -c "^W" "$BT_F.out" 2>/dev/null); lay_doc "$b5_ts" > "$b5/w.json"; add_layers "$b5/w.json" 1 blue5
+        b5w_l=$(grep '^  "bluetooth": ' "$b5/w.json")
+        bt_blue5_read "$b5_ts" 2>> "$b5/w.log"; b5w_rc2=$?; b5w_f2="$BT5_SV/$BT5_SW"; b5w_n=$(grep -c 'has no first_seen column' "$b5/w.log"); b5w_nc=$(grep -c 'has no mfr' "$b5/w.log")
+        BLUE5_DB="$b5_db"; BT5_SV=""; BT5_SW=""; bt_blue5_read "$b5_ts" 2> "$b5/w2.log"; b5w_rc3=$?; b5w_f3="$BT5_SV/$BT5_SW"; b5w_b=$(grep -c 'answers with first_seen again' "$b5/w2.log")   # the re-check clears both, the full query answers
+        WIDS=0; BLUE5_DB="$LAY_BLUE5_NOFS"; BT5_SV=""; BT5_SW=""; BT5_SWLOG=0; bt_blue5_read "$b5_ts" 2> "$b5/w3.log"; b5w_rc4=$?; b5w_f4="$BT5_SV/$BT5_SW"; b5w_n4=$(grep -c . "$b5/w3.log")
+        if [ "$b5w_rc/$b5w_f/$b5w_wl/$b5w_rc2/$b5w_f2/$b5w_n/$b5w_nc/$b5w_rc3/$b5w_f3/$b5w_b/$b5w_rc4/$b5w_f4/$b5w_n4" = "0//1/0/0//1/1/0/0///1/0///0" ] && [ "$b5w_l" = "$b5_line" ]; then
+            st_pass "blue5 schema without first_seen: with Alert Rules on the query answers without the W-select (BT5_SW, logged once, no W-line, the control's records); the re-check brings the select back, logged once; without Alert Rules nothing is left out"
+        else st_fail "blue5 schema without first_seen: $b5w_rc/$b5w_f/$b5w_wl/$b5w_rc2/$b5w_f2/$b5w_n/$b5w_nc/$b5w_rc3/$b5w_f3/$b5w_b/$b5w_rc4/$b5w_f4/$b5w_n4 (want 0//1/0/0//1/1/0/0///1/0///0), same lines $([ "$b5w_l" = "$b5_line" ] && echo 1 || echo 0)"; fi
+        # without first_seen and without the class columns: the narrow query without the W-select answers, both switches logged once
+        WIDS=1; BLUE5_DB="$LAY_BLUE5_NOFSOLD"; BT_HELD=""; BT5_SV=""; BT5_SW=""; BT5_SVLOG=0; BT5_SWLOG=0
+        bt_blue5_read "$b5_ts" 2> "$b5/w4.log"; b5w_rc5=$?; b5w_f5="$BT5_SV/$BT5_SW"; b5w_n5=$(grep -c -e 'has no first_seen column' -e 'has no mfr' "$b5/w4.log"); lay_doc "$b5_ts" > "$b5/w4.json"; add_layers "$b5/w4.json" 1 blue5
+        b5w_l5=$(grep '^  "bluetooth": ' "$b5/w4.json")
+        if [ "$b5w_rc5/$b5w_f5/$b5w_n5" = "0/1/1/2" ] && [ "$b5w_l5" = "$b5_line" ]; then
+            st_pass "blue5 schema without first_seen or the class columns: the narrow query without the W-select answers (BT5_SV and BT5_SW, both switches logged once), the control's records"
+        else st_fail "blue5 schema without first_seen or the class columns: $b5w_rc5/$b5w_f5/$b5w_n5 (want 0/1/1/2), same lines $([ "$b5w_l5" = "$b5_line" ] && echo 1 || echo 0)"; fi
+        # the real 0.2.6 schema (first_seen kept, no class columns) with Alert Rules on, the path a device on that firmware takes: the full query fails, the
+        # form without the W-select fails too (the class columns are still asked for), the narrow one with the W-select answers; BT5_SW stays empty,
+        # the class line is logged once and the first_seen line never, the records are the control's
+        WIDS=1; BLUE5_DB="$LAY_BLUE5_OLD"; BT_HELD=""; BT5_SV=""; BT5_SW=""; BT5_SVLOG=0; BT5_SWLOG=0
+        bt_blue5_read "$b5_ts" 2> "$b5/w5.log"; b5w_rc6=$?; b5w_f6="$BT5_SV/$BT5_SW"; b5w_n6=$(grep -c 'has no mfr' "$b5/w5.log"); b5w_x6=$(grep -c 'has no first_seen' "$b5/w5.log")
+        b5w_wl6=$(grep -c "^W" "$BT_F.out" 2>/dev/null); lay_doc "$b5_ts" > "$b5/w5.json"; add_layers "$b5/w5.json" 1 blue5; b5w_l6=$(grep '^  "bluetooth": ' "$b5/w5.json")
+        if [ "$b5w_rc6/$b5w_f6/$b5w_n6/$b5w_x6/$b5w_wl6" = "0/1//1/0/0" ] && [ "$b5w_l6" = "$b5_line" ]; then
+            st_pass "blue5 schema of 0.2.6 with Alert Rules on: the narrow query with the W-select answers (BT5_SV alone, the class line logged once, no first_seen line), the control's records, no W-line from its young rows"
+        else st_fail "blue5 schema of 0.2.6 with Alert Rules on: $b5w_rc6/$b5w_f6/$b5w_n6/$b5w_x6/$b5w_wl6 (want 0/1//1/0/0), same lines $([ "$b5w_l6" = "$b5_line" ] && echo 1 || echo 0)"; fi
+        WIDS=$b5w_sW; BLUE5_DB="$b5_db"; BT5_SV=""; BT5_SW=""; BT5_SVLOG=0; BT5_SWLOG=0
         # 25d) Remote ID (ASTM F3411) from svcd: the fixture's third set (clock 3000000) holds single messages, packs and refusals (eight candidates, the cap), the
         # one at 3200000 the ranges and ids, the one at 4000000 twenty candidates
         b5r_ts=3000000; BLUE5_DB="$b5_db"; BT_HELD=""; ts=$b5r_ts; BT5_SV=""; BT5_SVLOG=0
@@ -5146,10 +5395,11 @@ lay_selftest() {
         if [ "$b5r_n/$b5r_raw/$b5r_plain" = ------/0/1 ]; then
             st_pass "remote id: refusals (the app code 0C, a pack count beyond its bytes, a message size other than 25, svcd as text, a blob over 232 bytes, NULL); no raw bytes reach the document and a record without Remote ID is unchanged"
         else st_fail "remote id: refusals ($b5r_n raw $b5r_raw plain $b5r_plain)"; fi
-        # cycle 2 (30 s on): the address of the Basic ID now broadcasts a Location: identity carried, position from this cycle; cycle 3 (void): identity, operator fields, never a position
-        ts=$((b5r_ts + 30)); bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r2.json"; add_layers "$b5/r2.json" 1 blue5; BT_HELD=$(cat "$LAY/ram/starchorus-bt-$$.new" 2>/dev/null)
+        # cycle 2 (90 s on, past the 60 s the queries allow after the clock): the address of the Basic ID now broadcasts a Location: identity carried, position from this
+        # cycle; cycle 3 (110 s on, void, inside the hold): identity, operator fields, never a position
+        ts=$((b5r_ts + 90)); bt_blue5_read "$ts" 2>/dev/null; lay_doc "$ts" > "$b5/r2.json"; add_layers "$b5/r2.json" 1 blue5; BT_HELD=$(cat "$LAY/ram/starchorus-bt-$$.new" 2>/dev/null)
         b5r_l=$(grep '^  "bluetooth": ' "$b5/r2.json"); b5r_m1=$(b5r_rid 01); b5r_m3=$(b5r_rid 03)
-        ts=$((b5r_ts + 60)); lay_doc "$ts" > "$b5/r3.json"; add_layers "$b5/r3.json" 2 blue5
+        ts=$((b5r_ts + 110)); lay_doc "$ts" > "$b5/r3.json"; add_layers "$b5/r3.json" 2 blue5
         b5r_l=$(grep '^  "bluetooth": ' "$b5/r3.json"); b5r_h1=$(b5r_rid 01); b5r_h2=$(b5r_rid 02); b5r_h3=$(b5r_rid 03); b5r_h4=$(b5r_rid 04); b5r_h5=$(b5r_rid 05)
         if [ "$b5r_m1" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001", "status": "airborne", "lat": 0.5000000, "lon": -30.2500000, "alt_m": 120.5' ] \
            && [ "$b5r_h1" = '"ua_type": "multirotor", "id_type": "serial", "uas_id": "TEST-ID.0001"' ] && [ "$b5r_h2" = - ] && [ "$b5r_h3" = '"operator_lat": 0.7500000, "operator_lon": -30.5000000' ] \
@@ -5433,13 +5683,17 @@ lay_selftest() {
     lal_o="$LAY/alo"; mkdir -p "$lal_o"; lal_ok=1
     for lal_c in 20:1 abc:1 86401:1 60:0 600:0 86400:0 0600:0; do
         lal_v=${lal_c%%:*}; lal_x=${lal_c#*:}
-        STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERTS=1 STARCHORUS_ALERT_WINDOW=$lal_v sh "$0" --once > /dev/null 2> "$LAY/w.log"
+        STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERTS=1 STARCHORUS_ALERT_WINDOW=$lal_v sh "$0" --once > /dev/null 2> "$LAY/w.log"; lal_rc=$?
+        # the positive control of the counts below: the run ended well (a collector that died before any output would count none either)
+        if [ "$lal_rc" != 0 ] || ! grep -q 'single cycle complete' "$LAY/w.log"; then lal_ok=0; echo "    window '$lal_v': the run did not complete (exit $lal_rc)" >&2; fi
         lal_m=$(grep -c "Alerts: STARCHORUS_ALERT_WINDOW must be whole seconds from 60 to 86400 (got '$lal_v'); using 600" "$LAY/w.log")
         [ "$lal_m" = "$lal_x" ] && [ "$(grep -c 'Alerts' "$LAY/w.log")" = "$lal_x" ] || { lal_ok=0; echo "    window '$lal_v': $lal_m message(s), want $lal_x" >&2; }
     done
-    STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERT_WINDOW=20 STARCHORUS_ALERTS=0 sh "$0" --once > /dev/null 2> "$LAY/w.log"
+    STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERT_WINDOW=20 STARCHORUS_ALERTS=0 sh "$0" --once > /dev/null 2> "$LAY/w.log"; lal_rc=$?
+    [ "$lal_rc" = 0 ] && grep -q 'single cycle complete' "$LAY/w.log" || lal_ok=0   # positive control: the run ended well before its silence counts
     grep -q 'Alerts' "$LAY/w.log" && lal_ok=0
-    STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERTS=1 STARCHORUS_ALERT_WINDOW='' sh "$0" --once > /dev/null 2> "$LAY/w.log"
+    STARCHORUS_OUTDIR="$lal_o" STARCHORUS_SOURCE=recondb STARCHORUS_RECON_DB="$LAY/none-such.db" STARCHORUS_VENDOR=0 STARCHORUS_CREATE_MON=0 STARCHORUS_ALERTS=1 STARCHORUS_ALERT_WINDOW='' sh "$0" --once > /dev/null 2> "$LAY/w.log"; lal_rc=$?
+    [ "$lal_rc" = 0 ] && grep -q 'single cycle complete' "$LAY/w.log" || lal_ok=0   # positive control: the run ended well before its silence counts
     grep -q 'Alerts' "$LAY/w.log" && lal_ok=0
     if [ "$lal_ok" = 1 ]; then st_pass "STARCHORUS_ALERT_WINDOW: the log line: a bad value is named once at start, a good one, an empty one and a bad one with STARCHORUS_ALERTS=0 say nothing"; else st_fail "STARCHORUS_ALERT_WINDOW: the log line ($(grep Alerts "$LAY/w.log" | head -n 2))"; fi
 
@@ -5609,9 +5863,15 @@ lay_selftest() {
         WIDS_SEEN=""; BLUETOOTH=1; BT_SRC=blue5; BLUE5_DB="$LAY_BLUE5_FIX"; TMPDIR_RAM="$LAY/ram"; BT5_MAX=4194304; BT_HELD=""; BT5_SV=""; ts=5000000
         lw_body=""; lw_doc ''; lw_run; lw_e1=$(lw_al); lw_e1b=$(grep -c '"addr": "aa:bb:cc:00:04:01"' "$lw_d/doc.json")
         WIDS=0; BT_HELD=""; lw_doc ''; lw_run; lw_e0=$(lw_al); WIDS=1
-        if [ "$lw_e1" = '[{"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:01", "n": 5}, {"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:08", "n": 3}, {"type": "bt_fixed_new", "t": 5000000, "ap": "c0:aa:bb:00:04:02", "n": 3}],' ] && [ "$lw_e1b" = 1 ] && [ -z "$lw_e0" ] && json_ok < "$lw_d/doc.json"; then
-            st_pass "wids: bt_fixed_new: of ten addresses of the blue5 source a public, a random-static and one exactly ten minutes old with exactly three reports, strong, from a database older than an hour -> three entries, n = the reports; a resolvable address, an older first row, a weak signal, exactly -50 dBm, a signal of 0 and two reports say nothing; with the switch off the query asks for none"
+        if [ "$lw_e1" = '[{"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:01", "n": 5}, {"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:08", "n": 3}, {"type": "bt_fixed_new", "t": 5000000, "ap": "aa:bb:cc:00:04:0b", "n": 5}, {"type": "bt_fixed_new", "t": 5000000, "ap": "c0:aa:bb:00:04:02", "n": 3}],' ] && [ "$lw_e1b" = 1 ] && [ -z "$lw_e0" ] && json_ok < "$lw_d/doc.json"; then
+            st_pass "wids: bt_fixed_new: of twelve addresses of the blue5 source a public, a random-static, one exactly ten minutes old with exactly three reports and one stamped 3 s after the clock (kept, at the clock), strong, from a database older than an hour -> four entries, n = the reports; one stamped 61 s after the clock is not read, a resolvable address, an older first row, a weak signal, exactly -50 dBm, a signal of 0 and two reports say nothing; with the switch off the query asks for none"
         else st_fail "wids: bt_fixed_new ([$lw_e1] off [$lw_e0] record $lw_e1b)"; fi
+        # the same rule on addresses with more than one row (the ninth set, clock 6000000): the first row of an address is its oldest in any scan
+        # session and of any transport, its reports are those of all its rows, and its newest stamp is the newest of them
+        WIDS_SEEN=""; BT_HELD=""; ts=6000000; lw_doc ''; lw_run; lw_e2=$(lw_al); ts=5000000
+        if [ "$lw_e2" = '[{"type": "bt_fixed_new", "t": 6000000, "ap": "aa:bb:cc:00:05:02", "n": 4}],' ] && json_ok < "$lw_d/doc.json"; then
+            st_pass "wids: bt_fixed_new reads every row of an address: two young rows in two scan sessions give one entry, n = their reports together (2 and 2); an older row in an earlier session, an older classic row and a row stamped more than 60 s after the clock each keep their address silent"
+        else st_fail "wids: bt_fixed_new over the rows of an address ([$lw_e2])"; fi
         BLUETOOTH=0; BT_SRC=window
     fi
     # caps and rank: ten own_name candidates and a deauth report on the first
@@ -5879,7 +6139,21 @@ BTWIN
             bts_h=$(sed -n 's/^SigIgn:[[:space:]]*//p' "$BTS/log/sigign.$bts_x"); bts_lo=${bts_h#"${bts_h%??}"}
             [ $((0x$bts_lo & 5)) = 5 ] || bts_ig=0
         done
-        if [ "$bts_ig" = 1 ]; then st_pass "bt_begin: the two tools start with HUP and QUIT ignored (SigIgn), so a closing terminal cannot end the scan past its INT handler"; else st_fail "bt_begin: SigIgn lines [$(cat "$BTS"/log/sigign.* 2>/dev/null)]"; fi
+        if [ "$bts_ig" = 1 ]; then st_pass "bt_begin: the two tools start with HUP and QUIT ignored (SigIgn), so a closing terminal cannot end the scan past its INT handler; of the two, HUP is what the trap adds (a background job of a shell without job control ignores QUIT of itself)"; else st_fail "bt_begin: SigIgn lines [$(cat "$BTS"/log/sigign.* 2>/dev/null)]"; fi
+        # the negative control of the HUP half: the same kind of start (a background job of a subshell, SigIgn read from /proc) without the trap shows HUP not ignored, with it HUP ignored.
+        # A shell that was itself started with HUP ignored (under nohup) hands that on to every child and cannot show the difference: no row then, and a line that says so
+        bts_h=$(sed -n 's/^SigIgn:[[:space:]]*//p' "/proc/$$/status" 2>/dev/null); bts_lo=${bts_h#"${bts_h%??}"}
+        case $bts_lo in ''|*[!0-9a-fA-F]*) bts_lo=1 ;; esac
+        if [ $((0x$bts_lo & 1)) = 1 ]; then log "  SKIP: the SigIgn control needs a shell that does not ignore HUP itself (this one does, or its /proc entry cannot be read)"
+        else
+            for bts_k in trap none; do
+                ( [ "$bts_k" = trap ] && trap '' HUP QUIT; grep '^SigIgn' /proc/self/status > "$BTS/log/ctl.$bts_k" 2>/dev/null & wait )
+                bts_h=$(sed -n 's/^SigIgn:[[:space:]]*//p' "$BTS/log/ctl.$bts_k"); bts_lo=${bts_h#"${bts_h%??}"}
+                case $bts_lo in ''|*[!0-9a-fA-F]*) bts_lo=0 ;; esac
+                if [ "$bts_k" = trap ]; then bts_hup_trap=$((0x$bts_lo & 1)); else bts_hup_none=$((0x$bts_lo & 1)); fi
+            done
+            if [ "$bts_hup_trap/$bts_hup_none" = 1/0 ]; then st_pass "bt_begin: the SigIgn reading tells the two starts apart (with trap '' HUP the job ignores HUP, without it does not), so the check above can fail"; else st_fail "bt_begin: SigIgn control, HUP ignored with the trap $bts_hup_trap, without $bts_hup_none (want 1 and 0)"; fi
+        fi
     else log "  SKIP: bt_begin SigIgn check needs /proc (this is not Linux)"; fi
     # the pid file: one line per tool, wrapper, tool and start (the stand-in /proc gives the start field)
     bts_pf=$(cat "$BT_PF" 2>/dev/null)
@@ -6289,10 +6563,19 @@ BTWIN
 # its cache and lock), run_cycle, a real overlapping --once and the apcli_ro allowlist.
 json_ok() {
     # Validate JSON on stdin. Prefer jq, then python3, else a minimal brace-balance sanity check.
-    if have jq; then jq -e . >/dev/null 2>&1
+    # With jq: exactly one top-level object (every caller hands it a document), and nothing that jq reads but the page's JSON.parse refuses: the
+    # words nan, inf and infinity in any letter case, and a number with a leading zero, with no digit before or after its point, or with a plus
+    # sign outside an exponent. The device's jq has no regular expressions, so sed blanks the strings and grep looks through the rest. The
+    # document is judged from a file, byte for byte: a shell variable would drop a NUL, which jq refuses.
+    if have jq; then
+        json_ok_f=$(mktemp "${tdir:-${TMPDIR:-/tmp}}/jok.XXXXXX" 2>/dev/null) || json_ok_f="${tdir:-${TMPDIR:-/tmp}}/jok.$$"
+        cat > "$json_ok_f"
+        if LC_ALL=C sed 's/"\([^"\\]*\(\\.[^"\\]*\)*\)"/""/g' "$json_ok_f" | LC_ALL=C grep -Eiq '(^|[^A-Za-z0-9_])(nan|inf|infinity)([^A-Za-z0-9_]|$)|(^|[^0-9.eE+-])-?0[0-9]|(^|[^0-9])\.[0-9]|[0-9]\.([^0-9]|$)|(^|[^eE])\+'; then rm -f "$json_ok_f"; return 1; fi
+        jq -e -s 'length == 1 and (.[0] | type == "object")' "$json_ok_f" >/dev/null 2>&1; json_ok_r=$?
+        rm -f "$json_ok_f"; return "$json_ok_r"
     elif have python3; then python3 -c 'import sys,json; json.load(sys.stdin)' >/dev/null 2>&1
     else
-        awk '{n+=gsub(/{/,"{"); m+=gsub(/}/,"}")} END{exit (n>0 && n==m)?0:1}'
+        awk '{n+=gsub(/[{]/,"{"); m+=gsub(/[}]/,"}")} END{exit (n>0 && n==m)?0:1}'   # the braces as bracket expressions: BusyBox awk reads a bare { as a repetition
     fi
 }
 
@@ -6312,6 +6595,7 @@ selftest() {
     STARCHORUS_BT_SOURCE=window; STARCHORUS_BLUE5_DB=/nonexistent/starchorus-selftest-blue5.db; STARCHORUS_BT_COMPANIES_FILE=/nonexistent/starchorus-selftest-bt-companies.txt
     export STARCHORUS_BLUETOOTH STARCHORUS_TRAFFIC STARCHORUS_APCLI_RO STARCHORUS_ALLOW_ACTIVE STARCHORUS_SYSFS_BT STARCHORUS_ALERTS STARCHORUS_ALERT_DIR STARCHORUS_WATCH_FILE STARCHORUS_WIDS
     export STARCHORUS_BT_SOURCE STARCHORUS_BLUE5_DB STARCHORUS_BT_COMPANIES_FILE
+    STARCHORUS_CREATE_MON=0; CREATE_MON=0; export STARCHORUS_CREATE_MON   # no interface of our own: the cases of 6o switch it on with stand-ins for iw and ip
     BLUETOOTH=0; TRAFFIC=0; APCLI_RO=0; ALLOW_ACTIVE=0; BT_SYSFS=$STARCHORUS_SYSFS_BT; ALERTS=0; ALERT_DIR=$STARCHORUS_ALERT_DIR; WL_FILE=$STARCHORUS_WATCH_FILE; WIDS=0
     BT_SOURCE=window; BLUE5_DB=$STARCHORUS_BLUE5_DB; BT_SRC=window; BTCO_FILE=$STARCHORUS_BT_COMPANIES_FILE; BTCO_PATH=""
     tdir=$(mktemp -d 2>/dev/null || echo /tmp/starchorus-selftest.$$)
@@ -6369,6 +6653,11 @@ selftest() {
     BTCO_PATH="$tdir/co/list.txt"; co_o5=$(printf 'B\t02:00:00:00:00:18\tpublic\t-57\t1\t76\t\t\t1\n' | btco_fill | tr '\t\n' '=|'); btco_memo_take
     if [ "$co_o4" = "B=02:00:00:00:00:18=public=-57=1=76===1|" ] && [ "$co_f4" = no ] && [ -z "$co_m4" ] && [ "$co_o5" = "B=02:00:00:00:00:18=public=-57=1=76=Apple, Inc.==1|" ] && [ "$BTCO_MEMO" = "$(printf '004C\tApple, Inc.')" ]; then st_pass "btco_fill: a list that cannot be read this cycle names nothing and records nothing (no side file, the memo untouched), so the next cycle with the list names the identifier"
     else st_fail "btco_fill: unreadable list: pass [$co_o4], side file $co_f4, memo [$(printf '%s' "$co_m4" | tr '\t\n' '=|')], then [$co_o5], memo [$(printf '%s' "$BTCO_MEMO" | tr '\t\n' '=|')]"; fi
+    # a TAB inside a list name (a third column) is a blank in the record: the B-line keeps its nine fields
+    printf '0A5C\tBroad\tcom Inc\n' > "$tdir/co/tab.txt"; BTCO_PATH="$tdir/co/tab.txt"; BTCO_MEMO=""
+    co_t=$(printf 'B\t02:00:00:00:00:15\tpublic\t-54\t1\t2652\t\t\t1\n' | btco_fill | tr '\t\n' '=|'); btco_memo_take
+    if [ "$co_t" = "B=02:00:00:00:00:15=public=-54=1=2652=Broad com Inc==1|" ]; then st_pass "btco_fill: a TAB inside a list name becomes a blank, so the B-line keeps its nine fields"; else st_fail "btco_fill: tab in name [$co_t]"; fi
+    BTCO_PATH="$tdir/co/list.txt"
     BTCO_MEMO="0001${RECON_TAB}x"; BTCO_FILE="$tdir/co/list.txt"; BTCO_STATE=""; setup_btco 2>/dev/null
     if [ -z "$BTCO_MEMO" ] && [ "$BTCO_PATH" = "$tdir/co/list.txt" ]; then st_pass "setup_btco: the memo is emptied with the (hourly) choice of the list"
     else st_fail "setup_btco: memo [$BTCO_MEMO], path [$BTCO_PATH]"; fi
@@ -6379,19 +6668,49 @@ selftest() {
     checkno() {  # desc, haystack, needle that must be ABSENT
         if printf '%s' "$2" | grep -q -- "$3"; then st_fail "$1  (unexpected: $3)"; else st_pass "$1"; fi
     }
+    checkabs() {  # desc, haystack, needle that must be ABSENT; an empty haystack (the line or document under test was lost) fails
+        if [ -z "$2" ]; then st_fail "$1  (nothing to look in)"; elif printf '%s' "$2" | grep -q -- "$3"; then st_fail "$1  (unexpected: $3)"; else st_pass "$1"; fi
+    }
     jcheck() {  # name, document: "<name> valid JSON"
         if printf '%s' "$2" | json_ok; then st_pass "$1 valid JSON"; else st_fail "$1 JSON"; fi
     }
+    # json_ok itself, the check behind every jcheck and `json_ok <` row: it must refuse what the page's JSON.parse refuses, and keep a good document (jq only: the other two branches judge less)
+    if have jq; then
+        jo_bad=""
+        for jo_c in '{"a": nan}' '{"a": NaN}' '{"a": NAN}' '{"a": Infinity}' '{"a": -Infinity}' '{"a": infinity}' '{"a": inf}' '{"a": -inf}' '{"a": [1, nan]}' '{"a": 01}' '{"a": -01}' '{"a": .5}' '{"a": 1.}' '{"a": +1}' '{"a": 1}{"b": 2}' '{"a": 1} {"a": 1}' '[{"a": 1}]' '' '{"a": 1'; do
+            ! printf '%s\n' "$jo_c" | json_ok || jo_bad="$jo_bad [$jo_c]"
+        done
+        ! printf '{"a": "x\000y"}\n' | json_ok || jo_bad="$jo_bad [a NUL in a string]"
+        ! printf '{"a": 1}\000\n' | json_ok || jo_bad="$jo_bad [a NUL after the document]"
+        if [ -z "$jo_bad" ]; then st_pass "json_ok: nan, inf and infinity in any letter case (as a value and inside an array), a number with a leading zero, without a digit before or after its point or with a plus sign, a NUL byte, two documents in a row, an array, nothing and a cut-off document are refused"; else st_fail "json_ok: accepted$jo_bad"; fi
+        jo_good='{"a": 1, "b": "nan NaN inf Infinity -Infinity \"Infinity\" +1 .5 01 1. \\", "c": [1.5, -2, null, true, 0, -0.5, 10.05, 100, 1e+5, 1E-05], "nan": {"Infinity": "x", "inf": 0}}'
+        if printf '%s\n' "$jo_good" | json_ok && printf '%s\n' '{' '  "k": "v",' '  "n": 0' '}' | json_ok; then st_pass "json_ok: a good document is kept (the words and the odd number forms as text, in a key and after an escaped quote included, exponents and a zero before a point; one object over several lines)"; else st_fail "json_ok: a good document refused"; fi
+    else log "  SKIP: json_ok control rows need jq"; fi
+
+    # bt_pick, the choice of the Bluetooth source (the device's default auto reads blue5.db when it is there, else the window; an unknown word is none, said once):
+    # driven here, since the preamble above pins the source to window for every later case
+    bp_sv=$BT_SOURCE; bp_sd=$BLUE5_DB; bp_r=""; true > "$tdir/bp.db"
+    for bp_c in auto:present:blue5 auto:absent:window blue5:absent:blue5 window:present:window junk:present:none; do
+        BT_SOURCE=${bp_c%%:*}; bp_m=${bp_c#*:}; bp_m=${bp_m%%:*}
+        if [ "$bp_m" = present ]; then BLUE5_DB="$tdir/bp.db"; else BLUE5_DB="$tdir/no-such.db"; fi
+        BT_CUR=" "; BT_LOGGED=" "; bt_pick 2> "$tdir/bp.log"; bp_r="$bp_r $BT_SRC"
+        [ "$BT_SOURCE" != junk ] || { grep -q "is not auto, blue5 or window" "$tdir/bp.log" && bp_r="$bp_r+said"; }
+    done
+    BT_SOURCE=$bp_sv; BLUE5_DB=$bp_sd; BT_SRC=window; BT_CUR=" "; BT_LOGGED=" "
+    if [ "$bp_r" = " blue5 window blue5 window none+said" ]; then st_pass "bt_pick: auto reads blue5.db when it is there and takes the window when not; blue5 and window as named; an unknown word is none and is said"
+    else st_fail "bt_pick: [$bp_r]"; fi
 
     # ---- 1) airodump CSV -------------------------------------------------------------------
     cat > "$CAPDIR/starchorus-01.csv" <<'CSV'
 BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
 AA:BB:CC:00:11:22, 2026-09-13 10:00:00, 2026-09-13 10:05:00, 6, 130, WPA2, CCMP, PSK, -42, 100, 0, 0.0.0.0, 8, HomeNet,
 DD:EE:FF:33:44:55, 2026-09-13 10:00:00, 2026-09-13 10:05:00, 149, 866, OPN, , , -70, 50, 0, 0.0.0.0, 7, Caf, e Guest,
+02:00:00:00:00:C1, 2026-09-13 10:00:00, 2026-09-13 10:05:00, 1, 54, WPA2, CCMP, PSK, -1, 10, 0, 0.0.0.0, 6, Unread,
 
 Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
 11:22:33:44:55:66, 2026-09-13 10:00:00, 2026-09-13 10:05:00, -55, 20, AA:BB:CC:00:11:22,
 99:88:77:66:55:44, 2026-09-13 10:00:00, 2026-09-13 10:05:00, -80, 5, (not associated), FreeWifi
+02:00:00:00:00:C2, 2026-09-13 10:00:00, 2026-09-13 10:05:00, -1, 3, (not associated),
 CSV
     out=$(build_from_csv 1710000000 2>/dev/null)
     jcheck "airodump-csv" "$out"
@@ -6404,6 +6723,36 @@ CSV
     checkf "airodump: probed ESSID -> probes" "$out" '"rssi": -80, "probes": ["FreeWifi"]'
     check "airodump: rate from Speed (130)" "$out" '"security": "WPA2/PSK/CCMP", "rate": 130, "clients"'
     check "airodump: rate from Speed (866)" "$out" '"rate": 866'
+    checkf "airodump: an AP's Power -1 (not measured) is null, not a reading" "$out" '"bssid": "02:00:00:00:00:c1", "ssid": "Unread", "channel": 1, "band": "2.4GHz", "freq": 2412, "rssi": null, "security": "WPA2/PSK/CCMP"'
+    checkf "airodump: a station's Power -1 is null" "$out" '"mac": "02:00:00:00:00:c2", "rssi": null'
+    # the gate for the airodump this run started: a fresh CSV publishes; one older than four intervals (the clock far ahead of the file) does not, and the hold
+    # says how old; an airodump that is gone (a dead pid) does not publish either; a CSV handed in without a started airodump is read as it is (the checks above)
+    STARTED_AIRODUMP=1; AD_PID=""; csv_now=$(date +%s)
+    if build_from_csv "$csv_now" 2>/dev/null | grep -q '"source": "airodump-csv"'; then st_pass "airodump: with the started airodump alive and a fresh CSV the document is published"; else st_fail "airodump: a fresh CSV was refused"; fi
+    if build_from_csv $((csv_now + INTERVAL * 4 + 100)) >/dev/null 2>&1; then st_fail "airodump: a CSV older than four intervals was published"
+    else case $CSV_HOLD in "the capture CSV is "*" s old"*) st_pass "airodump: a CSV airodump stopped writing (older than four intervals) gives no document, and the hold says how old it is" ;; *) st_fail "airodump: stale CSV hold [$CSV_HOLD]" ;; esac; fi
+    AD_PID=4194305
+    if build_from_csv "$csv_now" >/dev/null 2>&1; then st_fail "airodump: a dead airodump's CSV was published"
+    else case $CSV_HOLD in "airodump (pid 4194305) is gone"*) st_pass "airodump: an airodump that is gone (its pid dead) gives no document, and the hold names it" ;; *) st_fail "airodump: dead pid hold [$CSV_HOLD]" ;; esac; fi
+    STARTED_AIRODUMP=0; AD_PID=""; CSV_HOLD=""
+
+    # ---- 1a-ii) the Bluetooth window setting (text only): one function, as the collector reads STARCHORUS_BT_WINDOW ----------------------
+    bw_s=$BT_WIN; bw_b=$BT_WIN_BAD; bw_o=""
+    for bw_v in 9 07 4 16 five 99999999999999999999; do bt_window_value "$bw_v" 2>"$tdir/bw.err"; bw_o="$bw_o $BT_WIN/$BT_WIN_BAD"; [ -s "$tdir/bw.err" ] && bw_o="$bw_o!"; done
+    bt_window_value ""; bw_o="$bw_o $BT_WIN/$BT_WIN_BAD"
+    BT_WIN=$bw_s; BT_WIN_BAD=$bw_b
+    if [ "$bw_o" = " 9/ 7/ 5/4 5/16 5/five 5/99999999999999999999 5/" ]; then st_pass "bt_window_value: 9 and 07 read 9 and 7; 4, 16, a word and twenty digits are 5 with the text kept, and the shell is not asked to read the twenty digits as a number"
+    else st_fail "bt_window_value: [$bw_o] (want ' 9/ 7/ 5/4 5/16 5/five 5/99999999999999999999 5/')"; fi
+
+    # ---- 1b) the iw scan parser (text only, no iw is run): an SSID that carries the field words, a hidden SSID as \x00 bytes
+    iws_out=$(printf 'BSS 02:00:00:00:00:a1(on wlan0)\n\tfreq: 2412\n\tsignal: -60.00 dBm\n\tSSID: free freq: 5955 signal: -1 RSN:\n\tcapability: ESS (0x0401)\nBSS 02:00:00:00:00:a2(on wlan0)\n\tfreq: 5180\n\tsignal: -70.00 dBm\n\tSSID: \\x00\\x00\\x00\n\tRSN:\t * Version: 1\nBSS 02:00:00:00:00:a3(on wlan0)\n\tfreq: 2412\n\tsignal: -65.00 dBm\n\tSSID: Wep\n\tcapability: ESS Privacy ShortSlotTime (0x0411)\nBSS 02:00:00:00:00:a4(on wlan0)\n\tfreq: 2437\n\tsignal: -66.00 dBm\n\tSSID: WpaOnly\n\tWPA:\t * Version: 1\nBSS 02:00:00:00:00:a5(on wlan0)\n\tfreq: 2462\n\tsignal: -67.00 dBm\n\tSSID: Mixed\n\tWPA:\t * Version: 1\n\tRSN:\t * Version: 1\nBSS 02:00:00:00:00:a6(on wlan0)\n\tfreq: 2412\n\tsignal: -68.00 dBm\n\tSSID: WPA: Privacy\n' | iwscan_parse 1710000000 2>/dev/null)
+    jcheck "iw-scan parse" "$iws_out"
+    checkf "iwscan_parse: an SSID carrying freq:, signal: and RSN: leaves the AP's own fields alone" "$iws_out" '"ssid": "free freq: 5955 signal: -1 RSN:", "channel": 1, "band": "2.4GHz", "freq": 2412, "rssi": -60, "security": "Open"'
+    checkf "iwscan_parse: a hidden SSID (\\x00 bytes) is the empty string" "$iws_out" '"bssid": "02:00:00:00:00:a2", "ssid": "", "channel": 36, "band": "5GHz", "freq": 5180, "rssi": -70, "security": "WPA2/WPA3"'
+    checkf "iwscan_parse: capability Privacy without RSN or WPA is WEP" "$iws_out" '"bssid": "02:00:00:00:00:a3", "ssid": "Wep", "channel": 1, "band": "2.4GHz", "freq": 2412, "rssi": -65, "security": "WEP"'
+    checkf "iwscan_parse: a WPA line alone is WPA" "$iws_out" '"bssid": "02:00:00:00:00:a4", "ssid": "WpaOnly", "channel": 6, "band": "2.4GHz", "freq": 2437, "rssi": -66, "security": "WPA"'
+    checkf "iwscan_parse: WPA and RSN together are WPA/WPA2" "$iws_out" '"bssid": "02:00:00:00:00:a5", "ssid": "Mixed", "channel": 11, "band": "2.4GHz", "freq": 2462, "rssi": -67, "security": "WPA/WPA2"'
+    checkf "iwscan_parse: an SSID made of the words WPA: and Privacy sets nothing (Open)" "$iws_out" '"bssid": "02:00:00:00:00:a6", "ssid": "WPA: Privacy", "channel": 1, "band": "2.4GHz", "freq": 2412, "rssi": -68, "security": "Open"'
 
     # ---- 1a) an interrupted run: a second copy of this selftest is started and told to stop with TERM (as tools/device-probe.sh does at its time limit) as soon as it has made
     #          its workspace; it must end with 143 and take that workspace with it (st_abort). A background job cannot trap INT, so TERM stands for the three signals.
@@ -6439,7 +6788,8 @@ CSV
     # blue5 fixtures for the layers selftest, built here where a non-read-only sqlite3 is a test fixture (not a production read); lay_selftest reads them.
     # Two schemas with the same first rows (scans 1 and 2, clock 1000000): the device's 2.0 schema (device-notes §2c: ad_flags, appearance, svc16,
     # svc_other, mfr, svcd beside the 0.2.6 columns), whose second set (scans 3 and 4, clock 2000000) carries the class columns, and the 0.2.6
-    # schema without them, the control for the narrow query. Every address is made up.
+    # schema without them, the control for the narrow query. The first set also holds a row stamped 3 s after the clock (the copy is taken after ts:
+    # kept, clamped to ts) and one 61 s after it (dropped). Every address is made up.
     LAY_BLUE5_FIX="$tdir/blue5-fix.db"; LAY_BLUE5_OLD="$tdir/blue5-old.db"
     if have sqlite3; then
         rm -f "$LAY_BLUE5_FIX" "$LAY_BLUE5_OLD"
@@ -6448,12 +6798,16 @@ CSV
  (1,'40AABB000003',1000000,1,1,0,-70,1,46517,'Res'),(1,'AABBCC000005',1000000,1,0,1,-55,0,65535,'t'||char(9)||'n'),
  (1,'AABBCC000006',1000000,1,0,1,NULL,10,76,'x'),(1,'AABBCC000007',999800,1,0,1,-50,10,76,'old'),
  (1,'AABBCC000009',1000000,2,0,1,-50,10,76,'cls'),(1,'AABBCC00000A',999990,1,0,1,-90,3,76,'o'),
- (2,'AABBCC00000A',1000000,1,0,1,-40,7,76,'n');"
+ (2,'AABBCC00000A',1000000,1,0,1,-40,7,76,'n'),
+ (1,'AABBCC00000B',1000003,1,0,1,-65,2,76,'gap'),(1,'AABBCC00000C',1000061,1,0,1,-66,2,76,'late');"
         sqlite3 "$LAY_BLUE5_OLD" "CREATE TABLE bt_device(scan INT,mac TEXT,first_seen INT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,packets INT,name BLOB,name_complete INT,PRIMARY KEY(scan,mac));
 $b5x_rows" 2>/dev/null
         # the class set: Apple types 12/07/02/10/0F/0C/05 and an unlisted 99; services FE2C/FEAA/1812/181A and the unlisted FD59; the appearance categories
         # 1,2,3,5,6,8,9,10,15,21 (64 each) and the refused 0, 70000, 12, 13, 49, 11; the rank (1E-20); the refusals (21-25: a Microsoft head under
-        # company 76, mfr as text, two bytes, a quote, a TAB); a list and lower case (26, 27); an address whose newest row changes its class (28)
+        # company 76, mfr as text, two bytes, a quote, a TAB); a list and lower case (26, 27); an address whose newest row changes its class (28).
+        # The ninth set (clock 6000000) gives four fixed addresses two rows each, in two scan sessions, for the rule 'new fixed address': an older
+        # first row beside a young one, two young rows whose reports add up, an older classic row beside a young LE one, a row stamped more than
+        # 60 s after the clock beside a good one
         sqlite3 "$LAY_BLUE5_FIX" "CREATE TABLE bt_device(scan INT,mac TEXT,first_seen INT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,packets INT,name BLOB,name_complete INT,ad_flags INT,appearance INT,svc16 TEXT,svc_other INT,mfr BLOB,svcd BLOB,PRIMARY KEY(scan,mac) ON CONFLICT REPLACE);
 $b5x_rows
 INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_avg,packets,company,name,mfr,appearance,svc16) VALUES
@@ -6500,8 +6854,8 @@ INSERT INTO bt_device(scan,mac,last_seen,transports,le_random,connectable,rssi_a
  (5,'AABBCC000211',3000000,1,0,0,-66,1,NULL,'','FAFF0D010212544553542D49442E303030310000000000000000000000'),
  (5,'AABBCC000212',3000000,1,0,0,-67,1,NULL,'',X'FAFF0D01'||zeroblob(300)),
  (5,'AABBCC000213',3000000,1,0,0,-68,1,NULL,'',NULL),
- (6,'AABBCC000201',3000030,1,0,0,-50,2,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
- (6,'AABBCC000203',3000030,1,0,0,-52,2,NULL,'',NULL),
+ (6,'AABBCC000201',3000090,1,0,0,-50,2,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
+ (6,'AABBCC000203',3000090,1,0,0,-52,2,NULL,'',NULL),
  (9,'AABBCC000221',3400000,1,0,0,-50,1,NULL,'',X'FAFF0D0152004F502D544553545F303100000000000000000000000000'),
  (9,'AABBCC000222',3400000,1,0,0,-51,1,NULL,'',X'FAFF0D011220000000404B4C006037F8ED0000C1080000000000000000'),
  (9,'AABBCC000223',3400000,1,0,0,-52,1,NULL,'',X'FAFF0D0112200000008074D21A009435770000C1080000000000000000'),
@@ -6518,11 +6872,28 @@ INSERT INTO bt_device(scan,mac,first_seen,last_seen,transports,le_random,connect
  (8,'40AABB000403',4999900,5000000,1,1,1,-40,5,NULL,''),(8,'AABBCC000404',4999000,5000000,1,0,1,-40,5,NULL,''),
  (8,'AABBCC000405',4999900,5000000,1,0,1,-55,5,NULL,''),(8,'AABBCC000406',4999900,5000000,1,0,1,-40,2,NULL,''),
  (8,'AABBCC000407',4000000,5000000,1,0,1,-50,5,NULL,''),(8,'AABBCC000408',4999400,5000000,1,0,1,-49,3,NULL,''),
- (8,'AABBCC000409',4999900,5000000,1,0,1,-50,5,NULL,''),(8,'AABBCC00040A',4999900,5000000,1,0,1,0,5,NULL,'');" 2>/dev/null
-    else LAY_BLUE5_FIX=""; LAY_BLUE5_OLD=""; fi
+ (8,'AABBCC000409',4999900,5000000,1,0,1,-50,5,NULL,''),(8,'AABBCC00040A',4999900,5000000,1,0,1,0,5,NULL,''),
+ (8,'AABBCC00040B',4999900,5000003,1,0,1,-40,5,NULL,''),(8,'AABBCC00040C',4999900,5000061,1,0,1,-40,5,NULL,''),
+ (10,'AABBCC000501',5900000,5900050,1,0,1,-45,5,NULL,''),(11,'AABBCC000501',5999900,6000000,1,0,1,-45,5,NULL,''),
+ (10,'AABBCC000502',5999500,5999700,1,0,1,-60,2,NULL,''),(11,'AABBCC000502',5999800,6000000,1,0,1,-45,2,NULL,''),
+ (10,'AABBCC000503',5900000,5900050,2,0,1,-45,5,NULL,''),(11,'AABBCC000503',5999900,6000000,1,0,1,-45,5,NULL,''),
+ (10,'AABBCC000504',5999900,6000100,1,0,1,-45,5,NULL,''),(11,'AABBCC000504',5999900,6000000,1,0,1,-45,5,NULL,'');" 2>/dev/null
+        # two more schemas, neither seen on any firmware, for the forms the query falls back to with Alert Rules on: the 2.0 columns without first_seen,
+        # and the 0.2.6 columns without first_seen (the same first rows, so the records are those of the control at the same clock)
+        LAY_BLUE5_NOFS="$tdir/blue5-nofs.db"; LAY_BLUE5_NOFSOLD="$tdir/blue5-nofsold.db"; rm -f "$LAY_BLUE5_NOFS" "$LAY_BLUE5_NOFSOLD"
+        sqlite3 "$LAY_BLUE5_NOFS" "CREATE TABLE bt_device(scan INT,mac TEXT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,
+ad_flags INT,appearance INT,svc16 TEXT,svc_other TEXT,mfr BLOB,svcd BLOB,packets INT,name TEXT);
+$b5x_rows" 2>/dev/null
+        sqlite3 "$LAY_BLUE5_NOFSOLD" "CREATE TABLE bt_device(scan INT,mac TEXT,last_seen INT,transports INT,le_random INT,connectable INT,rssi INT,rssi_min INT,rssi_max INT,rssi_avg INT,tx_power INT,company INT,cod INT,
+packets INT,name TEXT);
+$b5x_rows" 2>/dev/null
+    else LAY_BLUE5_FIX=""; LAY_BLUE5_OLD=""; LAY_BLUE5_NOFS=""; LAY_BLUE5_NOFSOLD=""; fi
     lay_selftest "$tdir"
     printf '%s\n' "$out" > "$tdir/emit-csv.json"; lay_check "airodump-csv document" "$tdir/emit-csv.json"
     write_empty 1710000000 "no data" > "$tdir/emit-empty.json"; lay_check "write_empty document" "$tdir/emit-empty.json"
+    we_sL=$CENTER_LABEL; CENTER_LABEL=$(printf 'Lab "A"\t\\ one'); write_empty 1710000000 'bad "src\x' > "$tdir/emit-empty2.json"; CENTER_LABEL=$we_sL
+    if json_ok < "$tdir/emit-empty2.json" && grep -q '"label": "Lab \\"A\\"\\t\\\\ one"' "$tdir/emit-empty2.json" && grep -q '"note": "bad \\"src\\\\x"' "$tdir/emit-empty2.json"; then st_pass "write_empty: a label or a reason with a quote, a TAB and a backslash gives valid JSON (escaped as the builders do, the TAB kept)"
+    else st_fail "write_empty: hostile label/reason ($(head -c 220 "$tdir/emit-empty2.json" | tr '\n' ' '))"; fi
     bt_selftest "$tdir"
 
     # ---- 2) recon.db, running `ssid` schema --------------------------------------------------
@@ -6670,7 +7041,7 @@ SQL
         checkf "sec: TKIP+CCMP mixed mode is not marked" "$(sl 'a0:a0:a0:00:00:08')" '"security": "WPA2", "akm": ["psk"], "cipher": {"group": "tkip", "pairwise": ["tkip", "ccmp128"]}'
         checkf "sec: WPA2+WPA3 transition keeps both AKMs" "$(sl 'a0:a0:a0:00:00:09')" '"security": "WPA3/WPA2", "akm": ["psk", "sae"]'
         checkf "resp: BSSID answering for 3 SSIDs -> responded_ssids 3" "$(sl 'a0:a0:a0:00:00:10')" '"responded_ssids": 3'
-        checkno "resp: a single-SSID responder carries no count" "$(sl 'a0:a0:a0:00:00:11')" 'responded_ssids'
+        checkabs "resp: a single-SSID responder carries no count" "$(sl 'a0:a0:a0:00:00:11')" 'responded_ssids'
         checkno "packets: never on a station (no client field carries it)" "$out" '"packets"'
         # nothing in the additive fields may leak a client identity: only AP lines carry akm/cipher/auth/responded_ssids
         cl=$(printf '%s\n' "$out" | grep -c '"mac".*\("akm"\|"cipher"\|"auth"\|"responded_ssids"\)')
@@ -6687,7 +7058,7 @@ INSERT INTO ssid VALUES (3,0,1,8,'B0B0B0000003','HopC',0,$((hnow-30)),-60,5180,3
 SQL
         RECON_DB="$hdb"
         out=$(HOPINFO=0 SURVEY=0 build_from_recondb "$hnow" 2>/dev/null)
-        checkno "hop: no channels[] by default (flag off)" "$out" '"channels"'
+        checkabs "hop: no channels[] by default (flag off)" "$out" '"channels"'
         out=$(HOPINFO=1 build_from_recondb "$hnow" 2>/dev/null)
         if printf '%s' "$out" | json_ok; then st_pass "hop: valid JSON with channels[]"; else st_fail "hop: JSON"; fi
         checkf "hop: last_heard per frequency = newest row" "$out" '"channels": [{"freq": 2412, "last_heard": 1709999995}, {"freq": 5180, "last_heard": 1709999970}],'
@@ -6719,22 +7090,36 @@ SQL
         if printf '%s' "$hp" | json_ok; then st_pass "homing: valid JSON with the field"; else st_fail "homing: JSON"; fi
         checkf "homing: bssid lower-cased, dbm from the AP's own row, peak, t = generated" "$hp" '"homing": {"bssid": "a0:a0:a0:00:00:03", "dbm": -50, "peak": -50, "t": '
         if [ "$(printf '%s\n' "$hp" | grep -c '"homing"')" = 1 ] && [ "$(printf '%s\n' "$hp" | wc -l | tr -d ' ')" = "$(printf '%s\n' "$pub" | wc -l | tr -d ' ')" ]; then st_pass "homing: exactly one field, same line count as without"; else st_fail "homing: line count / count"; fi
-        HOMING_BSSID="11:22:aa:bb:cc:dd"; hp=$(hcyc); checkno "homing: a station (a MAC with no aps[] row) is refused" "$hp" '"homing"'
-        HOMING_BSSID="de:ad:be:ef:00:01"; hp=$(hcyc); checkno "homing: a BSSID that is not in this document is refused" "$hp" '"homing"'
-        HOMING_BSSID="not-a-mac"; hp=$(hcyc); checkno "homing: garbage is refused" "$hp" '"homing"'
+        HOMING_BSSID="11:22:aa:bb:cc:dd"; hp=$(hcyc); checkabs "homing: a station (a MAC with no aps[] row) is refused" "$hp" '"homing"'
+        HOMING_BSSID="de:ad:be:ef:00:01"; hp=$(hcyc); checkabs "homing: a BSSID that is not in this document is refused" "$hp" '"homing"'
+        HOMING_BSSID="not-a-mac"; hp=$(hcyc); checkabs "homing: garbage is refused" "$hp" '"homing"'
         HOMING_BSSID="a0:a0:a0:00:00:03"; OWN=1 STARCHORUS_SYSFS_NET="$tdir/sys"; printf 'A0:A0:A0:00:00:03\n' > "$tdir/sys/wlan0/address"
-        hp=$(OWN=1 STARCHORUS_SYSFS_NET="$tdir/sys" hcyc); checkno "homing: one of our own transmitters is refused" "$hp" '"homing"'
+        hp=$(OWN=1 STARCHORUS_SYSFS_NET="$tdir/sys" hcyc); checkabs "homing: one of our own transmitters is refused" "$hp" '"homing"'
         printf '00:C0:CA:11:22:33\n' > "$tdir/sys/wlan0/address"
         HOMING_BSSID=""; printf 'A0:A0:A0:00:00:04\r\nignored line\n' > "$tdir/homing.target"; hp=$(hcyc)
         checkf "homing: the file target works (first line, CRLF, upper case)" "$hp" '"homing": {"bssid": "a0:a0:a0:00:00:04"'
         HOMING_BSSID="a0:a0:a0:00:00:03"; hp=$(hcyc); checkf "homing: the environment wins over the file" "$hp" '"homing": {"bssid": "a0:a0:a0:00:00:03"'
-        # peak hold (the state lives in this shell, so the cycles run here, not in a $(...) subshell): a weaker reading keeps it, 12 quiet cycles decay it
+        # peak hold (the state lives in this shell, so the cycles run here, not in a $(...) subshell): one cycle names the target in the main shell (apply_homing's
+        # own HOMING_TGT; a hand-set value would hide a dropped assignment), then a hand-seeded peak of -40: a weaker reading keeps it, 12 quiet cycles decay it
         hrun() { run_cycle >/dev/null 2>&1; hp=$(cat "$OUTFILE" 2>/dev/null); }
-        HOMING_BSSID="a0:a0:a0:00:00:03"; HOMING_PEAK=-40; HOMING_POLLS=0
+        HOMING_BSSID="a0:a0:a0:00:00:03"; HOMING_TGT=""; hrun
+        if [ "$HOMING_TGT" = "a0:a0:a0:00:00:03" ]; then st_pass "homing: apply_homing records the target it holds the peak for"; else st_fail "homing: HOMING_TGT [$HOMING_TGT]"; fi
+        HOMING_PEAK=-40; HOMING_POLLS=0
         hrun; checkf "homing: a weaker reading keeps the peak (-40 stays, dbm -50)" "$hp" '"dbm": -50, "peak": -40,'
         n=0; while [ "$n" -lt 12 ]; do hrun; n=$((n + 1)); done
         checkf "homing: 12 quiet cycles later the peak has decayed to the current reading" "$hp" '"dbm": -50, "peak": -50,'
-        HOMING_BSSID=""; rm -f "$tdir/homing.target"; hrun; checkno "homing: target removed -> field gone" "$hp" '"homing"'
+        # a changed target starts its own peak: the -40 held for :03 (HOMING_TGT from the cycles above, not hand-set) does not pass to :04
+        HOMING_PEAK=-40; HOMING_POLLS=0
+        HOMING_BSSID="a0:a0:a0:00:00:04"; hrun
+        hp_d=$(printf '%s\n' "$hp" | sed -n 's/.*"homing": {"bssid": "a0:a0:a0:00:00:04", "dbm": \(-[0-9]*\), "peak": \(-[0-9]*\),.*/\1 \2/p' | head -n 1)
+        if [ -n "$hp_d" ] && [ "${hp_d% *}" = "${hp_d#* }" ]; then st_pass "homing: a changed target starts its own peak (the -40 held for the old one does not pass to it)"; else st_fail "homing: target change peak [$hp_d]"; fi
+        # a target that leaves the document: eleven absent cycles keep the peak, the twelfth drops it (the absence counts as a quiet poll)
+        HOMING_BSSID="de:ad:be:ef:00:01"; hrun   # not in the document: the change of target resets the hold first
+        HOMING_PEAK=-40; HOMING_POLLS=1   # seeded as if :01 had been read strong before and missed once
+        n=0; while [ "$n" -lt 10 ]; do hrun; n=$((n + 1)); done; hp_k=$HOMING_PEAK
+        hrun; hp_g=$HOMING_PEAK
+        if [ "$hp_k" = -40 ] && [ -z "$hp_g" ]; then st_pass "homing: a target absent from the document keeps its peak for eleven cycles and loses it on the twelfth"; else st_fail "homing: absence hold [$hp_k] then [$hp_g]"; fi
+        HOMING_BSSID=""; rm -f "$tdir/homing.target"; hrun; checkabs "homing: target removed -> field gone" "$hp" '"homing"'
         if [ -z "$HOMING_PEAK" ]; then st_pass "homing: the peak is dropped with the target"; else st_fail "homing: peak kept ($HOMING_PEAK)"; fi
         OUTDIR=$OUTDIR_SAVE; HOMING_BSSID=${STARCHORUS_HOMING_BSSID:-}; HOMING_PEAK=""; HOMING_POLLS=0
         RESOLVED=none; RECON_DB=auto; OUTFILE=$OUTDIR/starchorus.json; VENDOR=${STARCHORUS_VENDOR:-1}; MAX_AGE=${STARCHORUS_MAX_AGE:-0}; INTERVAL=${STARCHORUS_INTERVAL:-5}
@@ -6820,9 +7205,10 @@ p1	#STARCHORUS_APS#
         rm -f "$CAPDIR/recon_copy.db"; TMPDIR_RAM="$rpt/ram"
         # stale RAM copies of dead collectors are swept, a live one's is kept
         : > "$rpt/ram/starchorus-recon-999999.db"; : > "$rpt/ram/starchorus-recon-$$.db"
+        : > "$rpt/ram/starchorus-bt5-999999.db"; : > "$rpt/ram/starchorus-bt5-999999.db-wal"; : > "$rpt/ram/starchorus-bt5-$$.db"
         sweep_stale_workcopies
-        if [ ! -e "$rpt/ram/starchorus-recon-999999.db" ] && [ -e "$rpt/ram/starchorus-recon-$$.db" ]; then st_pass "sweep: a dead collector's RAM copy removed, a live one's kept"; else st_fail "sweep: RAM copies ($(ls "$rpt/ram"))"; fi
-        rm -f "$rpt/ram"/starchorus-recon-*
+        if [ ! -e "$rpt/ram/starchorus-recon-999999.db" ] && [ -e "$rpt/ram/starchorus-recon-$$.db" ] && [ ! -e "$rpt/ram/starchorus-bt5-999999.db" ] && [ ! -e "$rpt/ram/starchorus-bt5-999999.db-wal" ] && [ -e "$rpt/ram/starchorus-bt5-$$.db" ]; then st_pass "sweep: a dead collector's RAM copies of recon.db and blue5.db removed, a live one's kept"; else st_fail "sweep: RAM copies ($(ls "$rpt/ram"))"; fi
+        rm -f "$rpt/ram"/starchorus-recon-* "$rpt/ram"/starchorus-bt5-*
         # ---- 3b3) the cheaper cycle (0.2.6): one scan of the window, the reduced batch, and the small savings of the full pass, each against stand-ins that count the
         #      processes (the sqlite3 stand-in keeps the SQL it is given; awk, wc, rm, df and cp log their calls; date is a function that logs). Every check that counts a
         #      process or compares a text also runs the form without the change (the batch of the first cycle is the old text; a planted old function where the old text is
@@ -7190,6 +7576,14 @@ SQL
             recondb_failed; cg_r1="$?|$RQ_WHY"; recondb_failed_old; cg_r2="$?|$RQ_WHY"
             [ "$cg_r1" = "$cg_r2" ] || cg_fa="$cg_fa [$cg_i: $cg_r1 / $cg_r2]"
         done
+        # the words of a copy that cannot be read (locked, unable to open, full, read-only): failed, the word in RQ_WHY; "no such column" alone stays a healthy pass
+        cg_fb=""
+        for cg_c in 'Error: database is locked|#starchorus-exit 1|locked' 'Error: unable to open database file|#starchorus-exit 1|unable to open' 'Error: database or disk is full|#starchorus-exit 1|disk is full' 'Error: attempt to write a readonly database|#starchorus-exit 1|read-only'; do
+            printf '%s\n' "${cg_c%|*}" | tr '|' '\n' > "$cg/err.txt"
+            if recondb_failed; then case $RQ_WHY in *"${cg_c##*|}"*) ;; *) cg_fb="$cg_fb [$cg_c -> $RQ_WHY]" ;; esac; else cg_fb="$cg_fb [$cg_c -> not failed]"; fi
+        done
+        printf 'Error: near line 3: no such column: stamac\n#starchorus-exit 1\n' > "$cg/err.txt"; recondb_failed && cg_fb="$cg_fb [no-such-column counted as failed]"
+        if [ -z "$cg_fb" ]; then st_pass "recondb_failed: a copy that is locked, cannot be opened, sits on a full disk or is read-only counts as failed (the word in RQ_WHY); a missing column alone does not"; else st_fail "recondb_failed words:$cg_fb"; fi
         RQ_ERRF=$cg_sv; unset -f recondb_failed_old
         if [ -z "$cg_fa" ]; then st_pass "recondb_failed: by builtins, the same answer as the awk it replaced on $cg_i error files (damage words, exit statuses 0 to 139 and 007, several exit lines, no exit line, no newline, empty)"; else st_fail "recondb_failed: differs from the awk in$cg_fa"; fi
 
@@ -7307,6 +7701,31 @@ SQL
         # file_size: the byte count of wc -c, from ls; a name with blanks and a glob character is one name
         printf 'abcdefg' > "$rpt/a b*c"; file_size "$rpt/a b*c"; fs1=$FSZ; file_size "$rpt/no such file"; fs2=$FSZ
         if [ "$fs1" = 7 ] && [ -z "$fs2" ]; then st_pass "file_size: bytes from ls (a name with a blank and a star), nothing for a missing file"; else st_fail "file_size: [$fs1] [$fs2]"; fi
+        # The device's route, `ls -lnL --full-time` and its fifth field, which the ls of macOS cannot take: a stand-in ls in front of PATH for the length of the two rows (PATH is restored after them) prints BusyBox's line
+        # for each file that exists (the size 4242, not the real one, so that the wc fallback cannot pass for it; LSMODE=junk: a size that is no number), asks for exactly that form, and
+        # fails for a missing file.
+        mkdir -p "$rpt/lsfull"
+        cat > "$rpt/lsfull/ls" <<'LSFULL'
+#!/bin/sh
+[ "$1 $2" = "-lnL --full-time" ] || exit 2
+shift 2; rc=0
+for a in "$@"; do
+    if [ -e "$a" ]; then
+        if [ "$LSMODE" = junk ]; then sz=4x2; else sz=4242; fi
+        printf -- '-rw-r--r--    1 0        0           %7s 2026-10-10 12:00:00.000000000 +0000 %s\n' "$sz" "$a"
+    else rc=1; fi
+done
+exit $rc
+LSFULL
+        chmod +x "$rpt/lsfull/ls"
+        fl_sv=$PATH; PATH="$rpt/lsfull:$PATH"
+        file_size "$rpt/a b*c"; fl_a=$FSZ; fl_l=$FL; file_size "$rpt/no such file"; fl_r="$fl_a|${fl_l%% *}|$FSZ|$FL"
+        if [ "$fl_r" = "4242|-rw-r--r--||" ]; then st_pass "file_size: through the device's ls (--full-time, the fifth field; a name with a blank and a star), nothing for a missing file"; else st_fail "file_size: through a BusyBox-style ls [$fl_r], want 4242|-rw-r--r--||"; fi
+        printf 'abcdefg' > "$rpt/lsdb.db"
+        fl_s=$( RDB_PATH="$rpt/lsdb.db"; RDB_KEY=$RECON_DB; recon_sample 1789300000; printf '%s/%s/%s' "$?" "$ST_LS" "$RS_SZ" )
+        fl_j=$( LSMODE=junk; export LSMODE; RDB_PATH="$rpt/lsdb.db"; RDB_KEY=$RECON_DB; recon_sample 1789300000; printf '%s/%s/%s' "$?" "$ST_LS" "$RS_SZ" )
+        if [ "$fl_s/$fl_j" = "0/1/4242/1/1/0" ]; then st_pass "recon_sample: through the device's ls the size is the fifth field (ST_LS 1, RS_SZ from ls), and a size that is no number gives RS_SZ 0 and no sample"; else st_fail "recon_sample: through a BusyBox-style ls [$fl_s] [$fl_j], want 0/1/4242 and 1/1/0"; fi
+        PATH=$fl_sv; rm -rf "$rpt/lsfull" "$rpt/lsdb.db"
         # ---- 3b2) the copy is stamped again when it is made (recon_copy_settle), and a pass whose copy cannot be read keeps the last document.
         #      Stand-ins first in PATH: `ls` that counts, `cp` that copies and then plays the engine (cut1 = the FIRST copy comes out cut short and the source moves
         #      during it; move = the source moves during every copy), `sqlite3` that says what a damaged copy says. Each case is a full pass (RS_SIG empty).
@@ -7398,7 +7817,7 @@ SQL
         build_from_recondb "$lt" > "$rpt/lp0.json" 2>/dev/null
         if [ "$lp_c1" = 1 ] && json_ok < "$rpt/lp1.json" \
            && grep -q '"mac": "02:00:00:02:02:01", "rssi": -60, "last_seen": 1789999990, "packets": 40, "probes": \["Q"\]}' "$rpt/lp1.json" \
-           && ! grep '02:00:00:02:02:02' "$rpt/lp1.json" | grep -q packets && grep -q '"mac": "02:00:00:02:02:03".*"packets": 0' "$rpt/lp1.json"; then
+           && grep -q '"mac": "02:00:00:02:02:02"' "$rpt/lp1.json" && ! grep '02:00:00:02:02:02' "$rpt/lp1.json" | grep -q packets && grep -q '"mac": "02:00:00:02:02:03".*"packets": 0' "$rpt/lp1.json"; then   # the station is there first, then it has no packets
             st_pass "station packets: STARCHORUS_TRAFFIC=1 takes the counter of the rows heard in the last 300 s (the newer session's 40, not the old session's 9999), none for a station not heard for five minutes, a zero counter is 0, one query batch"
         else st_fail "station packets: [$(grep '"mac"' "$rpt/lp1.json" | head -n 4)]"; fi
         if ! grep -q packets "$rpt/lp0.json" && json_ok < "$rpt/lp0.json"; then st_pass "station packets: with STARCHORUS_TRAFFIC=0 no station has a packets field"; else st_fail "station packets: field written with Traffic off"; fi
@@ -7712,7 +8131,7 @@ Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ES
 98:76:54:32:10:00, 2026-09-13 10:00:00, 2026-09-13 10:05:00, -85, 1, (not associated),
 CSV
     base=$(build_from_csv 1710000000 2>/dev/null)     # plain emitter output (no post-pass)
-    checkno "vendor: emitter omits rate for Speed -1" "$(line_of "$base" 'aa:bb:cc:33:44:55')" '"rate"'
+    checkabs "vendor: emitter omits rate for Speed -1" "$(line_of "$base" 'aa:bb:cc:33:44:55')" '"rate"'
     # 6a) nmap format (hit for AP + associated client; duplicate, MA-M/MA-S and comment lines)
     cat > "$tdir/oui-nmap.txt" <<'TXT'
 # Nmap MAC prefixes (test file)
@@ -7733,12 +8152,12 @@ TXT
     checkf  "vendor(Nmap): quote + backslash escaped" "$out" '"vendor": "Acme \"Quoted\" \\ Corp"'
     check   "vendor: rate survives beside vendor"     "$out" '"rate": 130'
     check   "vendor: randomized client flagged"       "$out" '"mac": "9a:88:77:66:55:44", "randomized": true, "rssi": -80'
-    checkno "vendor: randomized client has no vendor" "$(line_of "$out" '9a:88:77:66:55:44')" '"vendor"'
+    checkabs "vendor: randomized client has no vendor" "$(line_of "$out" '9a:88:77:66:55:44')" '"vendor"'
     laa=$(line_of "$out" 'aa:bb:cc:33:44:55')
-    checkno "vendor: LAA bssid gets no vendor"        "$laa" '"vendor"'
-    checkno "vendor: LAA bssid gets no randomized"    "$laa" '"randomized"'
+    checkabs "vendor: LAA bssid gets no vendor"        "$laa" '"vendor"'
+    checkabs "vendor: LAA bssid gets no randomized"    "$laa" '"randomized"'
     checkf  "vendor: SSID injection inert"            "$laa" '"ssid": "\"mac\": \"00:11:22:33:44:55\""'
-    checkno "vendor: unknown prefix -> no field"      "$(line_of "$out" '98:76:54:32:10:00')" '"vendor"'
+    checkabs "vendor: unknown prefix -> no field"      "$(line_of "$out" '98:76:54:32:10:00')" '"vendor"'
     ccache=$(cat "$OUI_CACHE" 2>/dev/null)
     checkf  "vendor: cache header ties cache to file" "$ccache" "# oui=$tdir/oui-nmap.txt size="
     check   "vendor: cache positive entry"            "$ccache" "^A8BBCC${RECON_TAB}Acme Networks\$"
@@ -7893,7 +8312,7 @@ SQL
         check   "recon: AP vendor via run_cycle"         "$rout" '"bssid": "a8:bb:cc:00:00:01", "vendor": "Acme Networks"'
         check   "recon: last_seen = MAX(time) per AP"    "$rout" '"rssi": -55, "security": "WPA2", "last_seen": 2000'
         check   "recon: bare columns from MAX(signal) row" "$rout" '"ssid": "HomeNet-OLD"'
-        checkno "recon: time 0 -> no last_seen"          "$(line_of "$rout" 'NoTime')" '"last_seen"'
+        checkabs "recon: time 0 -> no last_seen"          "$(line_of "$rout" 'NoTime')" '"last_seen"'
         check   "recon: client vendor + last_seen"       "$rout" '"mac": "10:22:33:aa:bb:cc", "vendor": "Client Corp", "rssi": -60, "last_seen": 1300'
         check   "recon: randomized client + last_seen"   "$rout" '"mac": "9a:88:77:66:55:44", "randomized": true, "rssi": -90, "last_seen": 1500'
     fi
@@ -7908,8 +8327,8 @@ SQL
     OUI_PATH="$tdir/oui-gone.txt"
     out=$(printf '%s\n' "$newcl" | add_vendor 2>/dev/null); jrc=$?
     if [ "$jrc" = "0" ] && printf '%s' "$out" | json_ok; then st_pass "cache: unreadable OUI file -> post-pass rc 0, valid JSON"; else st_fail "cache: unreadable OUI file rc=$jrc"; fi
-    checkno "cache: unreadable OUI file -> NO negative entry"  "$(cat "$OUI_CACHE")" "^005056${RECON_TAB}\$"
-    checkno "cache: unreadable OUI file -> no vendor (yet)"    "$(line_of "$out" '00:50:56:12:34:56')" '"vendor"'
+    checkabs "cache: unreadable OUI file -> NO negative entry"  "$(cat "$OUI_CACHE")" "^005056${RECON_TAB}\$"
+    checkabs "cache: unreadable OUI file -> no vendor (yet)"    "$(line_of "$out" '00:50:56:12:34:56')" '"vendor"'
     OUI_PATH="$tdir/oui-nmap.txt"
     out=$(printf '%s\n' "$newcl" | add_vendor 2>/dev/null)
     check   "cache: file back -> vendor found (cache not poisoned)" "$out" '"mac": "00:50:56:12:34:56", "vendor": "VMware Inc"'
@@ -8119,7 +8538,7 @@ SQL
     printf '102233\tClient Corp\n' > "$tdir/newf-hdr"
     save_hdr=$OUI_HDR; OUI_HDR="# oui=$tdir/some-other-file.txt size=1 mtime=1"
     cache_append "$tdir/newf-hdr"; OUI_HDR=$save_hdr
-    checkno "lock: merge skipped when the cache was restarted for another file meanwhile" "$(cat "$OUI_CACHE")" '^102233'
+    checkabs "lock: merge skipped when the cache was restarted for another file meanwhile" "$(cat "$OUI_CACHE")" '^102233'
     if [ ! -d "$lk" ]; then st_pass "lock: released after the skipped merge"; else st_fail "lock: left behind after the skipped merge"; fi
     #   i) cache_append itself repairs an unterminated cache before appending (no fused line)
     vreset; printf 'A8BBCC\tAcme Net' >> "$OUI_CACHE"
@@ -8174,6 +8593,12 @@ SQL
         st_pass "sweep: dead pid's lock + temp files removed, live collector's kept"
     else st_fail "sweep: lock=$([ -d "$lk" ] && echo kept || echo gone) new.dead=$([ -e "$OUI_CACHE.new.$dpid.abc" ] && echo kept || echo gone) new.own=$([ -e "$OUI_CACHE.new.$$.abc" ] && echo kept || echo gone)"; fi
     check "sweep: stale lock removal is logged" "$(cat "$tdir/log11l")" "removing stale vendor cache lock left by pid $dpid"
+    # cache_break told of a dead pid finds another lock in its place, its pid file still empty (a waiter's fresh take): given back, not deleted
+    ( : ) & dpid=$!; wait "$dpid" 2>/dev/null
+    mkdir "$lk" && : > "$lk/pid"; cache_break "$lk" "$dpid"; cb_rc=$?
+    if [ "$cb_rc" = 1 ] && [ -d "$lk" ] && [ -z "$(ls -d "$lk".stale.* 2>/dev/null)" ]; then st_pass "cache_break: told of a dead pid, a lock whose pid file is still empty (a waiter's fresh take) is given back, not deleted"
+    else st_fail "cache_break: fresh take rc $cb_rc, lock $([ -d "$lk" ] && echo kept || echo gone), stale dirs [$(ls -d "$lk".stale.* 2>/dev/null)]"; fi
+    rm -rf "$lk" "$lk".stale.* 2>/dev/null
     rm -f "$OUI_CACHE.new.$$.abc"
     mkdir "$lk" && printf '%s\n' "$$" > "$lk/pid"
     sweep_stale_cache_files 2>/dev/null
@@ -8188,34 +8613,42 @@ SQL
     printf 'while [ -f "$0" ] && kill -0 %s 2>/dev/null; do sleep 1; done\n' "$$" > "$tdir/own/$SELF_BASE"; cp "$tdir/own/$SELF_BASE" "$tdir/own/airodump-ng"
     ( sleep 30 >/dev/null 2>&1 & echo $! > "$tdir/own/f.pid" )
     ( sh "$tdir/own/$SELF_BASE" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/l.pid" )
-    ( sh "$tdir/own/airodump-ng" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/a.pid" )
+    ( sh "$tdir/own/airodump-ng" -w "$CAPPREFIX" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/a.pid" )
     fpid=$(cat "$tdir/own/f.pid"); opid=$(cat "$tdir/own/l.pid"); apid=$(cat "$tdir/own/a.pid")
     pl_save=$LOOP_PIDFILE; pa_save=$AIRODUMP_PIDFILE; LOOP_PIDFILE="$tdir/own/loop.pid"; AIRODUMP_PIDFILE="$tdir/own/ad.pid"
     printf '%s\n' "$fpid" > "$LOOP_PIDFILE"; printf '%s\n' "$fpid" > "$AIRODUMP_PIDFILE"
-    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" airodump 2>&1)
+    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" "-w $CAPPREFIX" 2>&1)
     stopped=0
-    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump 2>/dev/null
+    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump "-w $CAPPREFIX" 2>/dev/null
     if pid_alive "$fpid" && [ "$stopped" = 0 ] && [ ! -e "$LOOP_PIDFILE" ] && [ ! -e "$AIRODUMP_PIDFILE" ] \
        && [ "$(printf '%s\n' "$sout" | grep -c 'not running$')" = 2 ]; then
         st_pass "stop/status: a pidfile naming a foreign process (pid reuse) -> no signal, file dropped, 'not running'"
     else st_fail "stop/status: foreign pid $fpid alive=$(pid_alive "$fpid" && echo yes || echo no) stopped=$stopped status=[$sout]"; fi
     printf '%s\n' "$opid" > "$LOOP_PIDFILE"; printf '%s\n' "$apid" > "$AIRODUMP_PIDFILE"
-    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" airodump 2>&1)
-    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump airodump 2>/dev/null
+    sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1; status_pidfile airodump "$AIRODUMP_PIDFILE" "-w $CAPPREFIX" 2>&1)
+    stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2>/dev/null; stop_pidfile "$AIRODUMP_PIDFILE" airodump "-w $CAPPREFIX" 2>/dev/null
     n=0; while { pid_alive "$opid" || pid_alive "$apid"; } && [ "$n" -lt 25 ]; do sleep 0.2 2>/dev/null || sleep 1; n=$((n + 1)); done
     if ! pid_alive "$opid" && ! pid_alive "$apid" && [ "$stopped" = 1 ] \
        && printf '%s\n' "$sout" | grep -q "loop RUNNING (pid $opid)" && printf '%s\n' "$sout" | grep -q "airodump RUNNING (pid $apid)"; then
         st_pass "stop/status: our own loop and airodump are seen running and stopped"
     else st_fail "stop/status: own loop $opid / airodump $apid: stopped=$stopped status=[$sout]"; fi
+    # a pid that names the script without running it as a loop (a tail on the file) is no loop for the pidfile either: left alone, 'not running', the file dropped
+    ( tail -f "$tdir/own/$SELF_BASE" </dev/null >/dev/null 2>&1 & echo $! > "$tdir/own/t.pid" ); tpid=$(cat "$tdir/own/t.pid")
+    printf '%s\n' "$tpid" > "$LOOP_PIDFILE"; sout=$(status_pidfile loop "$LOOP_PIDFILE" "$SELF_BASE" 2>&1)
+    stopped=0; stop_pidfile "$LOOP_PIDFILE" "collector loop" "$SELF_BASE" 2> "$tdir/own/t.log"
+    if pid_alive "$tpid" && [ "$stopped" = 0 ] && [ ! -e "$LOOP_PIDFILE" ] && printf '%s\n' "$sout" | grep -q 'loop not running$' && grep -q "left pid $tpid alone" "$tdir/own/t.log"; then
+        st_pass "stop/status: a pidfile pid that names the script without running it as a loop (a tail on the file) is left alone, 'not running', the file dropped"
+    else st_fail "stop/status: tail on the script $tpid alive=$(pid_alive "$tpid" && echo yes || echo no) stopped=$stopped status=[$sout] log=[$(cat "$tdir/own/t.log" 2>/dev/null)]"; fi
+    kill "$tpid" 2>/dev/null
     LOOP_PIDFILE=$pl_save; AIRODUMP_PIDFILE=$pa_save
     #   n) the daemon's start-up sweep of temporary output files: those of a dead pid, or of a pid that now runs something
     #      else (reused after a reboot), go; a live run's stay (a --once may be mid-cycle); a name without a pid is not ours
     of_save=$OUTFILE; OUTFILE="$tdir/own/starchorus.json"
-    : > "$OUTFILE.tmp.$dpid"; : > "$OUTFILE.tmp.$dpid.v"; : > "$OUTFILE.tmp.$fpid"; : > "$OUTFILE.tmp.$$"; : > "$OUTFILE.tmp.$$.c"; : > "$OUTFILE.tmp.x"
+    : > "$OUTFILE.tmp.$dpid"; : > "$OUTFILE.tmp.$dpid.v"; : > "$OUTFILE.tmp.$dpid.g"; : > "$OUTFILE.tmp.$fpid"; : > "$OUTFILE.tmp.$$"; : > "$OUTFILE.tmp.$$.c"; : > "$OUTFILE.tmp.$$.g"; : > "$OUTFILE.tmp.x"
     sweep_stale_tmp
-    if [ ! -e "$OUTFILE.tmp.$dpid" ] && [ ! -e "$OUTFILE.tmp.$dpid.v" ] && [ ! -e "$OUTFILE.tmp.$fpid" ] \
-       && [ -e "$OUTFILE.tmp.$$" ] && [ -e "$OUTFILE.tmp.$$.c" ] && [ -e "$OUTFILE.tmp.x" ]; then
-        st_pass "sweep: starchorus.json.tmp.* of a dead or foreign pid removed, a live run's kept"
+    if [ ! -e "$OUTFILE.tmp.$dpid" ] && [ ! -e "$OUTFILE.tmp.$dpid.v" ] && [ ! -e "$OUTFILE.tmp.$dpid.g" ] && [ ! -e "$OUTFILE.tmp.$fpid" ] \
+       && [ -e "$OUTFILE.tmp.$$" ] && [ -e "$OUTFILE.tmp.$$.c" ] && [ -e "$OUTFILE.tmp.$$.g" ] && [ -e "$OUTFILE.tmp.x" ]; then
+        st_pass "sweep: starchorus.json.tmp.* of a dead or foreign pid removed (the .g of a skipped cycle among them), a live run's kept"
     else st_fail "sweep: tmp files left: $(cd "$tdir/own" && printf '%s ' starchorus.json.tmp.*)"; fi
     kill "$fpid" "$opid" "$apid" 2>/dev/null
     rm -rf "$tdir/own"; OUTFILE=$of_save
@@ -8223,7 +8656,7 @@ SQL
     #      (unwritable directory): the shell passes SC_TERM, the awk commits lines one behind
     vreset; printf 'A8BBCC\tAcme Net' >> "$OUI_CACHE"
     out=$(printf '%s\n' "$base" | SC_CACHE="$OUI_CACHE" SC_OUI="" SC_NEWF="" SC_TERM=0 awk "$AWK_JSON_HELPERS$AWK_VENDOR" 2>/dev/null)
-    checkno "loader: cut-off last line ignored when unrepaired (SC_TERM=0)" "$out" 'Acme Net"'
+    checkabs "loader: cut-off last line ignored when unrepaired (SC_TERM=0)" "$out" 'Acme Net"'
     out=$(printf '%s\n' "$base" | SC_CACHE="$OUI_CACHE" SC_OUI="" SC_NEWF="" SC_TERM=1 awk "$AWK_JSON_HELPERS$AWK_VENDOR" 2>/dev/null)
     check   "loader: same line served when the cache is whole (SC_TERM=1)"  "$out" '"vendor": "Acme Net"'
     if [ "$(id -u 2>/dev/null)" != "0" ]; then
@@ -8323,7 +8756,8 @@ SQL
     checkf "index: (hex) line wins over the (base 16) line"        "$oxi" '"vendor": "IEEE Hex Corp"'
     checkf "index: quote and backslash escaped"                    "$oxi" '"vendor": "Acme \"Q\" \\ Corp"'
     checkf "index: last tab field of a manuf line"                 "$oxi" '"vendor": "VMware, Inc."'
-    checkno "index: MA-M / MA-S lines give no vendor"              "$(line_of "$oxi" '00:55:da:00:00:01')$(line_of "$oxi" '70:b3:d5:00:00:01')" '"vendor"'
+    checkabs "index: MA-M line gives no vendor"                     "$(line_of "$oxi" '00:55:da:00:00:01')" '"vendor"'
+    checkabs "index: MA-S line gives no vendor"                     "$(line_of "$oxi" '70:b3:d5:00:00:01')" '"vendor"'
     check  "index: a prefix the file lacks is a negative entry"    "$oxic" "^111111${RECON_TAB}\$"
     # an octet with many lines (here: more than 3) is split by its first two octets: one file per second octet, the lines that cannot be accepted dropped
     save_max=$OUI_IDX_MAX; OUI_IDX_MAX=3; rm -rf "$CAPDIR/oui-index"; setup_vendor 2>/dev/null; OUI_IDX_MAX=$save_max
@@ -8353,7 +8787,7 @@ SQL
     # an unreadable OUI file with a damaged index and a new prefix: nothing is known, so no negative entry (as in 6h)
     rm -f "$OUI_IDX/A8"; OUI_PATH="$tdir/oui-gone.txt"; vreset
     printf '%s\n' "$oxd" | add_vendor >/dev/null 2>&1
-    checkno "index: damaged index and no OUI file -> no negative entry for a prefix that is in the file" "$(cat "$OUI_CACHE")" "^A8BBCC${RECON_TAB}\$"
+    checkabs "index: damaged index and no OUI file -> no negative entry for a prefix that is in the file" "$(cat "$OUI_CACHE")" "^A8BBCC${RECON_TAB}\$"
     OUI_PATH="$ox"; setup_vendor 2>/dev/null
     # the OUI file changes (new size): a new index, with the new content
     printf 'CCDDEE New Corp\n' >> "$ox"; setup_vendor 2>/dev/null
@@ -8481,10 +8915,10 @@ SQL
     #          against device-format lines, the real `ps` is never consulted (on the device it would list
     #          the operator's own collector), and a stand-in `readlink` answers /proc/PID/cwd from a map.
     #          Every wait is bounded; the stand-ins hold no inherited descriptor (a survivor would keep a caller's pipe open).
-    klw="$tdir/klscope"; klbin="$klw/bin"; mkdir -p "$klbin" "$klw/d1" "$klw/d2" "$klw/own" "$klw/status"
+    klw="$tdir/klscope"; klbin="$klw/bin"; mkdir -p "$klbin" "$klw/d1" "$klw/d2" "$klw/own" "$klw/status" "$klw/vi" "$klw/tail" "$klw/wrap" "$klw/dbg"
     # shellcheck disable=SC2016  # script text for the stand-ins: each ends when its file or this shell is gone (an interrupted run leaves no loop named like the collector)
     printf '#!/bin/sh\nwhile [ -f "$0" ] && kill -0 %s 2>/dev/null; do sleep 1; done\n' "$$" > "$klw/d1/starchorus-collect.sh"
-    for kd in d2 own status; do cp "$klw/d1/starchorus-collect.sh" "$klw/$kd/starchorus-collect.sh"; done
+    for kd in d2 own status vi tail wrap dbg; do cp "$klw/d1/starchorus-collect.sh" "$klw/$kd/starchorus-collect.sh"; done
     chmod +x "$klw"/*/starchorus-collect.sh
     # shellcheck disable=SC2016   # script text for the stand-in, expanded when it runs
     printf '#!/bin/sh\n# stand-in BusyBox `ps w`: the prepared table\ncat "$KLTAB"\n' > "$klbin/ps"
@@ -8498,7 +8932,7 @@ esac
 exit 1
 KLRL
     chmod +x "$klbin/ps" "$klbin/readlink"
-    # shellcheck disable=SC2086   # $2 is an optional flag (--status) or nothing
+    # shellcheck disable=SC2086   # $2 is an optional flag (--status), the two words of an airodump's -w prefix, or nothing
     # Detached (double fork): the stand-in is re-parented away from this shell, as another collector loop
     # would be, so kill_loops does not skip it as one of this run's own subshells (is_own_child).
     kl_spawn() {
@@ -8517,6 +8951,8 @@ KLRL
     KLPIDS=""
     exec 4>&2 2>/dev/null   # no job "Terminated" lines while stand-ins come and go
     kl_spawn d1; klf1=$klsp; kl_spawn d2; klf2=$klsp; kl_spawn own; klown=$klsp; kl_spawn status --status; klst=$klsp
+    kl_spawn vi; klvi=$klsp; kl_spawn tail; kltl=$klsp   # real processes behind the editor and tail lines below: neither may be signalled
+    kl_spawn wrap; klwr=$klsp; kl_spawn dbg; kldb=$klsp   # a wrapper line (timeout ... sh ...: not a loop) and a loop under `sh -x` (one)
     exec 2>&4 4>&-
     # The two decoy lines (a sleep, a grep) must be filtered out. Their pids lie above the kernel's pid ceiling (4194304), so no process has them: were the filter
     # to regress, kill_loops would signal nothing (pids 1 and 2 would be init and the kernel's thread daemon, signalled as root).
@@ -8527,28 +8963,42 @@ KLRL
         printf '%5s root      1508 S    {starchorus-coll} /bin/sh ./starchorus-collect.sh --status\n' "$klst"
         printf '%5s root      1200 S    sleep 1\n' 4194305
         printf '%5s root      1200 S    grep starchorus-collect.sh\n' 4194306
+        printf '%5s root      2400 S    vi %s/d1/starchorus-collect.sh\n' "$klvi" "$klw"
+        printf '%5s root      1200 S    tail -f %s/d1/starchorus-collect.sh\n' "$kltl" "$klw"
+        printf '%5s root      1200 S    timeout 3600 sh %s/d1/starchorus-collect.sh\n' "$klwr" "$klw"
+        printf '%5s root      1508 S    {starchorus-coll} /bin/sh -x %s/dbg/starchorus-collect.sh\n' "$kldb" "$klw"
     } > "$klw/ps.txt"
     printf '%s %s\n' "$klf1" "$klw/d1" > "$klw/proc.map"   # d1 mapped (its directory is reported); d2 unmapped (the fallback)
     export KLTAB="$klw/ps.txt" KLMAP="$klw/proc.map"
     klsave=$PATH; PATH="$klbin:$PATH"
-    kill_loops stop "$klown" 2>"$klw/kl.log"           # the --stop path: own loop already reported by stop_pidfile
+    kill_loops stop "$klown" 2>"$klw/kl.log"           # the --stop path: own loop already signalled and reported by stop_pidfile
     PATH=$klsave
     exec 4>&2 2>/dev/null
-    kl_wait "$klf1"; klr1=$?; kl_wait "$klf2"; klr2=$?; kl_wait "$klown"; klro=$?
+    kl_wait "$klf1"; klr1=$?; kl_wait "$klf2"; klr2=$?
+    sleep 1; kill -0 "$klown" 2>/dev/null; klro=$?   # the own loop got its one TERM from stop_pidfile: kill_loops leaves it alone, so it is still there
     kill -0 "$klst" 2>/dev/null; klrs=$?
-    for klp in "$klf1" "$klf2" "$klown"; do kill -0 "$klp" 2>/dev/null || wait "$klp" 2>/dev/null; done   # reap the dead only
+    kill -0 "$klvi" 2>/dev/null; klrv=$?; kill -0 "$kltl" 2>/dev/null; klrt=$?; kill -0 "$klwr" 2>/dev/null; klrw=$?
+    kl_wait "$kldb"; klrd=$?
+    kill "$klown" 2>/dev/null; kl_wait "$klown"   # what stop_pidfile does in the real --stop
+    for klp in "$klf1" "$klf2" "$klown" "$kldb"; do kill -0 "$klp" 2>/dev/null || wait "$klp" 2>/dev/null; done   # reap the dead only
     exec 2>&4 4>&-
     klbad=""
     [ "$klr1" = 0 ] || klbad="$klbad foreign1-alive-after-10s"
     [ "$klr2" = 0 ] || klbad="$klbad foreign2-alive-after-10s"
-    [ "$klro" = 0 ] || klbad="$klbad own-alive-after-10s"
+    [ "$klro" = 0 ] || klbad="$klbad own-signalled-again"
     [ "$klrs" = 0 ] || klbad="$klbad status-killed"
+    [ "$klrv" = 0 ] || klbad="$klbad editor-line-killed"
+    [ "$klrt" = 0 ] || klbad="$klbad tail-line-killed"
+    [ "$klrw" = 0 ] || klbad="$klbad wrapper-line-killed"
+    [ "$klrd" = 0 ] || klbad="$klbad debug-loop-alive-after-10s"
+    grep -qE "pid ($klvi|$kltl|$klwr) " "$klw/kl.log" && klbad="$klbad editor-tail-or-wrapper-reported"
+    grep -qF "also stopped collector loop pid $kldb in unknown directory (one collector per device)" "$klw/kl.log" || klbad="$klbad no-debug-loop-report"
     grep -qF "also stopped collector loop pid $klf1 in $klw/d1 (one collector per device)" "$klw/kl.log" || klbad="$klbad no-foreign1-report"
     grep -qF "also stopped collector loop pid $klf2 in unknown directory (one collector per device)" "$klw/kl.log" || klbad="$klbad no-foreign2-fallback"
     grep -q "pid $klown " "$klw/kl.log" && klbad="$klbad own-double-reported"
     grep -q "pid $klst " "$klw/kl.log" && klbad="$klbad status-reported"
     grep -qE "pid (1|2|4194305|4194306) " "$klw/kl.log" && klbad="$klbad sleep-or-grep-line-matched"   # the decoys; 1 and 2 stay in, as nothing may ever report them
-    if [ -z "$klbad" ]; then st_pass "kill_loops --stop (BusyBox ps w lines): foreign loops stopped and reported with directory (d1 named, d2 -> unknown directory); own loop not double-reported; --status untouched"; else st_fail "kill_loops --stop scope/honesty:$klbad"; fi
+    if [ -z "$klbad" ]; then st_pass "kill_loops --stop (BusyBox ps w lines): foreign loops stopped and reported with directory (d1 named, d2 -> unknown directory), a loop under sh -x among them; the own loop stop_pidfile signalled is neither signalled again nor reported; --status, an editor, a tail and a wrapper line (timeout ... sh ...) untouched"; else st_fail "kill_loops --stop scope/honesty:$klbad"; fi
     # start-up "replace" wording: each loop replaced is reported (one collector per device)
     exec 4>&2 2>/dev/null
     kl_spawn d1; klf3=$klsp
@@ -8583,6 +9033,34 @@ KLRL
     else
         log "  SKIP: kill_loops own-subshell case needs /proc"
     fi
+    # a line whose process is gone when its turn comes (on BusyBox the members of kill_loops' own pipeline look like loops in `ps w` and have ended by then; a loop may
+    # also have left by itself): nothing is stopped, so nothing is said, in a start and in a stop. The pid lies above the kernel's ceiling: no process can have it.
+    { printf '  PID USER       VSZ STAT COMMAND\n'; printf '%5s root      1508 S    {starchorus-coll} /bin/sh %s/d1/starchorus-collect.sh\n' 4194307 "$klw"; } > "$klw/ps.txt"
+    : > "$klw/proc.map"
+    PATH="$klbin:$PATH"
+    kill_loops replace 2>"$klw/kl4.log"; kill_loops stop 2>>"$klw/kl4.log"
+    PATH=$klsave
+    if [ ! -s "$klw/kl4.log" ]; then st_pass "kill_loops: a line whose process is gone is passed over, in a start and in a stop (no 'replaced', no 'also stopped')"; else st_fail "kill_loops: reported a process that is gone ($(head -n 1 "$klw/kl4.log"))"; fi
+    # The list is complete before any pid is judged: on BusyBox the helpers that read it show in `ps w` with the script's command line until they are reaped, so a body run
+    # beside the listing (a pipeline member) could find one alive at the gate and gone a moment later, and report it as a loop in 'unknown directory'. The stand-in listing
+    # prints a pid the gate takes for alive and stays until the judge has been called (3 s at most), then marks that it has ended; the stand-in is_own_child records which
+    # came first. A body in a pipeline is called while the listing still waits (before); a list read whole can be judged only once the listing has ended (after). The pid
+    # lies above the kernel's ceiling and kill is a stand-in in the subshell: nothing is signalled. The caller's p is left alone, and the pid is still reported once.
+    klo="$klw/order"; rm -rf "$klo"; mkdir -p "$klo"
+    (   kill() { return 0; }
+        loop_list() {
+            printf '%s\n' 4194307
+            klo_i=0; while [ "$klo_i" -lt 3 ] && [ ! -e "$klo/judged" ]; do sleep 1; klo_i=$((klo_i + 1)); done
+            : > "$klo/ended"
+        }
+        is_own_child() { if [ -e "$klo/ended" ]; then echo after; else echo before; fi > "$klo/when"; : > "$klo/judged"; return 1; }
+        loop_cwd() { echo somewhere; }
+        log() { printf '%s\n' "$*" >> "$klo/log"; }
+        p=keep; kill_loops replace; echo "$p" > "$klo/p" ) 2>/dev/null
+    klo_w=$(cat "$klo/when" 2>/dev/null); klo_p=$(cat "$klo/p" 2>/dev/null)
+    klo_n=$(grep -cF "replaced collector loop pid 4194307 in somewhere: one collector per device" "$klo/log" 2>/dev/null)
+    if [ "$klo_w/$klo_p/$klo_n" = "after/keep/1" ]; then st_pass "kill_loops: no pid is judged before its list is complete (the helpers that read it have ended), the caller's p is left alone, and the pid is still reported once"
+    else st_fail "kill_loops, the list read whole first: judged [$klo_w] p [$klo_p] lines [$klo_n] (want after, keep, 1)"; fi
     # The stand-ins of the Bluetooth window end by themselves, within seconds, when the tree they poll is removed or the shell they watch is gone (an interrupted run, see st_abort).
     # A scan stand-in (bt_stub makes two, one body) is run on its own in two trees, as the loops above are run (kl_spawn starts a script of this name in a directory of klscope),
     # the first tree removed and the pid the second watches (a sleep here) killed. A stand-in that is still there is killed by kl_cleanup.
@@ -8605,6 +9083,256 @@ KLRL
     klleft=""; for klp in $KLPIDS; do kill -0 "$klp" 2>/dev/null && klleft="$klleft $klp"; done
     if [ -z "$klleft" ]; then st_pass "kill_loops: no stand-in loop left running"; else st_fail "kill_loops: stand-ins still alive after kill -9:$klleft"; fi
     unset KLTAB KLMAP
+
+    # ---- 6m) the start claim: the first start holds the lock with its pid inside, a second gives way while that pid runs this script, the release
+    #          removes the lock, and a stale lock (its pid gone) is taken over. This process runs the script, so its pid stands for a live start.
+    klk="$tdir/klclaim"; mkdir -p "$klk"; klsP=$PIDDIR; PIDDIR=$klk
+    START_LOCK=""; start_claim; klc1=$?; klc_pid=$(cat "$klk/starchorus-start.lock/pid" 2>/dev/null)
+    ( START_LOCK=""; start_claim ); klc2=$?
+    start_release; klc3=$([ -d "$klk/starchorus-start.lock" ] && echo kept || echo gone)
+    mkdir -p "$klk/starchorus-start.lock"; echo 4194305 > "$klk/starchorus-start.lock/pid"   # a start that died: no process has this pid
+    START_LOCK=""; start_claim; klc4=$?; klc4p=$(cat "$klk/starchorus-start.lock/pid" 2>/dev/null); start_release
+    # a lock re-made by a further start while a stale one is taken over: pid_ours and cat stand in for the moment (the first puts another pid inside
+    # the lock before the rename, the second re-makes the lock, with this process's pid, while the copy is read); the copy is dropped, nothing is
+    # nested inside the new lock, and this start gives way to it
+    mkdir -p "$klk/starchorus-start.lock"; echo 4194305 > "$klk/starchorus-start.lock/pid"
+    ( pid_ours() { [ "$1" = "$$" ] && return 0; echo 4194306 > "$PIDDIR/starchorus-start.lock/pid" 2>/dev/null; return 1; }
+      cat() { case $1 in *.stale.*/pid) mkdir "$PIDDIR/starchorus-start.lock" 2>/dev/null && echo "$$" > "$PIDDIR/starchorus-start.lock/pid" ;; esac; command cat "$@"; }
+      START_LOCK=""; start_claim; echo "rc=$?" > "$klk/klc5" )
+    klc5n=0; for klc5f in "$klk"/starchorus-start.lock/*.stale.*; do [ -e "$klc5f" ] && klc5n=$((klc5n + 1)); done   # a copy nested inside the new lock
+    klc5=$(cat "$klk/klc5" 2>/dev/null); klc5p=$(cat "$klk/starchorus-start.lock/pid" 2>/dev/null)
+    if [ "$klc5/$klc5n/$klc5p" = "rc=1/0/$$" ] && [ -z "$(ls -d "$klk"/starchorus-start.lock.stale.* 2>/dev/null)" ]; then st_pass "start claim: a lock re-made by a further start while a stale one is taken over keeps that start's lock with nothing nested inside, the copy is dropped, and this start gives way"
+    else st_fail "start claim, a lock re-made meanwhile: $klc5 nested=$klc5n pid=[$klc5p] (want rc=1, 0, $$) stale=[$(ls -d "$klk"/starchorus-start.lock.stale.* 2>/dev/null)]"; fi
+    rm -rf "$klk/starchorus-start.lock" 2>/dev/null
+    PIDDIR=$klsP
+    if [ "$klc1/$klc_pid/$klc2/$klc3/$klc4/$klc4p" = "0/$$/1/gone/0/$$" ] && [ -z "$(ls -d "$klk"/starchorus-start.lock.stale.* 2>/dev/null)" ]; then st_pass "start claim: the first start holds the lock with its pid, a second gives way, the release removes it, a stale lock whose pid is gone is taken over"
+    else st_fail "start claim: claimed $klc1 pid [$klc_pid] second $klc2 after release $klc3 stale $klc4 [$klc4p]"; fi
+
+    # ---- 6n) the wiring of --stop (stop_instances hands kill_loops the pid stop_pidfile signalled, and none when it signalled none), the second signal
+    #          cleanup ignores (its first line, pinned once, and the pattern driven in a stand-in), and start_airodump beside a daemon (SA_KEEP_CSV: the
+    #          daemon's airodump and its CSV stay; a daemon start stops the left-over airodump the pidfile names and clears the CSVs)
+    kln="$tdir/klwire"; mkdir -p "$kln/bin" "$kln/cap"
+    ( stop_pidfile() { [ "$2" = "collector loop" ] && { SP_KILLED=4194301; stopped=1; }; return 0; }; loop_list() { printf '4194301\n4194302\n'; }
+      kill_loops() { printf '%s|%s\n' "$1" "$2" > "$kln/args"; }; stop_instances >/dev/null 2>&1 )
+    kln_a=$(cat "$kln/args" 2>/dev/null)
+    ( stop_pidfile() { return 0; }; loop_list() { printf '4194302\n'; }; kill_loops() { printf '%s|%s\n' "$1" "$2" > "$kln/args2"; }; stop_instances >/dev/null 2>&1 )
+    kln_b=$(cat "$kln/args2" 2>/dev/null)
+    if [ "$kln_a" = "stop|4194301" ] && [ "$kln_b" = "stop|" ]; then st_pass "stop: kill_loops is handed the loop stop_pidfile signalled (one TERM for it), and nothing when it signalled none"; else st_fail "stop wiring: [$kln_a] [$kln_b]"; fi
+    kln_pin=$(grep -c "^    trap '' INT TERM HUP; trap - EXIT$" "$0")   # a stand-in with a trap of its own would be a program text the passivity checker pins: the line itself is pinned here
+    if [ "$kln_pin" = 1 ]; then st_pass "cleanup: its first line ignores a second INT, TERM or HUP while it runs and clears the EXIT trap (pinned once)"
+    else st_fail "cleanup second signal: the first line is pinned $kln_pin times (want 1)"; fi
+    printf '#!/bin/sh\nexit 0\n' > "$kln/bin/airodump-ng"; chmod +x "$kln/bin/airodump-ng"
+    exec 4>&2 2>/dev/null
+    kl_spawn d1 "-w $kln/cap/starchorus"; kln_ad=$klsp   # the 6l stand-in script once more, its arguments the -w prefix that names an airodump of ours for pid_ours (CAPPREFIX below)
+    exec 2>&4 4>&-
+    kln_sC=$CAPDIR; kln_sP=$AIRODUMP_PIDFILE; kln_sM=$MONIF; kln_sX=$CAPPREFIX; kln_sPATH=$PATH   # start_airodump sets CAP_METHOD, STARTED_AIRODUMP and AD_PID: cleared below, as the selftest holds them
+    CAPDIR="$kln/cap"; AIRODUMP_PIDFILE="$kln/airodump.pid"; MONIF=wlanX; CAPPREFIX="$kln/cap/starchorus"; PATH="$kln/bin:$PATH"
+    : > "$kln/cap/starchorus-01.csv"; printf '%s\n' "$kln_ad" > "$AIRODUMP_PIDFILE"
+    SA_KEEP_CSV=1; start_airodump 2>/dev/null; kln_r1=$?
+    kln_c1=$([ -e "$kln/cap/starchorus-01.csv" ] && echo kept || echo gone); sleep 0.3; kill -0 "$kln_ad" 2>/dev/null; kln_l1=$?
+    : > "$kln/cap/starchorus-01.csv"; printf '%s\n' "$kln_ad" > "$AIRODUMP_PIDFILE"
+    SA_KEEP_CSV=0; start_airodump 2>/dev/null; kln_r2=$?
+    kln_c2=$([ -e "$kln/cap/starchorus-01.csv" ] && echo kept || echo gone); sleep 0.5; kill -0 "$kln_ad" 2>/dev/null; kln_l2=$?
+    exec 4>&2 2>/dev/null; kill -9 "$kln_ad" 2>/dev/null; wait "$kln_ad" 2>/dev/null; exec 2>&4 4>&-
+    PATH=$kln_sPATH; CAPDIR=$kln_sC; AIRODUMP_PIDFILE=$kln_sP; MONIF=$kln_sM; CAPPREFIX=$kln_sX; SA_KEEP_CSV=0; STARTED_AIRODUMP=0; AD_PID=""; CAP_METHOD=""
+    if [ "$kln_r1/$kln_c1/$kln_l1/$kln_r2/$kln_c2/$kln_l2" = "0/kept/0/0/gone/1" ]; then st_pass "start_airodump: beside a daemon (SA_KEEP_CSV) the daemon's airodump and its CSV stay; a daemon start stops the left-over airodump the pidfile names and clears the CSVs"
+    else st_fail "start_airodump beside a daemon: rc $kln_r1 csv $kln_c1 alive $kln_l1 | rc $kln_r2 csv $kln_c2 alive $kln_l2"; fi
+    # a pidfile pid whose command line merely says airodump (a tail on its log, a reused pid) carries no -w prefix of ours: a daemon start leaves it alone
+    exec 4>&2 2>/dev/null; kl_spawn d1 airodump; kln_ad2=$klsp; exec 2>&4 4>&-
+    kln_sC=$CAPDIR; kln_sP=$AIRODUMP_PIDFILE; kln_sM=$MONIF; kln_sX=$CAPPREFIX; kln_sPATH=$PATH
+    CAPDIR="$kln/cap"; AIRODUMP_PIDFILE="$kln/airodump.pid"; MONIF=wlanX; CAPPREFIX="$kln/cap/starchorus"; PATH="$kln/bin:$PATH"
+    printf '%s\n' "$kln_ad2" > "$AIRODUMP_PIDFILE"; SA_KEEP_CSV=0; start_airodump 2>/dev/null; kln_r3=$?; sleep 0.5; kill -0 "$kln_ad2" 2>/dev/null; kln_l3=$?
+    exec 4>&2 2>/dev/null; kill -9 "$kln_ad2" 2>/dev/null; wait "$kln_ad2" 2>/dev/null; exec 2>&4 4>&-
+    PATH=$kln_sPATH; CAPDIR=$kln_sC; AIRODUMP_PIDFILE=$kln_sP; MONIF=$kln_sM; CAPPREFIX=$kln_sX; SA_KEEP_CSV=0; STARTED_AIRODUMP=0; AD_PID=""; CAP_METHOD=""
+    if [ "$kln_r3/$kln_l3" = "0/0" ]; then st_pass "start_airodump: a pidfile pid whose command line merely says airodump (no -w prefix of ours) is left alone by a daemon start"
+    else st_fail "start_airodump stranger: rc $kln_r3 alive $kln_l3 (want 0/0: started, and the stranger alive)"; fi
+
+    # ---- 6i-ii) a held capture cycle keeps the last document: with the airodump this run started gone (a dead pid), run_cycle publishes nothing over the
+    #             document of the cycle before, as it does for a failed recon.db pass, returns 1 and names the hold
+    RESOLVED=capture; CAP_METHOD=airodump; OUTFILE="$tdir/starchorus.json"; STARTED_AIRODUMP=0; AD_PID=""; CSV_HOLD=""
+    # (the document is kept as a copy and compared with cmp: the Pager has no cksum)
+    run_cycle >/dev/null 2>&1; hc_1=0; [ -s "$OUTFILE" ] && cp "$OUTFILE" "$tdir/hold.before" && hc_1=1
+    STARTED_AIRODUMP=1; AD_PID=4194305
+    run_cycle >/dev/null 2>&1; hc_r=$?; hc_2=0; cmp -s "$OUTFILE" "$tdir/hold.before" && hc_2=1; hc_h=$CSV_HOLD
+    STARTED_AIRODUMP=0; AD_PID=""; CSV_HOLD=""
+    if [ "$hc_1" = 1 ] && [ "$hc_2" = 1 ] && [ "$hc_r" = 1 ] && grep -q '"ssid": "AcmeNet"' "$OUTFILE" && case $hc_h in "airodump (pid 4194305) is gone"*) true ;; *) false ;; esac; then
+        st_pass "run_cycle: a held capture cycle (the airodump this run started is gone) leaves the last document as it was, returns 1 and names the hold"
+    else st_fail "run_cycle hold: a document before $hc_1, the same after $hc_2, rc $hc_r, hold [$hc_h]"; fi
+    rm -f "$tdir/hold.before"
+
+    # ---- 6o) a monitor interface of our own: off by default; never while a recon database can be read; only on a radio with no management,
+    #          access-point or connected interface; removed at the end only while it is still the one made. An interface this run did not make is
+    #          only listened to (tcpdump -p, never airodump-ng). iw, ip, ifconfig, tcpdump and airodump-ng are stand-ins first on PATH that write their
+    #          arguments to $OM_D/log. A stand-in that cannot run (a temporary directory mounted noexec, say) would let the real tool run in its
+#          place, so the first case proves that all five run, and without that om_env ends every other case before it starts. The names (zzst*,
+#          phy#97 to phy#99) are none a device has.
+    om="$tdir/ownmon"; mkdir -p "$om/bin"
+    cat > "$om/bin/iw" <<'OMIW'
+#!/bin/sh
+printf '%s\n' "iw $*" >> "$OM_D/log"
+case "$1" in
+    dev) if [ "$#" = 1 ]; then cat "$OM_D/iwdev"; exit 0; fi
+         case "$3" in info) cat "$OM_D/info.$2" 2>/dev/null ;; *) rm -f "$OM_D/info.$2" ;; esac ;;
+    phy) [ -e "$OM_D/addfail" ] && exit 1
+         if [ -e "$OM_D/nowdev" ]; then printf '\tifindex 51\n\twiphy 97\n\ttype monitor\n' > "$OM_D/info.$5"
+         else printf '\tifindex 51\n\twdev 0x9700000002\n\twiphy 97\n\ttype monitor\n' > "$OM_D/info.$5"; fi ;;
+esac
+OMIW
+    cat > "$om/bin/ip" <<'OMIP'
+#!/bin/sh
+printf '%s\n' "${0##*/} $*" >> "$OM_D/log"
+exit 0
+OMIP
+    for om_n in ifconfig tcpdump airodump-ng; do cp "$om/bin/ip" "$om/bin/$om_n"; done
+    chmod +x "$om/bin/iw" "$om/bin/ip" "$om/bin/ifconfig" "$om/bin/tcpdump" "$om/bin/airodump-ng"
+    om_t1=$(printf 'phy#97\n\tInterface zzst0\n\t\tifindex 41\n\t\twdev 0x9700000001\n\t\ttype managed')
+    om_t2=$(printf 'phy#98\n\tInterface zzst1\n\t\tifindex 42\n\t\twdev 0x9800000001\n\t\tssid zz-net\n\t\ttype managed\n%s' "$om_t1")
+    om_t3=$(printf 'phy#98\n\tInterface zzst1\n\t\tifindex 42\n\t\twdev 0x9800000001\n\t\tssid zz-net\n\t\ttype managed\nphy#99\n\tInterface zzst2\n\t\tifindex 43\n\t\twdev 0x9900000001\n\t\ttype mesh point\n\tInterface zzst3\n\t\tifindex 44\n\t\twdev 0x9900000002\n\t\ttype managed')
+    om_t4=$(printf 'phy#97\n\tInterface zzst9mon\n\t\tifindex 49\n\t\twdev 0x9700000009\n\t\ttype monitor')
+    # om_case NAME TEXT: a case directory with that `iw dev` text, an empty log and the info of the free base zzst0
+    om_case() { mkdir -p "$om/$1"; : > "$om/$1/log"; printf '%s\n' "$2" > "$om/$1/iwdev"; printf 'Interface zzst0\n\tifindex 41\n\twdev 0x9700000001\n\twiphy 97\n\ttype managed\n' > "$om/$1/info.zzst0"; }
+    # Each case runs in a subshell, and these functions set the state of the code under test there: om_env NAME puts the stand-ins first on PATH
+    # and names the case directory; om_end runs cleanup with its own state pointed at that directory (it removes only files of this pid, and a lock
+    # it never took).
+    om_env() { [ "$om_ok" = 1 ] || exit 1; OM_D="$om/$1"; export OM_D; PATH="$om/bin:$PATH"; }
+    om_end() { OUTFILE="$OM_D/x.json"; TMPDIR_RAM="$OM_D"; CAPDIR="$OM_D"; LOOP_PIDFILE="$OM_D/loop.pid"; AIRODUMP_PIDFILE="$OM_D/ad.pid"; START_LOCK=""
+               STARTED_AIRODUMP=0; AD_PID=""; BT_ARM=""; BT_MPID=""; BT_SPID=""; TR_PID=""; VENDOR_NEWF=""; CACHE_LOCKED=0; OUI_CACHE="$OM_D/oui"; PSEC="$OM_D/sec"
+               cleanup 2>"$OM_D/clean.err"; }
+    om_made() {   # $1 = case: switched on, no recon database, a free radio; with $2 = again, someone makes one of the same name before the end
+        om_env "$1"; IFACE=auto; CREATE_MON=1; RECON_DB="$om/none-such.db"; MONIF=""; CREATED_MON=0; MON_ID=""
+        setup_monitor_iface 2>"$OM_D/err"; printf '%s|%s|%s\n' "$MONIF" "$CREATED_MON" "$MON_ID" > "$OM_D/state"; cp "$OM_D/log" "$OM_D/log.made"
+        [ "$2" != again ] || printf 'Interface zzst0mon\n\tifindex 52\n\twdev 0x9700000003\n\ttype monitor\n' > "$OM_D/info.zzst0mon"
+        om_end
+    }
+    om_db() {     # switched on beside a readable recon database
+        om_env c4; IFACE=auto; CREATE_MON=1; RECON_DB="$om/c4/recon.db"; MONIF=""; CREATED_MON=0; MON_ID=""
+        setup_monitor_iface 2>"$OM_D/err"; printf '%s|%s|%s\n' "$MONIF" "$CREATED_MON" "$MON_ID" > "$OM_D/state"
+    }
+    om_found() {  # $1 = case: a monitor interface this run did not make and no recon database; with $2 = notcpdump, no tcpdump is there
+        om_env "$1"; SOURCE=auto; IFACE=auto; CREATE_MON=0; RECON_DB="$om/none-such.db"; ALLOW_ACTIVE=0; MONIF=""; CREATED_MON=0
+        if [ "$2" = notcpdump ]; then have() { [ "$1" != tcpdump ] && command -v "$1" >/dev/null 2>&1; }; fi
+        resolve_source 2>"$OM_D/err"; printf '%s|%s|%s\n' "$RESOLVED" "$MONIF" "$CREATED_MON" > "$OM_D/state"
+    }
+    om_cap() {    # $1 = case: start_capture on an interface this run found (c9) or made (c10)
+        om_env "$1"; RESOLVED=capture; CAP_METHOD=""; STARTED_AIRODUMP=0; AD_PID=""; SA_KEEP_CSV=0
+        CAPDIR="$OM_D/cap"; AIRODUMP_PIDFILE="$OM_D/ad.pid"; CAPPREFIX="$OM_D/cap/starchorus"
+        if [ "$1" = c9 ]; then CREATED_MON=0; MONIF=zzst9mon; else CREATED_MON=1; MONIF=zzst0mon; fi
+        start_capture --once 2>"$OM_D/err"; [ -z "$AD_PID" ] || wait "$AD_PID" 2>/dev/null; printf '%s\n' "$CAP_METHOD" > "$OM_D/state"
+    }
+    om_fail() {   # iw cannot add the interface: nothing else is tried (the have stand-in notes every name asked; only iw, ip and ifconfig are there)
+        om_env c12; IFACE=auto; CREATE_MON=1; RECON_DB="$om/none-such.db"; MONIF=""; CREATED_MON=0; MON_ID=""
+        # shellcheck disable=SC2329  # called by name from the code under test
+        have() { printf '%s\n' "$1" >> "$OM_D/asked"; { [ "$1" = iw ] || [ "$1" = ip ] || [ "$1" = ifconfig ]; } && command -v "$1" >/dev/null 2>&1; }
+        setup_monitor_iface 2>"$OM_D/err"; printf '%s|%s|%s\n' "$MONIF" "$CREATED_MON" "$MON_ID" > "$OM_D/state"
+    }
+    om_burst() {  # tcpdump bursts on an interface this run found (never brought up), with timeout and without it
+        om_env c11; MONIF=zzst9mon; CAPDIR="$OM_D"; CREATED_MON=0; INTERVAL=2
+        build_from_tcpdump 0 >/dev/null 2>&1
+        have() { [ "$1" != timeout ] && command -v "$1" >/dev/null 2>&1; }
+        build_from_tcpdump 0 >/dev/null 2>&1
+    }
+    om_up() {     # tcpdump bursts on the interface this run made: brought up while it is the one made, not once another has taken its name
+        om_env c15; MONIF=zzst0mon; CAPDIR="$OM_D"; CREATED_MON=1; MON_ID="51:0x9700000002"; INTERVAL=1
+        printf 'Interface zzst0mon\n\tifindex 51\n\twdev 0x9700000002\n\ttype monitor\n' > "$OM_D/info.zzst0mon"
+        build_from_tcpdump 0 >/dev/null 2>&1
+        printf 'Interface zzst0mon\n\tifindex 52\n\twdev 0x9700000003\n\ttype monitor\n' > "$OM_D/info.zzst0mon"
+        build_from_tcpdump 0 >/dev/null 2>&1
+    }
+    om_probe() { OM_D="$om/c0"; export OM_D; PATH="$om/bin:$PATH"; iw dev zzst-probe info; ip link show zzst-probe; ifconfig zzst-probe; tcpdump --version; airodump-ng --help; }
+
+    # the stand-ins run in place of the tools: each of the five writes its line, or no case of 6o runs
+    om_case c0 "$om_t1"; ( om_probe ) >/dev/null 2>&1; om_ok=0
+    [ "$(grep -c -x -E 'iw dev zzst-probe info|ip link show zzst-probe|ifconfig zzst-probe|tcpdump --version|airodump-ng --help' "$om/c0/log")" = 5 ] && om_ok=1
+    if [ "$om_ok" = 1 ]; then st_pass "own monitor interface: the five stand-ins run in place of the tools (each wrote its line), so the cases below reach nothing real"
+    else st_fail "own monitor interface: the stand-ins did not all run ([$(tr '\n' '|' < "$om/c0/log")]), so none of the cases of 6o ran"; fi
+
+    # off by default: a whole run without STARCHORUS_CREATE_MON, a free radio and no recon database
+    om_case c1 "$om_t1"
+    ( unset STARCHORUS_CREATE_MON; om_env c1
+      STARCHORUS_OUTDIR="$om/c1" STARCHORUS_PIDDIR="$om/c1" STARCHORUS_SOURCE=auto STARCHORUS_IFACE=auto STARCHORUS_RECON_DB="$om/none-such.db" STARCHORUS_VENDOR=0 \
+          sh "$0" --once >/dev/null 2>"$om/c1/once.log" )
+    if [ "$(grep -c '^iw phy ' "$om/c1/log")" = 0 ] && grep -qx 'iw dev' "$om/c1/log" && grep -q 'resolved data source: none' "$om/c1/once.log"; then
+        st_pass "own monitor interface: off by default (a run without STARCHORUS_CREATE_MON looks, adds none on a free radio and finds no source)"
+    else st_fail "own monitor interface by default: [$(tr '\n' '|' < "$om/c1/log")] [$(grep 'resolved data source' "$om/c1/once.log")]"; fi
+
+    # switched on, no recon database, a free radio: one is made there and brought up, its identity kept; at the end it goes while it is the same,
+    # and stays when someone has made one of the same name again (another ifindex and wdev)
+    om_case c2 "$om_t2"; om_case c3 "$om_t1"; ( om_made c2 ); ( om_made c3 again )
+    if [ "$(cat "$om/c2/state")" = "zzst0mon|1|51:0x9700000002" ] && [ "$(grep -c '^iw phy ' "$om/c2/log.made")" = 1 ] \
+       && grep -qx 'iw phy phy97 interface add zzst0mon type monitor' "$om/c2/log.made" && grep -qx 'ip link set zzst0mon up' "$om/c2/log.made"; then
+        st_pass "own monitor interface: switched on, with no recon database and a free radio, one is made there and brought up, its ifindex and wdev kept"
+    else st_fail "own monitor interface made: [$(cat "$om/c2/state")] [$(tr '\n' '|' < "$om/c2/log.made")]"; fi
+    if [ "$(grep -cx 'iw dev zzst0mon del' "$om/c2/log")" = 1 ] && grep -q 'removed monitor interface zzst0mon$' "$om/c2/clean.err"; then
+        st_pass "own monitor interface: removed at the end while it is still the one made"
+    else st_fail "own monitor interface removed: [$(tr '\n' '|' < "$om/c2/log")] [$(cat "$om/c2/clean.err")]"; fi
+    if [ "$(cat "$om/c3/state")" = "zzst0mon|1|51:0x9700000002" ] && [ "$(grep -c ' del$' "$om/c3/log")" = 0 ] && grep -q 'left zzst0mon in place' "$om/c3/clean.err"; then
+        st_pass "own monitor interface: one of the same name made again by someone else (another ifindex and wdev) is left in place at the end"
+    else st_fail "own monitor interface, name taken again: [$(cat "$om/c3/state")] [$(tr '\n' '|' < "$om/c3/log")] [$(cat "$om/c3/clean.err")]"; fi
+
+    # made, but iw showed it without a wdev line: left in place at the end, since it cannot be told apart
+    om_case c13 "$om_t1"; : > "$om/c13/nowdev"; ( om_made c13 )
+    if [ "$(cat "$om/c13/state")" = "zzst0mon|1|" ] && [ "$(grep -c ' del$' "$om/c13/log")" = 0 ] && grep -q 'left zzst0mon in place' "$om/c13/clean.err"; then
+        st_pass "own monitor interface: one whose ifindex and wdev could not be read when it was made is left in place at the end"
+    else st_fail "own monitor interface without identity: [$(cat "$om/c13/state")] [$(tr '\n' '|' < "$om/c13/log")] [$(cat "$om/c13/clean.err")]"; fi
+
+    # iw shows the base without a wdev line: no interface of our own is made, since it could not be told apart at the end
+    om_case c14 "$om_t1"; printf 'Interface zzst0\n\tifindex 41\n\twiphy 97\n\ttype managed\n' > "$om/c14/info.zzst0"; ( om_made c14 )
+    if [ "$(cat "$om/c14/state")" = "|0|" ] && [ "$(grep -c '^iw phy ' "$om/c14/log")" = 0 ] && grep -q 'iw shows no ifindex and wdev for zzst0' "$om/c14/err"; then
+        st_pass "own monitor interface: none where iw shows no ifindex and wdev to tell it apart by at the end"
+    else st_fail "own monitor interface, no identity shown: [$(cat "$om/c14/state")] [$(tr '\n' '|' < "$om/c14/log")] [$(cat "$om/c14/err")]"; fi
+
+    # iw cannot add it: nothing else is tried, nothing is brought up
+    om_case c12 "$om_t1"; : > "$om/c12/addfail"; : > "$om/c12/asked"; ( om_fail )
+    if [ "$(cat "$om/c12/state")" = "|0|" ] && [ "$(grep -c '^iw phy ' "$om/c12/log")" = 1 ] && [ "$(grep -c -E '^(ip link|ifconfig)' "$om/c12/log")" = 0 ] \
+       && ! grep -q -v -x -E 'iw|ip|ifconfig' "$om/c12/asked"; then
+        st_pass "own monitor interface: when iw cannot add it, nothing else is tried and nothing is brought up"
+    else st_fail "own monitor interface, iw failed: [$(cat "$om/c12/state")] [$(tr '\n' '|' < "$om/c12/log")] asked [$(tr '\n' ' ' < "$om/c12/asked")]"; fi
+
+    # never while a recon database can be read, even switched on
+    om_case c4 "$om_t1"; : > "$om/c4/recon.db"; ( om_db )
+    if [ "$(cat "$om/c4/state")" = "|0|" ] && [ "$(grep -c '^iw phy ' "$om/c4/log")" = 0 ] && grep -q 'a recon database can be read' "$om/c4/err"; then
+        st_pass "own monitor interface: none while a recon database can be read, even switched on"
+    else st_fail "own monitor interface beside a recon database: [$(cat "$om/c4/state")] [$(tr '\n' '|' < "$om/c4/log")]"; fi
+
+    # a radio with a connected interface (an ssid line) is passed over for one of our own; the opt-in active scan asks without "free" and still sees it
+    om_case c5 "$om_t2"; om_case c6 "$om_t3"
+    om_f5=$(om_env c5; candidate_base_iface free); om_a5=$(om_env c5; candidate_base_iface)
+    om_f6=$(om_env c6; candidate_base_iface free); om_a6=$(om_env c6; candidate_base_iface)
+    if [ "$om_f5/$om_a5/$om_f6/$om_a6" = "zzst0/zzst1//zzst1" ]; then
+        st_pass "own monitor interface: a radio with a connected interface, or with one of another kind (a mesh point), is passed over (the free one is taken, or none); the opt-in active scan still sees it"
+    else st_fail "candidate_base_iface free: [$om_f5/$om_a5/$om_f6/$om_a6] (want zzst0/zzst1//zzst1)"; fi
+
+    # an interface this run did not make, and no recon database: a source only where tcpdump is, and it is listened to
+    om_case c7 "$om_t4"; om_case c8 "$om_t4"; ( om_found c7 ); ( om_found c8 notcpdump )
+    if [ "$(cat "$om/c7/state")" = "capture|zzst9mon|0" ] && grep -q 'listening on zzst9mon, an interface this run did not make' "$om/c7/err" \
+       && [ "$(cat "$om/c8/state")" = "none|zzst9mon|0" ]; then
+        st_pass "a monitor interface this run did not make: a source only where tcpdump can listen to it (with airodump-ng alone, none)"
+    else st_fail "found monitor interface: [$(cat "$om/c7/state")] [$(cat "$om/c8/state")] [$(cat "$om/c7/err")]"; fi
+
+    # start_capture: airodump-ng (it changes channels) only on the interface this run made; any other is left to tcpdump
+    om_case c9 "$om_t4"; om_case c10 "$om_t1"; ( om_cap c9 ); ( om_cap c10 )
+    if [ "$(cat "$om/c9/state")" = tcpdump ] && [ "$(grep -c '^airodump-ng' "$om/c9/log")" = 0 ] \
+       && [ "$(cat "$om/c10/state")" = airodump ] && [ "$(grep -c '^airodump-ng .* zzst0mon$' "$om/c10/log")" = 1 ]; then
+        st_pass "start_capture: airodump-ng runs only on the interface this run made; one it found is left to tcpdump"
+    else st_fail "start_capture: [$(cat "$om/c9/state")|$(tr '\n' '|' < "$om/c9/log")] [$(cat "$om/c10/state")|$(tr '\n' '|' < "$om/c10/log")]"; fi
+
+    # tcpdump bursts never ask the interface for promiscuous mode, with timeout and without, and bring up no interface this run did not make
+    om_case c11 "$om_t4"; ( om_burst )
+    if [ "$(grep -c '^tcpdump ' "$om/c11/log")" = 2 ] && [ "$(grep -c '^tcpdump -p -i zzst9mon ' "$om/c11/log")" = 2 ] && [ "$(grep -c -E '^(ip|ifconfig) ' "$om/c11/log")" = 0 ]; then
+        st_pass "tcpdump bursts: the interface is never asked for promiscuous mode (-p, with timeout and without), nor brought up when this run did not make it"
+    else st_fail "tcpdump bursts: [$(tr '\n' '|' < "$om/c11/log")]"; fi
+    om_case c15 "$om_t1"; ( om_up )
+    if [ "$(grep -c -x 'ip link set zzst0mon up' "$om/c15/log")" = 1 ] && [ "$(grep -c '^tcpdump -p -i zzst0mon ' "$om/c15/log")" = 2 ]; then
+        st_pass "tcpdump bursts on the interface this run made: brought up while it is the one made, not once another has taken its name"
+    else st_fail "tcpdump bursts, own interface: [$(tr '\n' '|' < "$om/c15/log")]"; fi
+    # the two call lines that carry the decision are pinned once each: the opt-in active scan asks without "free", and the start goes through start_capture
+    # shellcheck disable=SC2016  # the lines are matched as text
+    om_p1=$(grep -c '^    scanif=$IFACE; \[ "$scanif" = "auto" \] && scanif=$(candidate_base_iface)$' "$0")
+    # shellcheck disable=SC2016  # the line is matched as text
+    om_p2=$(grep -c '^start_capture "$1"$' "$0")
+    if [ "$om_p1/$om_p2" = 1/1 ]; then st_pass "own monitor interface: the active scan asks for its interface without the free rule, and the start goes through start_capture (each line pinned once)"
+    else st_fail "own monitor interface, pinned lines: active scan $om_p1, start_capture $om_p2 (want 1/1)"; fi
+    rm -rf "$om"
 
     # ---- 6j) run_cycle must not publish a post-pass result that is structurally wrong even when
     #          the pass returned 0 (an awk write error not reflected in its exit code). The mutants
@@ -8688,7 +9416,10 @@ trap cleanup EXIT
 # monitor interface or starts airodump, so that the cleanup of a replaced loop cannot take either away from it. Its sleep is ended, so
 # it goes within about a second; the bound covers one in the middle of a cycle's step, and a margin for its cleanup. The loop pidfile
 # is still written only once the source is resolved and the capture runs (the payload's start counts it as "up" and allows about 10 s).
-[ "$1" = "--once" ] || replace_loops $((INTERVAL + 15))
+if [ "$1" != "--once" ]; then
+    start_claim || { log "another collector start holds $PIDDIR/starchorus-start.lock (pid $(cat "$PIDDIR/starchorus-start.lock/pid" 2>/dev/null)); this one gives way"; exit 1; }
+    replace_loops $((INTERVAL + 15))
+fi
 
 # Locate the local OUI file + cache once (logs once if none; never fatal).
 setup_vendor
@@ -8711,19 +9442,14 @@ fi
 
 if [ "$RESOLVED" = "none" ]; then
     ts=$(date +%s 2>/dev/null); [ -n "$ts" ] || ts=0
-    write_empty "$ts" "no passive data source available (need tcpdump/airodump-ng + monitor iface, or a readable recon.db)" > "$OUTFILE"
+    write_empty "$ts" "no passive data source available (need tcpdump and a monitor interface, an interface of our own with STARCHORUS_CREATE_MON=1, or a readable recon.db)" > "$OUTFILE.tmp.$$" 2>/dev/null \
+        && mv -f "$OUTFILE.tmp.$$" "$OUTFILE" 2>/dev/null   # through a temp file and a rename, as run_cycle publishes: a reader never meets a cut file
     log "no usable passive source; wrote an empty document to $OUTFILE"
-    log "hint: set STARCHORUS_IFACE=<monitor-if>, or STARCHORUS_RECON_DB=<path>, or (ACTIVE) STARCHORUS_ALLOW_ACTIVE=1."
+    log "hint: set STARCHORUS_IFACE=<monitor-if>, or STARCHORUS_RECON_DB=<path>, or STARCHORUS_CREATE_MON=1 (an interface of our own on a free radio), or (ACTIVE) STARCHORUS_ALLOW_ACTIVE=1."
     exit 1
 fi
 
-# Our own capture: start airodump once and let it keep the CSV fresh; without it the capture is tcpdump bursts.
-if [ "$RESOLVED" = "capture" ]; then
-    if have airodump-ng; then
-        start_airodump || log "airodump start failed; will fall back to tcpdump bursts"
-    fi
-    [ "$CAP_METHOD" = "" ] && CAP_METHOD="tcpdump"
-fi
+start_capture "$1"
 
 if [ "$1" = "--once" ]; then
     # For a single cycle with airodump, give it a moment to populate the CSV.
@@ -8744,13 +9470,14 @@ bt_sweep
 sweep_stale_workcopies
 sweep_stale_tmp
 echo $$ > "$LOOP_PIDFILE"
+start_release
 log "collecting every ${INTERVAL}s -> $OUTFILE (Ctrl-C or --stop to end; loop pid $$)"
 cyc=0
 while :; do
     cycle_step
     # Every 120 cycles (10 min at the default interval) re-check the OUI file: a replaced /
     # rewritten file (firmware update, swapped USB stick) restarts the cache. Cheap: a few stats.
-    cyc=$((cyc+1)); if [ "$cyc" -ge 120 ]; then cyc=0; setup_vendor; [ "$BLUETOOTH" = 1 ] && setup_btco; BT5_SV=""; fi   # BT5_SV: the full blue5 query is tried again (bt_blue5_read)
+    cyc=$((cyc+1)); if [ "$cyc" -ge 120 ]; then cyc=0; setup_vendor; [ "$BLUETOOTH" = 1 ] && setup_btco; BT5_SV=""; BT5_SW=""; fi   # BT5_SV, BT5_SW: the full blue5 query is tried again (bt_blue5_read)
     # A plain foreground sleep: under busybox ash a caught INT/TERM is handled after the current
     # sleep returns, so --stop takes effect within at most the longer of one INTERVAL and the backoff below (3600 s at most). Backgrounding the sleep and
     # `wait`-ing on it does NOT deliver the trap sooner under ash.

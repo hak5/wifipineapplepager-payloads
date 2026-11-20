@@ -80,8 +80,9 @@ it compares the installed collector, Overview, netcat server and page with itsel
 number (the interface they share). If you replace the payload directory but not the installed
 files, a dialogue ('Installed …, payload …' or 'Installed files differ from the payload.') says so
 and names the file to delete. While Alerts is ON, the companion alert in the firmware's alert tree
-is compared as well: after an upgrade, switch Alerts off and on again, which renews it; until then
-the dialogue names that remedy ('Switch Alerts off, then on.') at every launch.
+is compared as well: after an upgrade, switch Alerts off and on again in the payload's Settings, which
+renews it (the firmware's own Alerts page only renames the directory); until then the dialogue names
+that remedy ('In Settings, switch Alerts off, then on.') at every launch.
 
 ## Requirements
 
@@ -157,7 +158,16 @@ A watch list needs no key either: write addresses or network names, one per line
 like an address; `#` starts a comment). From the next refresh on, every access point whose address or name is on the list, and every
 station and Bluetooth record whose address is, carries `"watched": true` in `starchorus.json`;
 at most 64 entries count. The list stays on the Pager: it is in no document and no log, and the page
-server does not serve it. The page draws the pin mark on them, names the list in the tooltip and in the detail sheet of an access point or a station, and counts the watched access points and stations in the report.
+server does not serve it. The page draws the pin mark on them, names the list in the tooltip and in the detail sheet of an access point or a station, counts the watched access points and stations in the report and writes `1` in the `watched` column of the CSV export; the Overview counts them on its summary and ends their rows on Strongest networks and Stations with ` *`.
+
+With the Bluetooth layer on, a record may carry a `class`: one fixed word for what the advertisement
+itself claims to be, such as 'beacon', 'finder frame' or 'phone', read from the Pager's own Bluetooth
+database and never an identification; the page shows it in the mark's tooltip. A record whose address
+broadcasts Remote ID (a drone's identification broadcast) carries what that broadcast says, as broadcast
+and not checked: the aircraft type, id and status, its position and altitude, and the operator's position
+and id. The page shows them in a detail sheet, in the CSV and in the SITREP; it works out only the
+horizontal distance between the two broadcast positions, never a direction or a distance from the Pager,
+whose position it does not read; and it draws no path and keeps no history.
 
 ## Network exposure
 

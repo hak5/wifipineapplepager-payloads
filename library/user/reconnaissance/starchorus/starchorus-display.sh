@@ -9,7 +9,7 @@
 #               It NEVER transmits: it only reads a local JSON file. No deauth, no rogue AP, no scan,
 #               no association. It starts and stops nothing.
 # Author:       Starchorus
-# Version:      0.2.7
+# Version:      0.2.8
 # Contract:     4
 # Category:     reconnaissance
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -75,7 +75,7 @@ if [ "${STARCHORUS_DISPLAY_PLAIN:-0}" != 1 ] && command -v LIST_PICKER >/dev/nul
 OV_GATE=
 log() {  # log [red|blue] "text..."  -- red = an alarm, blue = a heading (that is the whole palette)
     ov_cut && return 0   # the draw is over (see draw)
-    case "$1" in red|blue) color=$1; shift ;; *) color= ;; esac
+    case "$1" in red|blue) if [ $# -gt 1 ]; then color=$1; shift; else color=; fi ;; *) color= ;; esac   # a line that is exactly "red" or "blue" is text (logeach passes one argument)
     if [ "$ONDEV" = 1 ]; then LOG ${color:+"$color"} "$*"; else printf '%s\n' "$*"; fi
 }
 logeach() { while IFS= read -r l; do log "$l"; done; }   # one LOG line per stdin line
@@ -566,7 +566,8 @@ fi
 # in the counting direction: U+0085 is trimmed here, and a bare trailing "g" is stripped here
 # (iwinfo writes "6g").
 # _rtrimws/_ltrimws are O(n^2) in the whitespace run (every slice copies); explode/implode would be
-# linear but are not verified on the device's jq, and band strings are a handful of characters.
+# linear, but band strings are a handful of characters (screen_top uses explode for its hidden-name test,
+# the set of src/js/22-util.js stripCtl: C0, DEL, C1, U+200B-200F, U+202A-202E, U+2060-2069, U+FEFF; the self-test probes it).
 # rssit = the page's rssiT on an RSSI (a null counts as 1, as rssiT(null) does in JS; only apprep, i.e. the freshness line,
 # still carries one: pgaps replaces it first, see below).
 # chloads / busiest (crowding and the busiest channel) follow the page's own pipeline, not apprep:
@@ -685,6 +686,7 @@ def busiest: chloads | _busiest;
 def ld2: (. * 100 | round) / 100;
 def beaconpct($b; $n): ($n * ((if $b == "2.4" then 192 else 20 end) + 200 * 8 / (if $b == "2.4" then 1 else 6 end)) / (102.4 * 10) * 10 | round) / 10;
 def oneline: tostring | split("\n") | .[0:1] + (.[1:] | map(" " + .)) | add // "";
+def rnum: if type == "number" then . else null end;   # a reading is a number or nothing: false, a numeric string or an object count as missing (the divergence above)
 def probers: .unassociated[] | select(.probes and (.probes|length>0));
 def secupper: (. // "") | tostring | ascii_upcase;
 def isopenwep: secupper | (. == "" or . == "OPEN" or contains("WEP"));
@@ -910,11 +912,11 @@ claim() {  # claim [short]
     else printf '%s\n' "rx only, nothing sent"; fi
 }
 
-age_str() {  # age_str GENERATED -> "42s ago" / "5m ago" / "3h ago" since .generated (unix seconds), or nothing
+age_str() {  # age_str GENERATED -> "42 s ago" / "5 min ago" / "3 h ago" since .generated (unix seconds), or nothing: the words of age_words, so the summary and the frame agree
     g=$1; case $g in ''|0?*|*[!0-9]*) return ;; esac   # no number, or one the shell would read as octal (see scan_age)
     now=$(date +%s 2>/dev/null) || return
     d=$((now - g)); [ "$d" -lt 0 ] && d=0
-    if [ "$d" -lt 90 ]; then echo "${d}s ago"; elif [ "$d" -lt 5400 ]; then echo "$((d/60))m ago"; else echo "$((d/3600))h ago"; fi
+    age_words "$d"; echo "$AW ago"
 }
 
 # GEN, the generation counter: moves only when the collector wrote a NEW capture (a different
@@ -945,6 +947,7 @@ JQ_SUMMARY='_D(
     _R("probing"; [probers] | length),
     _R("bt"; btlist | if . == null then empty else length end),
     _R("alaps"; alertaps),
+    _R("watched"; ([.center.own_bssids[]? | select(type == "string") | pgmac] | .[0:16]) as $own | ([.aps[] | select(.watched == true and ((((.bssid // "") | tostring | pgmac) as $b | $own | index($b)) == null))] + [.aps[].clients[]? | select(.watched == true)] + [.unassociated[] | select(.watched == true)]) | length),
     _R("center"; .center.label // "This device" | _chomp),
     _R("claim"; (.source // "") | tostring | ascii_downcase | contains("active")),
     _R("fresh"; (.generated | if type == "number" then . else null end) as $g | [.aps[] | apprep | tierof($g)] as $t
@@ -986,6 +989,7 @@ screen_summary() {   # 1 = no data yet (the waiting line, or the two slow lines,
     log       "APs $aps   ·   2.4:$b24  5:$b5  6:$b6$(bt_figure "$R_bt")"
     rnd_note
     log       "Clients  $free free$RN · $assoc associated"
+    [ "${R_watched:-0}" -gt 0 ] && log "Watched: $R_watched (watch.list, marked *)"
     log       "$R_fresh"
     log       "Crowding ${lvl:-1}/5 ($(crowd_word "${lvl:-1}"))${bz:+ · busiest $bz}"
     [ "${probing:-0}" -gt 0 ] && log "Probe requests: $probing client(s) naming a network"
@@ -996,9 +1000,9 @@ screen_summary() {   # 1 = no data yet (the waiting line, or the two slow lines,
 
 JQ_TOP='_D(
   _R("gen"; .generated // empty),
-  _R("top"; [.aps[] | {s:((.ssid // "") | oneline), b:(.band | bandnorm), r:(.rssi // -99), sec:((.security // "") | oneline), a:(.security | isopenwep)}]
-      | sort_by(.r) | reverse | .[0:8][]
-      | (if .a then "!" else " " end) + (.r|tostring) + " dBm  " + (if .s=="" then "<hidden>" else .s end) + "  " + .b + "G  " + .sec))'
+  _R("top"; ([.center.own_bssids[]? | select(type == "string") | pgmac] | .[0:16]) as $own | [.aps[] | {w:(.watched == true and ((((.bssid // "") | tostring | pgmac) as $b | $own | index($b)) == null)), s:((.ssid // "") | oneline), h:((.ssid // "") | tostring | explode | map(select((. >= 32 and . < 127) or (. > 159 and (. < 8203 or . > 8207) and (. < 8234 or . > 8238) and (. < 8288 or . > 8297) and . != 65279))) | length == 0), b:(.band | bandnorm), r:(.rssi | rnum), sec:((.security // "") | oneline), a:(.security | isopenwep)}]
+      | sort_by(.r // -999) | reverse | .[0:8][]
+      | (if .a then "!" else " " end) + (if .r == null then "n/a" else (.r|tostring) end) + " dBm  " + (if .h then "<hidden>" else .s end) + "  " + (if .b == "" then "?" else .b + "G" end) + "  " + .sec + (if .w then " *" else "" end)))'
 screen_top() {   # strongest networks by RSSI
     jq_warn; ready top "$JQ_TOP" || return
     log blue "Strongest networks (GEN $GEN)"
@@ -1085,13 +1089,13 @@ JQ_CLIENTS='_D(
     _R("rnd"; $CL.rnd // empty), _R("ncl"; ($CL.clouds // empty) | length),
     _R("assoc"; [.aps[].clients // [] | length] | add // 0),
     _R("clist"; ([$CL.clouds[]?.ids[]]) as $IN
-      | [ (.aps[] | .bssid as $b | (.clients // [])[] | {mac:(.mac // "?"), r:(.rssi // -99), a:$b, np:0}),
+      | [ (.aps[] | .bssid as $b | (.clients // [])[] | {mac:(.mac // "?"), r:(.rssi | rnum), a:$b, np:0, w:(.watched == true)}),
           (.unassociated[] | select(.mac == null or ((.mac | pgmac) as $p | $IN | index($p)) == null)
-           | {mac:(.mac // "?"), r:(.rssi // -99), a:null, np:((.probes // []) | length)}),
-          ($CL.clouds[]? | {mac: "", r: (.mean | round), a: null, np: 0, k: .n}) ]
-      | sort_by(-.r, .mac) | .[0:8][]
+           | {mac:(.mac // "?"), r:(.rssi | rnum), a:null, np:((.probes // []) | length), w:(.watched == true)}),
+          ($CL.clouds[]? | {mac: "", r: (.mean | round), a: null, np: 0, k: .n, w: false}) ]
+      | sort_by(-(.r // -999), .mac) | .[0:8][]
       | if .k != null then (.r|tostring) + " dBm  cloud of \(.k) random addresses"
-        else (.r|tostring) + " dBm  " + .mac + "  " + (if .a then "assoc " + .a else (if .np>0 then "named probe" else "free" end) end) end))'
+        else (if .r == null then "n/a" else (.r|tostring) end) + " dBm  " + .mac + "  " + (if .a then "assoc " + .a else (if .np>0 then "named probe" else "free" end) end) + (if .w then " *" else "" end) end))'
 screen_clients() {
     ready clients "$JQ_CLIENTS" || return
     ACTIVE=$R_claim
@@ -1256,7 +1260,7 @@ frame() {
 # filters use, each on its own line; (2) a small table of bandnorm / secupper / isopenwep / sectag inputs
 # (modelled on the oracle in tools/regress.d/jq-noregex.sh, far smaller), with the Bluetooth and activity helpers; (3) the jq_healthy
 # probe and screen_summary, screen_bands and screen_bluetooth over a tiny embedded fixture; (4) the key names the Overview's key reader uses (keyname: padded answers, BACK, Escape, lower case); (5) the nap of the key wait (ov_nap: its three stages, and the two places that start the count over). INFO lines are informational and never change the verdict.
-# The one file it writes is that fixture (mktemp); a trap removes it again, also on INT/TERM.
+# The one file it writes is that fixture (mktemp); a trap removes it again, also on INT, TERM and HUP.
 ST_N=0; ST_FAIL=0; ST_TMP=
 st_pass() { ST_N=$((ST_N + 1)); printf '[display-selftest]   PASS: %s\n' "$1"; }
 st_fail() { ST_N=$((ST_N + 1)); ST_FAIL=$((ST_FAIL + 1)); printf '[display-selftest]   FAIL: %s\n' "$1"; }
@@ -1361,6 +1365,7 @@ display_selftest() {
     trap '[ -z "$ST_TMP" ] || rm -f "$ST_TMP"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    trap 'exit 129' HUP
     if command -v jq >/dev/null 2>&1; then st_pass "jq present"; else
         st_fail "jq present"; st_info "no jq on PATH: every other check needs it, so they are skipped"
         st_verdict; return
@@ -1388,6 +1393,7 @@ display_selftest() {
     st_probe "builtin unique" '[3, 1, 3] | unique' '[1,3]'
     st_probe "builtin add" '[([1, 2] | add), ([] | add // 0)]' '[3,0]'
     st_probe "builtin select" '[1, 2, 3] | map(select(. > 1))' '[2,3]'
+    st_probe "builtin explode" '[("a\u200b" | explode), ("" | explode)]' '[[97,8203],[]]'
     st_probe "syntax // (alternative operator)" '[(null // "x"), (false // "y"), ("z" // "w")]' '["x","y","z"]'
     st_probe "syntax \uXXXX escapes in string literals" '["\u0041", ("\u00A0\u3000\uFEFF" | length)]' '["A",3]'
     # the same for what the freshness, crowding, stations and air-quality screens use
@@ -1420,6 +1426,10 @@ display_selftest() {
     st_lib bandnorm '"2.4GHz"' '"2.4"'
     st_lib bandnorm '" 5 GHz"' '"5"'
     st_lib bandnorm '"5GHZ"' '"5"'
+    st_lib rnum '-60' '-60'
+    st_lib rnum 'null' 'null'
+    st_lib rnum 'false' 'null'
+    st_lib rnum '"-61"' 'null'
     st_lib bandnorm '"6g"' '"6"'
     st_lib bandnorm '"5"' '"5"'
     st_lib bandnorm '"5\u00A0GHz"' '"5"'
@@ -1497,6 +1507,44 @@ ST_JSON
         st_has "screen_bluetooth: addresses, rotating and fixed (2, 1, 1)" "$st_bt" -qxF '2 addresses (1 rotating, 1 fixed)'
         st_has "screen_bluetooth: the strongest company first" "$st_bt" -qxF ' -50 dBm  Maker A  (1)'
         st_has "screen_bluetooth: an address without a company is counted as such" "$st_bt" -qxF ' -60 dBm  company not advertised  (1)'
+        # the top and stations screens on what the contract allows and on what it does not: an rssi of null (shown as n/a, sorted last), a name of control bytes
+        # only and one of zero-width marks only (hidden, as the page strips both), a name of blanks (kept, as the page keeps it), no band (?); a station of an
+        # access point without an rssi; an rssi of false and one that is a numeric string (both n/a: a reading is a number or nothing)
+        ST_TMP=$(mktemp "${TMPDIR:-/tmp}/starchorus-display-st.XXXXXX" 2>/dev/null) || ST_TMP=
+        if [ -n "$ST_TMP" ]; then
+            printf '%s\n' '{"generated":100,"source":"selftest","unassociated":[{"mac":"02:00:00:00:00:22","rssi":-70,"watched":true},{"mac":"02:00:00:00:00:23"},{"mac":"02:00:00:00:00:24","rssi":"-61"}],' \
+                '"aps":[{"bssid":"02:00:00:00:00:11","ssid":"NoSig","band":"2.4GHz","security":"WPA2","clients":[{"mac":"02:00:00:00:00:21"}]},' \
+                '{"bssid":"02:00:00:00:00:12","ssid":"Sig","rssi":-50,"band":"5","security":"Open","watched":true},{"bssid":"02:00:00:00:00:13","ssid":"\n\t\n","rssi":-60,"band":"6","security":"WPA3"},' \
+                '{"bssid":"02:00:00:00:00:14","ssid":"   ","rssi":-65,"security":"WPA2"},{"bssid":"02:00:00:00:00:15","ssid":"\u200b\ufeff","rssi":-62,"band":"5","security":"WPA2"},' \
+                '{"bssid":"02:00:00:00:00:16","ssid":"NoNum","rssi":false,"band":"5","security":"WPA2"}]}' > "$ST_TMP"
+            JSON=$ST_TMP; unset CK_top CV_top CO_top CK_clients CV_clients CO_clients
+            st_tp=$(screen_top 2>&1); st_cl=$(screen_clients 2>&1); st_sm=$(screen_summary 2>&1)
+            st_has "screen_top: a network on the watch list ends its row with the mark *" "$st_tp" -qxF -- '-50 dBm  Sig  5G  Open *'
+            st_has "screen_clients: a station on the watch list ends its row with the mark *" "$st_cl" -qxF -- '-70 dBm  02:00:00:00:00:22  free *'
+            st_has "screen_summary: the Watched line counts the listed access point and station and names the mark" "$st_sm" -qxF 'Watched: 2 (watch.list, marked *)'
+            st_has "screen_top: an access point without an rssi reads n/a, not a reading" "$st_tp" -qxF 'n/a dBm  NoSig  2.4G  WPA2'
+            st_has "screen_top: a name of control bytes alone is <hidden>, as the page strips it" "$st_tp" -qxF -- '-60 dBm  <hidden>  6G  WPA3'
+            st_has "screen_top: a name of blanks is kept and no band is ?" "$st_tp" -qxF -- '-65 dBm       ?  WPA2'
+            st_has "screen_top: a name of zero-width marks alone is <hidden> too, as the page strips those" "$st_tp" -qxF -- '-62 dBm  <hidden>  5G  WPA2'
+            st_has "screen_top: an rssi that is not a number reads n/a as well (false)" "$st_tp" -qxF 'n/a dBm  NoNum  5G  WPA2'
+            st_tpo=$(printf '%s\n' "$st_tp" | grep -n -e ' dBm  Sig ' -e 'n/a dBm  NoSig' | cut -d: -f1 | tr '\n' ' ')
+            if [ "$st_tpo" = "2 7 " ] && ! printf '%s\n' "$st_tp" | grep -q -- '-99'; then st_pass "screen_top: the strongest first, the one without an rssi last (seventh of seven), no -99 anywhere"; else st_fail "screen_top: order [$st_tpo], -99 lines $(printf '%s\n' "$st_tp" | grep -c -- '-99')"; fi
+            st_has "screen_clients: a station without an rssi reads n/a (assoc)" "$st_cl" -qxF 'n/a dBm  02:00:00:00:00:21  assoc 02:00:00:00:00:11'
+            st_has "screen_clients: a free station without an rssi reads n/a" "$st_cl" -qxF 'n/a dBm  02:00:00:00:00:23  free'
+            st_has "screen_clients: a free station whose rssi is a numeric string reads n/a (a reading is a number or nothing)" "$st_cl" -qxF 'n/a dBm  02:00:00:00:00:24  free'
+            st_clo=$(printf '%s\n' "$st_cl" | grep -n -e '^-70 dBm' -e '^n/a dBm' | cut -d: -f1 | tr '\n' ' ')
+            st_cla=$(printf '%s\n' "$st_cl" | sed -n '4p;5p;6p' | awk '{print $3}' | tr '\n' ' ')
+            if [ "$st_clo" = "3 4 5 6 " ] && [ "$st_cla" = "02:00:00:00:00:21 02:00:00:00:00:23 02:00:00:00:00:24 " ] && ! printf '%s\n' "$st_cl" | grep -q -- '-99'; then st_pass "screen_clients: the measured station first (after the two heading lines), the three without a reading after it by address, no -99"; else st_fail "screen_clients: order [$st_clo] addresses [$st_cla], -99 lines $(printf '%s\n' "$st_cl" | grep -c -- '-99')"; fi
+            rm -f "$ST_TMP"; ST_TMP=
+        else
+            st_fail "screen_top and screen_clients on a missing rssi (no temp file for the fixture)"
+        fi
+        st_cw=red; st_cb=blue   # the words in variables, as logeach passes a line (and so that the parity row, which counts the text of red calls, sees no alarm call here)
+        if [ "$(log "$st_cw")" = red ] && [ "$(log "$st_cb")" = blue ] && [ "$(log "$st_cw" x)" = x ]; then st_pass "log: a line that is exactly red or blue is text, not a colour word"; else st_fail "log: colour words alone [$(log "$st_cw")] [$(log "$st_cb")] [$(log "$st_cw" x)]"; fi
+        st_now=$(date +%s); st_a1=$(age_str $((st_now - 45))); st_a2=$(age_str $((st_now - 130))); st_a3=$(age_str $((st_now - 7300))); age_words 130; st_aw=$AW
+        case $st_a1 in "45 s ago"|"46 s ago") st_a1ok=1 ;; *) st_a1ok=0 ;; esac   # age_str reads the clock again: a second may tick between the two readings
+        if [ "$st_a1ok" = 1 ] && [ "$st_a2" = "2 min ago" ] && [ "$st_a3" = "2 h ago" ] && [ "$st_aw" = "2 min" ]; then st_pass "age_str: the summary's age uses the frame's words (45 s, or 46 s across a tick; 2 min, 2 h ago; age_words 130 -> 2 min)"; else st_fail "age_str: [$st_a1] [$st_a2] [$st_a3] age_words [$st_aw]"; fi
+        if [ "$(grep -c "^    trap 'exit 129' HUP$" "$0")" = 1 ]; then st_pass "selftest: a hangup removes the fixture too (the HUP trap, pinned once)"; else st_fail "selftest: HUP trap pinned $(grep -c "^    trap 'exit 129' HUP$" "$0") times (want 1)"; fi
     else
         st_fail "screen_summary end-to-end (no temp file for the fixture)"
     fi

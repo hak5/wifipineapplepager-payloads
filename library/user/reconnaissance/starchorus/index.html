@@ -1378,7 +1378,7 @@ function sessionFlag(name, set) {
 }
 const r3 = (v) => (typeof v === "number" && Number.isFinite(v)) ? Math.round(v * 1000) / 1000 : v;
 let stripN = 0;   // what the last stripCtl removed (the name's hid mark)
-function stripCtl(x, max) { if (x == null) x = ""; const t = String(x).replace(/[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, ""); stripN = String(x).length - t.length; return t.slice(0, max); }
+function stripCtl(x, max) { if (x == null) x = ""; const t = String(x).replace(/[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, ""); stripN = String(x).length - t.length; const r = t.slice(0, max); return /[\ud800-\udbff]$/.test(r) ? r.slice(0, -1) : r; }   // the cut falls on a code point: a lone high surrogate at the end goes
 const plu = (n, w) => `${n} ${w}${n - 1 ? "s" : ""}`;
 function numOrNull(x) { const v = typeof x == "number" || typeof x == "string" && x.trim() ? +x : NaN; return Number.isFinite(v) ? v : null; }
 const isObj = (x) => !!x && typeof x === "object" && !Array.isArray(x);
@@ -1476,7 +1476,7 @@ function normalizeDoc(raw) {
   const strs = (v, n, m) => Array.isArray(v) ? v.filter(x => typeof x === "string").map(x => stripCtl(x, m)).filter(Boolean).slice(0, n) : null;
   const rc = isObj(raw.center) ? raw.center : {};
   const doc = {
-    generated: (g => g * g < 6e22 ? g : null)(numOrNull(raw.generated)),
+    generated: (g => g != null && g >= 0 && g < 7.7e10 ? g : null)(numOrNull(raw.generated)),   // a capture time of this era (1970 to about 4400): anything else is undated, never a six-digit year
     source: typeof raw.source === "string" ? stripCtl(raw.source, 32) : "",
     note: stripCtl(raw.note, 120),
     center: { label: rc.label != null ? stripCtl(rc.label, 40).trim() : "",
@@ -1527,7 +1527,8 @@ function normalizeDoc(raw) {
     // merge duplicate bssid: strongest RSSI, first non-empty value per field
     if (ap.rssi != null && (prev.rssi == null || ap.rssi > prev.rssi)) prev.rssi = ap.rssi;
     const empty = (v) => v === null || v === "" || v === undefined;
-    for (const k of ["ssid", "channel", "freq", "security", "vendor", "rate", "width", "last_seen", "phy", "caps", "beacons", "packets", "akm", "cipher", "auth", "responded_ssids"]) if (empty(prev[k]) && !empty(ap[k])) prev[k] = ap[k];
+    if (empty(prev.ssid) && !empty(ap.ssid)) { prev.ssid = ap.ssid; prev.hid = ap.hid; } else if (empty(prev.ssid)) prev.hid = prev.hid || ap.hid;   // the name and its hidden mark travel together; two nameless records keep the mark either carried
+    for (const k of ["channel", "freq", "security", "vendor", "rate", "width", "last_seen", "phy", "caps", "beacons", "packets", "akm", "cipher", "auth", "responded_ssids"]) if (empty(prev[k]) && !empty(ap[k])) prev[k] = ap[k];
     if (prev.band === "unknown" && ap.band !== "unknown") prev.band = ap.band;
     if (prev.bandF === "unknown" && ap.bandF !== "unknown") prev.bandF = ap.bandF;
     const have = new Set(prev.clients.map(c => c.mac));
@@ -1717,7 +1718,7 @@ function newAp(id) {
     hidden: true, clientCount: 0, vendor: null, rate: null, last_seen: null, width: null, phy: null, caps: null, beacons: null,
     a0: 0, angleT: null, radiusT: 0.5, angle: null, radius: 0.5, wx: 0, wz: 0, p3: [0, 0, 0], p: [0, 0, 0], jitY: hash(id + "y"),
     sx: 0, sy: 0, zc: 1, px: 0, fog: 1, lod: 0, alphaDraw: 0, basePx: 0, basePxMax: LAYOUT.basePxMaxCore,
-    target: 1, alpha: 0, born: 0, phase: hash(id + "p") * Math.PI * 2, capSeq: -1, newSeq: -1, changedSeq: -1, cueSeq: -1, cueT0: 0, cueAmp: 0, revealAt: null,
+    target: 1, alpha: 0, born: 0, phase: hash(id + "p") * Math.PI * 2, capSeq: -1, newSeq: -1, changedSeq: -1, cueSeq: -1, cueT0: 0, cueAmp: 0, revealAt: null, revealGen: null,
     akm: null, cipher: null, auth: null, respondedSsids: null, packets: null, mobile: false, groupKey: null, interfere: [], sparkDirty: true, flare: 0, flareT: 0, ageS: null, freshTier: null, freshA: 1, freshAT: 1,
     pStart: -1, pCount: 0, pState: null, pT0: 0, orbitRcap: LAYOUT.orbitMaxPx, hexA: 0, seen: false };
 }
@@ -1854,7 +1855,7 @@ function ingest(doc, opts = {}) {
     }
     if (n.rssi !== a.rssi || n.ssid !== a.ssid || n.band !== a.band) changed = true;   // placement: radius, constellation pull (SSID), band filter
     if (a.ssid) {
-      if (n.seen && n.hidden) { n.revealAt = now; S.revealed++; }
+      if (n.seen && n.hidden) { n.revealAt = now; n.revealGen = S.generated; S.revealed++; }   // revealAt drives the fade on the animation clock; revealGen is the capture time the sheet counts from
       n.ssidKnown = a.ssid; n.hidden = false;
     } else if (n.ssidKnown == null) n.hidden = true;
     n.seen = true;
@@ -1945,6 +1946,7 @@ function ingest(doc, opts = {}) {
   updateStats();   // ends in layoutEdges() → drawChannelBar() with the fresh S._stats/analyzer counts
   if (S.locked && !((S.aps.get(S.locked) || S.clients.get(S.locked) || {}).target === 1 || liveCloud(S.locked) || (S.bt.get(S.locked) || {}).target === 1)) closeDetail();
   else if (S.locked) openDetail(S.locked);
+  if (S.hover && tip.style.opacity === "1") { const h = nodeById(S.hover); if (!h || h.target !== 1 || !(h.alphaDraw >= 0.25)) setHover(null); else showTip(h); }   // a showing tooltip follows the data: fresh after a capture, gone with its node or once the node is no longer drawn; a hover without a tooltip (the lamp strip) is left alone
   S.dirty = true;
   return { aps: seenAp.size, clients: seenCl.size, free, assoc };
 }
@@ -2052,6 +2054,7 @@ function placeAPs() {
         if (g > bestGap) { bestGap = g; best = cand[ci]; bestR = rad; }
       }
     }
+    if (best === null) { best = cand[0]; bestR = r; }   // no spot inside the ring (a sky too small for the nudges): the first angle at its own radius, never none
     ap.angleT = best; ap.radiusT = bestR / maxRadius;
     const p = { x: Math.cos(best) * bestR, y: Math.sin(best) * bestR, bp }, pk = Math.floor(p.x / pcell) * CELLP + Math.floor(p.y / pcell);
     const arr = pgrid.get(pk); if (arr) arr.push(p); else pgrid.set(pk, [p]);
@@ -3866,7 +3869,7 @@ function notesSet(bssid, patch) {   // alias (<= 24), note (<= 120), up to 4 tag
   saveNotes(); S.dirty = true; return S.notes.get(b) ? { alias: e.a, note: e.n, tags: e.t.slice() } : { alias: "", note: "", tags: [] };
 }
 const aliasOf = (id) => { const e = S.notes.get(String(id).toLowerCase()); return e && e.a ? e.a : ""; };
-const LIB_CLASS = { friend: "friend", neutral: "neutral", suspect: "hostile", hostile: "hostile", unknown: "unknown" };
+const LIB_CLASS = Object.assign(Object.create(null), { friend: "friend", neutral: "neutral", suspect: "hostile", hostile: "hostile", unknown: "unknown" });   // no prototype: constructor, toString and the like are no classes
 function libraryImport(text) {   // "MAC class" per line; "aa:bb:cc:??:??:??" (or *) is a rule (friend/neutral/suspect, never unknown); # starts a comment
   const res = { added: 0, rules: 0, rejected: [], message: "" };
   const rej = (line, why) => res.rejected.push({ line: line.slice(0, 60), why });
@@ -4129,25 +4132,27 @@ function wargamesAnimating() {   // travel dots / probe arcs keep the frame (and
   return false;
 }
 function tick(t) {
-  let dt, liveDt;
-  if (S.fixedTime != null) { dt = 0; liveDt = 0; S.clock = S.fixedTime / 1000; lastT = t; }
-  else {
-    dt = lastT ? clamp((t - lastT) / 1000, 1 / 240, RENDER.dtMax) : 1 / 60; lastT = t;
-    liveDt = S.ui.paused ? 0 : dt; S.clock += liveDt;
-  }
-  if (S.replay) replayTick(liveDt);
-  budgetBegin(t);
-  if (scopeOn) scopeStep(dt, liveDt); else step(dt, liveDt);
-  const animating = scopeOn ? scopeWantsFrame() : S.fixedTime == null && (S.moving || S.settling || S.cam.tween !== null || wargamesAnimating());
-  if (S.dirty || animating) {
-    render(); S.dirty = false; S.perf.rendered++;
-    S.persistFade = S.persistOn && !scopeOn ? RENDER.persistFadeFrames : 0;
-  } else if (S.persistFade > 0) {   // §6.7 idle trail: let phosphor spurs fade, then one clean full frame
-    S.persistFade--; render(); S.perf.rendered++;
-    if (S.persistFade === 0 && S.persistOn) { ctxSky.clearRect(0, 0, W, H); render(); S.perf.rendered++; }
-  } else if (S.fixedTime == null && !S.ui.paused && S.clock >= alAt) { ctxSky.clearRect(0, 0, W, H); render(); S.perf.rendered++; }   // alert step
-  perfTick(t);
-  requestAnimationFrame(tick);
+  try {
+    let dt, liveDt;
+    if (S.fixedTime != null) { dt = 0; liveDt = 0; S.clock = S.fixedTime / 1000; lastT = t; }
+    else {
+      dt = lastT ? clamp((t - lastT) / 1000, 1 / 240, RENDER.dtMax) : 1 / 60; lastT = t;
+      liveDt = S.ui.paused ? 0 : dt; S.clock += liveDt;
+    }
+    if (S.replay) replayTick(liveDt);
+    budgetBegin(t);
+    if (scopeOn) scopeStep(dt, liveDt); else step(dt, liveDt);
+    const animating = scopeOn ? scopeWantsFrame() : S.fixedTime == null && (S.moving || S.settling || S.cam.tween !== null || wargamesAnimating());
+    if (S.dirty || animating) {
+      render(); S.dirty = false; S.perf.rendered++;
+      S.persistFade = S.persistOn && !scopeOn ? RENDER.persistFadeFrames : 0;
+    } else if (S.persistFade > 0) {   // §6.7 idle trail: let phosphor spurs fade, then one clean full frame
+      S.persistFade--; render(); S.perf.rendered++;
+      if (S.persistFade === 0 && S.persistOn) { ctxSky.clearRect(0, 0, W, H); render(); S.perf.rendered++; }
+    } else if (S.fixedTime == null && !S.ui.paused && S.clock >= alAt) { ctxSky.clearRect(0, 0, W, H); render(); S.perf.rendered++; }   // alert step
+    perfTick(t);
+  } catch (e) { pushError(e); S.dirty = true; }   // one exception in a frame must not end the chain (as tryPoll holds for the poll)
+  finally { requestAnimationFrame(tick); }
 }
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
@@ -4174,7 +4179,7 @@ function resize() {
   if (phoneOn) phoneLayout(true);
   const sb = skyBox(); skyR = sb; CX = sb.x + sb.w / 2; CY = sb.y + sb.h / 2; skyH = sb.h;   // the sky is centred in the free rectangle: the whole viewport outside phone mode
   maxRadius = Math.min(sb.w, sb.h) / 2 * LAYOUT.outerFrac || 1;
-  inner = clamp(LAYOUT.innerFrac * maxRadius, LAYOUT.innerMinPx, LAYOUT.innerPx);
+  inner = Math.min(clamp(LAYOUT.innerFrac * maxRadius, LAYOUT.innerMinPx, LAYOUT.innerPx), 0.8 * maxRadius);   // on a very small sky the floor of 64 px must stay inside the ring
   if (scopeOn) { scopeGeom(); SC.sg = ""; renderScope(); }
   resizeCanvases();
   rebuildBackground();
@@ -5312,7 +5317,7 @@ function labelCandidateList(devCarrier) {
   const prio = (n) => (n.id === S.locked ? 4 : 0) + (n.id === S.hover ? 3 : 0) + (S.pinned.has(n.id) || S.wl.has(n.id) ? 2 : 0);
   const cand = [];
   for (const ap of S.apOrder) {
-    if (ap.hidden) continue;
+    if (ap.hidden || ap.alphaDraw <= 0.02) continue;   // a star that is not drawn (its band filtered off) has no label, pinned or not, as the layers hold
     const forced = isForced(ap.id);
     if (trans && !forced) continue;   // during 2D↔3D transition only Hover/Pinned/Locked labels
     if (!forced && (ap.alphaDraw <= 0.6 || ap.px < 5 * Math.min(1, S.cam.zoom2d))) continue;   // zoomed out in 2D the bound shrinks with the stars
@@ -5528,12 +5533,12 @@ function nodeAt(mx, my, touch) {
   if (tS < 0.5 || scopeOn) {
     // 2D: nearest wins (clients/stars over bubbles); the Scope: as drawn
     let best = null, bd = Infinity;
-    const near = (n, r) => { const d = hyp(n.sx - mx, n.sy - my); if (d <= r && d < bd && (!scopeOn || n.alphaDraw >= 0.25)) { bd = d; best = n; } };
-    S.clients.forEach(n => { if (n.target !== 1) return; if (n.bubble != null && n.bubbleBlend >= 0.98 && !scopeOn) return; if (n.randOut && !(n.alphaDraw >= 0.25)) return; near(n, hitRadius(n, touch)); });
+    const near = (n, r) => { const d = hyp(n.sx - mx, n.sy - my); if (d <= r && d < bd && n.alphaDraw >= 0.25) { bd = d; best = n; } };   // §5.5: only what is drawn can be hit, in 2D as in 3D and the Scope
+    S.clients.forEach(n => { if (n.target !== 1) return; if (n.bubble != null && n.bubbleBlend >= 0.98 && !scopeOn) return; near(n, hitRadius(n, touch)); });
     if (S.ui.random === "cloud") S.clouds.forEach(k => { if (k.target !== 1) return; near(k, hitRadius(k, touch)); });
     if (S.ui.filters.bt) S.bt.forEach(k => { if (k.target === 1 && k.rank < BT.drawMax) near(k, hitRadius(k, touch)); });
     S.aps.forEach(n => { if (n.target !== 1 || (isEssFolded(n.id) && !scopeOn)) return; near(n, hitRadius(n, touch)); });
-    if (!scopeOn) S.bubbles.forEach(b => { if (b.target !== 1 && b.alpha <= 0.02) return; near(b, b.px + HIT.bubblePad); });
+    if (!scopeOn) S.bubbles.forEach(b => { if (!(b.alphaDraw >= 0.25)) return; near(b, b.px + HIT.bubblePad); });
     return best ? best.id : null;
   }
   // 3D: projected hit-test from near to far, first covering wins
@@ -5654,6 +5659,7 @@ KEY_ACT.z = () => { if (phoneOn) setToggle("scope", !S.ui.scope); };
 window.addEventListener("keydown", (e) => {
   const k = (e.key || "").toLowerCase();
   if (k === "escape") {
+    if (e.repeat) { e.preventDefault(); return; }   // one layer per press: a held Esc does not run down the stack
     // Esc closes one layer per press, topmost first: paste, export, help, selection, hover; on a phone then a drawer or the
     // legend card, then the sheet (§9.8).
     if (getComputedStyle(pasteWrap).display !== "none") { closePaste(); e.preventDefault(); return; }
@@ -5666,7 +5672,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (!shortcutsAllowed() || e.metaKey || (e.ctrlKey && !e.altKey)) return;   // Cmd/Ctrl + a key is the browser's; AltGr (Ctrl+Alt) types [ ]
-  if (k === "?") { toggleHelp(); e.preventDefault(); return; }
+  if (k === "?") { if (!e.repeat) toggleHelp(); e.preventDefault(); return; }   // a held ? does not flap the help card
   if (k === "enter" && liveCloud(S.locked)) { expandCloud(S.locked); e.preventDefault(); return; }   // §8.8a
   // camera keys (3D orbit / 2D zoom around centre / reset)
   const c = S.cam; let camHandled = true;
@@ -5680,7 +5686,7 @@ window.addEventListener("keydown", (e) => {
     else camHandled = false;
   }
   if (camHandled) { S.dirty = true; e.preventDefault(); return; }
-  if (KEY_ACT[k]) { KEY_ACT[k](); e.preventDefault(); }
+  if (KEY_ACT[k]) { if (!e.repeat) KEY_ACT[k](); e.preventDefault(); }   // a held toggle key fires once (the camera keys above keep repeating); a key that is no shortcut keeps its default, held or not
 });
 
 // ==== 37 UI ====
@@ -5693,7 +5699,7 @@ const legend = el("legend"), statsEl = el("stats"), tip = el("tip"), detail = el
 tip.innerHTML = '<div id="tip-body"></div><canvas id="tip-spark" width="120" height="28" hidden></canvas>';
 const tipBody = el("tip-body"), tipSpark = el("tip-spark"), detailSpark = el("detail-spark"), legendBody = el("legend-body");
 let sparkFocus = { id: null, cross: -1 }, detailShown = null;   // detailShown: the node or bubble whose sheet #detail holds (openDetail)
-function fmtBand(b) { return b === "unknown" ? "? GHz" : b + " GHz"; }
+function fmtBand(b) { return b && b !== "unknown" ? b + " GHz" : "? GHz"; }   // a station without a band says ? GHz, not a bare GHz
 function heardWord(n) { return n.freshTier == null ? ENCODING.fresh.undated : ENCODING.fresh.words[n.freshTier]; }   // D1 tier word
 function freshZero() { return { t0: 0, t1: 0, t2: 0, t3: 0, undated: 0 }; }
 function fmtSignal(dbm) {   // D9: "-58 dBm (53 %, good)"; the level word is the theme's voice (copy.signal); null → "n/a"
@@ -5866,14 +5872,14 @@ function exportText(fmt) {
   const m = exportModel(), R = (m.bluetooth || []).filter(b => b.remote_id);   // 0.2.7: none = the text of 0.2.6
   if (fmt === "csv") {
     const q = (v) => { const s = v == null ? "" : String(v), t = /^[=+@\t\r-]/.test(s) && !isFinite(s) ? "'" + s : s; return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-    const head = "kind,bssid,ssid,band,channel,security,rssi,heard,alias,tags,association,randomized,probes,cloud";   // one table, a leading kind column, every row the same width
-    const apRow = (a) => ["ap", a.bssid, a.ssid, a.band, a.channel, a.security, a.rssi, a.heard, a.alias || "", (a.tags || []).join(" "), "", "", "", ""];
-    const stRow = (x) => ["station", x.mac, "", x.band, "", "", x.rssi, x.heard, x.alias || "", (x.tags || []).join(" "), x.association || "", x.randomized ? "1" : "", (x.probes || []).join(" "), x.cloud || ""];
+    const head = "kind,bssid,ssid,band,channel,security,rssi,heard,alias,tags,association,randomized,probes,cloud,watched";   // one table, a leading kind column, every row the same width; watched = 1 for a record on watch.list
+    const apRow = (a) => ["ap", a.bssid, a.ssid, a.band, a.channel, a.security, a.rssi, a.heard, a.alias || "", (a.tags || []).join(" "), "", "", "", "", a.watched ? "1" : ""];
+    const stRow = (x) => ["station", x.mac, "", x.band, "", "", x.rssi, x.heard, x.alias || "", (x.tags || []).join(" "), x.association || "", x.randomized ? "1" : "", (x.probes || []).join(" "), x.cloud || "", x.watched ? "1" : ""];
     const A = m.alerts || [], ea = A.length ? ",," : "";   // two alert columns (P6: the kind and the count), empty on the other rows
-    const alRow = (x) => ["alert", x.address, x.name || "", "", "", "", "", "", "", "", "", "", "", "", x.kind, x.count];
+    const alRow = (x) => ["alert", x.address, x.name || "", "", "", "", "", "", "", "", "", "", "", "", "", x.kind, x.count];
     const e = R.length ? ",,,,,,,,,," : "";   // ten Remote ID columns, empty on the other rows
     return [head + (ea && ",alert,count") + (e && "," + RID_KEYS.join(","))].concat(m.aps.map(a => apRow(a).map(q).join(",") + ea + e)).concat(m.stations.map(x => stRow(x).map(q).join(",") + ea + e))
-      .concat(A.map(x => alRow(x).map(q).join(",") + e), R.map(b => "remote_id," + b.addr + ",,,,," + b.rssi + "," + b.heard + ",,,,,,," + ea + RID_KEYS.map(k => q(ridV(b.remote_id, k))).join(",")), e ? ["# " + RID_NOTE] : [], ["# " + EXPORT_FOOTER]).join("\n") + "\n";
+      .concat(A.map(x => alRow(x).map(q).join(",") + e), R.map(b => "remote_id," + b.addr + ",,,,," + b.rssi + "," + b.heard + ",,,,,,," + (b.watched ? "1" : "") + "," + ea + RID_KEYS.map(k => q(ridV(b.remote_id, k))).join(",")), e ? ["# " + RID_NOTE] : [], ["# " + EXPORT_FOOTER]).join("\n") + "\n";
   }
   if (fmt === "sitrep") {
     const by = (fn) => { const c = {}; for (const a of m.aps) c[fn(a)] = (c[fn(a)] || 0) + 1; return Object.keys(c).sort().map(k => k + " " + c[k]).join(" · "); };
@@ -6543,7 +6549,7 @@ function openDetail(id) {
     const cl = S.chg.get(n.id);   // what changed on this AP since this source was first read (DS channel, security class, SSID, band)
     if (cl && cl.length) body += row("Changes", esc(cl.map(c => (c.kind === "channel" ? "ch " : c.kind + " ") + (c.from == null || c.from === "" ? "—" : c.from) + " → " + (c.to == null || c.to === "" ? "—" : c.to)).join(" · ")));
     if (S.ui.baselineDiff && S.baseline && n.baseState) body += row("Baseline", esc(n.baseState === "new" ? "not in the baseline" : n.baseState === "changed" ? "changed against the baseline" : "as in the baseline"));
-    if (n.revealAt != null && n.revealAt > 0) body += row("Name revealed", esc(fmtAge(S.clock - n.revealAt)));
+    if (n.revealGen != null && S.generated != null && S.generated >= n.revealGen) body += row("Name revealed", esc(fmtAge(S.generated - n.revealGen)));   // in capture time, as the other ages of the sheet (the animation clock stands still in a hidden tab)
     body += row("Beacons", n.beacons != null ? String(n.beacons) : "—");
     const ov = overlapText(n, 3); body += row("Overlaps", ov ? esc(ov) : "—");
     const gk = n.groupKey ? S.groups.get(n.groupKey) : null;
@@ -7369,10 +7375,10 @@ window.addEventListener("unhandledrejection", (e) => pushError((e.reason && e.re
 function guard(fn) { try { return fn(); } catch (e) { pushError(e); return { error: String(e) }; } }
 function pubNode(n) {
   if (!n) return null;
-  if (n.kind === "ap") return { id: n.id, kind: "ap", bssid: n.bssid, ssid: n.ssid, ssidKnown: n.ssidKnown, hidden: n.hidden,
+  if (n.kind === "ap") return { id: n.id, kind: "ap", bssid: n.bssid, ssid: n.ssid, ssidKnown: n.ssidKnown, hidden: n.hidden, hid: !!n.hid,
     band: n.band, channel: n.channel, freq: n.freq, rssi: n.rssi, security: n.security, sec: n.sec, vendor: n.vendor, rate: n.rate,
     width: n.width, phy: n.phy, caps: n.caps, beacons: n.beacons, last_seen: n.last_seen, clientCount: n.clientCount, ageS: n.ageS, freshTier: n.freshTier, akm: n.akm, cipher: n.cipher, auth: n.auth, respondedSsids: n.respondedSsids, packets: n.packets, mobile: n.mobile, baseState: n.baseState || null, isNew: isNewAp(n), newSeq: n.newSeq, changedSeq: n.changedSeq, cueSeq: n.cueSeq,
-    phyEstimate: phyEstimate(n), pmf: pmfDerived(n), basePxMax: r3(n.basePxMax), flare: r3(n.flare), flareT: n.flareT, pState: n.pState, revealAt: n.revealAt,
+    phyEstimate: phyEstimate(n), pmf: pmfDerived(n), basePxMax: r3(n.basePxMax), flare: r3(n.flare), flareT: n.flareT, pState: n.pState, revealAt: n.revealAt, revealGen: n.revealGen,
     sx: r3(n.sx), sy: r3(n.sy), zc: r3(n.zc), px: r3(n.px), fog: r3(n.fog), alphaDraw: r3(n.alphaDraw), bubble: null, bubbleBlend: 0, pinned: S.pinned.has(n.id), watched: S.wl.has(n.id) };
   return { id: n.id, kind: "client", mac: n.mac, rssi: n.rssi, vendor: n.vendor, randomized: n.randomized, last_seen: n.last_seen, ageS: n.ageS, freshTier: n.freshTier, isNew: isNewAp(n),
     packets: n.packets, fps: n.fps == null ? null : r3(n.fps), glow: n.cue ? n.gl : 0, parent: n.parent, free: n.free, affinity: !!n.affinity, probeVia: n.probeVia || null, probes: n.probes ? n.probes.slice() : null, band: n.band, basePxMax: r3(n.basePxMax),
@@ -7530,7 +7536,7 @@ function contrastPairs(pairs, themeId) {
   });
 }
 window.STARCHORUS = Object.freeze({
-  version: "0.2.7",
+  version: "0.2.8",
   setTheme: (id) => guard(() => applyTheme(id, { intro: false })),
   getTheme: () => guard(() => S.ui.theme),
   setView: (v) => guard(() => setView(v)),

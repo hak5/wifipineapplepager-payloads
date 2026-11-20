@@ -5,7 +5,7 @@
 #               uhttpd, BusyBox httpd or python3 (offline, nothing to install). Serves ONLY
 #               index.html and starchorus.json from STARCHORUS_DIR over GNU netcat, one connection at a
 #               time. Read-only and passive: it just hands out two local files.
-# Version:      0.2.7
+# Version:      0.2.8
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # USAGE:  ./starchorus-serve.sh [start]   # serve on STARCHORUS_BIND:STARCHORUS_PORT (auto:8199), foreground
@@ -57,7 +57,7 @@ stop_serve() {   # stop what THIS script started for this dir/port, and nothing 
     own_pid "$sp" starchorus-serve && kill "$sp" 2>/dev/null       # its TERM trap stops its own nc and handler too
     own_pid "$np" "-p $PORT -c" && kill "$np" 2>/dev/null   # in case the loop is gone already (-p PORT -c with any -s)
     # shellcheck disable=SC2009  # busybox-safe; pgrep -f unavailable/unreliable here
-    for p in $(ps w 2>/dev/null | awk -v h="$HANDLER" 'index($0, h) && !/awk/ { print $1 }'); do
+    for p in $(ps w 2>/dev/null | awk -v h="$HANDLER" '{ for (i = 3; i <= NF; i++) if ($i == h && $(i - 1) ~ /(^|\/)(sh|ash|bash|dash)$/) { print $1; break } }'); do   # the handler as the script a shell runs, not a process that merely names the file (an editor, a tail)
         [ "$p" = "$$" ] || kill "$p" 2>/dev/null
     done
     # a handler still blocked in open() on the FIFO (no writer yet) returns and sees EOF: opening read-write never blocks
@@ -71,10 +71,11 @@ case "$1" in
 esac
 
 # PORT and DIR are baked into the handler by sed (below). A port that is not all digits, or a directory holding a character that sed
-# (& # \) or the handler's double quotes (" $ `) would read as syntax, gives a handler that serves nothing: refused here.
+# (& # \) or the handler's double quotes (" $ `) would read as syntax, gives a handler that serves nothing: refused here. So is
+# whitespace, since stop finds the handler by its path as one word of the command line.
 case $PORT in ''|*[!0-9]*) echo "[starchorus-serve] STARCHORUS_PORT is not a port number: $PORT" >&2; exit 1 ;; esac
 case $DIR in
-    *'&'*|*'#'*|*\\*|*'"'*|*'$'*|*'`'*) printf '%s\n' '[starchorus-serve] STARCHORUS_DIR must not contain & # \ " $ or a backtick' >&2; exit 1 ;;
+    *[[:space:]]*|*'&'*|*'#'*|*\\*|*'"'*|*'$'*|*'`'*) printf '%s\n' '[starchorus-serve] STARCHORUS_DIR must not contain whitespace, & # \ " $ or a backtick' >&2; exit 1 ;;
 esac
 [ -f "$DIR/index.html" ] || { echo "[starchorus-serve] no index.html in $DIR" >&2; exit 1; }
 [ -x "$NC" ] || { echo "[starchorus-serve] no nc at $NC" >&2; exit 1; }
