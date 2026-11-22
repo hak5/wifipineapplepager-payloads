@@ -1,0 +1,8 @@
+# Level 3 - Terminal
+# Hacker terminal look
+G G G G G G G G G G G G G G
+G 0 0 0 0 0 0 0 0 0 0 0 0 G
+G 0 gL g g g g g g g gL 0 G
+G 0 g 0 g 0 g 0 g 0 g 0 0 G
+G 0 g g g g g gR g g g 0 G
+G G G G G G G G G G G G G G
