@@ -11,6 +11,7 @@ CHANNELS_5GHZ="5180,5200,5220,5240,5260,5280,5300,5320,5500,5520,5540,5560,5580,
 OUTPUT_PATH="/root/loot/pcap"
 FILE_NAME="capture_${INTERFACE}_$(date +%Y%m%d_%H%M%S).pcapng"
 LED_COLOR=$(uci get system.@pager[0].led_color)
+STOP_FLAG="/tmp/hcxdumptool_stop"
 
 LOG "Checking dependencies"
 
@@ -100,14 +101,34 @@ if ! kill -0 "$PID" 2>/dev/null; then
     exit 1
 fi
 
+# Monitor hcxdumptool
+rm -f "$STOP_FLAG" 2>/dev/null
+(
+	while kill -0 "$PID" 2>/dev/null; do
+		sleep 15
+	done
+
+	if [ ! -f "$STOP_FLAG" ]; then
+		ALERT "hcxdumptool unexpectedly stopped"
+		LED FAIL3
+	fi
+) &
+MONITOR_PID=$!
+
 LOG "Running hcxdumptool"
 LOG "Press B to stop"
 sleep 1
 WAIT_FOR_BUTTON_PRESS B
-kill $PID
-wait $PID
+
+LOG "Stopping..."
+touch "$STOP_FLAG"
+kill "$PID" 2>/dev/null
+wait "$PID" 2>/dev/null
+kill "$MONITOR_PID" 2>/dev/null
+wait "$MONITOR_PID" 2>/dev/null
 LOG "Stopped hcxdumptool"
 LOG "Loot saved to $OUTPUT_PATH"
 PINEAPPLE_HOPPING_START
-LED $LED_COLOR
+LED "$LED_COLOR"
+rm -f "$STOP_FLAG" 2>/dev/null
 exit 0
