@@ -46,8 +46,12 @@ Any button wakes it, and that press does nothing else.
 
 ## Upload keys
 
-Keys are never written in `payload.sh`. Enter them under **Keys** on the Pager with the on-screen keyboard, or open
-**Keys > Phone setup** and scan the QR code with a phone on the same network.
+Keys are never written in `payload.sh`. Enter them under **Keys** on the Pager, or open **Keys > Phone setup** and
+scan the QR code with a phone on the same network.
+
+Picking a key opens the on-screen keyboard. Move with the D-pad and press green to type the key under the cursor.
+The bottom row switches to capitals (ABC) or symbols (#+=) and has space, delete and Done. Red deletes the last
+character, or goes back when the field is empty. Hold green to save.
 
 ## Quartermaster Nodes
 

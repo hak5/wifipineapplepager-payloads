@@ -16,6 +16,7 @@ from quartermaster.ui.keys import Key
 from quartermaster.ui.square import SquareUI
 
 from . import PAGER_VERSION
+from .keyboard import WIDE, Keyboard
 
 WIDTH, HEIGHT = 480, 222
 TOP = 24
@@ -130,10 +131,44 @@ class WideUI(SquareUI):
             step = {"LEFT": -1, "RIGHT": 1, "UP": -HOME_COLUMNS, "DOWN": HOME_COLUMNS}[key.name]
             screen.index = (screen.index + step) % len(screen.TILES)
             return True
-        if isinstance(screen, screens.TextInput) and self.mode == "type" and key.name in ("UP", "DOWN"):
-            self.cell = (self.cell + (16 if key.name == "DOWN" else -16)) % len(self.characters())
-            return True
+        if isinstance(screen, screens.TextInput) and self.mode != "actions":
+            return self.typing(key, screen, app)
         return super().handle(key, app)
+
+    def sync(self, screen):
+        if screen is not self.screen:
+            self.kb = Keyboard()
+        super().sync(screen)
+
+    def typing(self, key, screen, app):
+        name = key.name
+        kb = self.sync_kb()
+        if name in ("UP", "DOWN", "LEFT", "RIGHT"):
+            kb.move(name)
+        elif name == "ENTER" and not key.repeat:
+            done = kb.press()
+            if done is None:
+                return True
+            if done[0] == "type":
+                screen.insert(done[1])
+            elif done[0] == "delete":
+                screen.value = screen.value[:-1]
+            else:
+                screen.handle(Key("ENTER"), app)
+        elif name == "TAB":
+            screen.handle(Key("ENTER"), app)
+        elif name == "ESC":
+            if screen.value:
+                screen.value = screen.value[:-1]
+            else:
+                screen.handle(Key("ESC"), app)
+        elif name in ("BACKSPACE", "DELETE"):
+            screen.value = screen.value[:-1]
+        elif key.char and key.char.isprintable():
+            screen.insert(key.char)
+        else:
+            return False
+        return True
 
     def home(self, c, app, screen):
         w = (WIDTH - 10) // HOME_COLUMNS
@@ -217,29 +252,41 @@ class WideUI(SquareUI):
                           self.bold, GOLD_INK if selected else TEXT)
 
     def editor(self, c, screen):
-        y = TOP + 4
-        field = screen.display_value()
-        while field and c.text_width(field, self.body) > WIDTH - 30:
+        kb = self.sync_kb()
+        y = TOP + 3
+        field = screen.value
+        while field and c.text_width(field, self.body) > WIDTH - 90:
             field = field[1:]
         c.rect((6, y, WIDTH - 7, y + ROW + 2), fill=SURFACE, outline=LINE, radius=4)
-        c.text((12, y + 3), field + "│", self.body, TEXT)
-        y += ROW + 8
-        if self.mode != "type":
-            self.paragraph(c, screen.hint or "Hold green to open the letters.", y, MUTED, face=self.small)
-            return "Green save · Hold green letters · Red back"
-        chars = self.characters()
-        per = 64
-        first = self.cell // per * per
-        step = (BOTTOM - y - 2) // 4
-        cell_w = (WIDTH - 8) // 16
-        for i, char in enumerate(chars[first:first + per]):
-            x, yy = 4 + i % 16 * cell_w, y + i // 16 * step
-            active = first + i == self.cell
-            if active:
-                c.rect((x + 1, yy, x + cell_w - 2, yy + step - 2), fill=GOLD, radius=3)
-            c.put((x + cell_w // 2, yy + step // 2), "␣" if char == " " else char, self.body,
-                  GOLD_INK if active else TEXT, "mm")
-        return "Green type · Hold green close · ⌫ deletes, ✓ saves"
+        width = c.text((12, y + 3), field, self.body, TEXT)
+        if int(time.monotonic() * 2) % 2 == 0:
+            c.rect((13 + width, y + 4, 15 + width, y + ROW - 2), fill=GOLD)
+        c.text_right(WIDTH - 14, y + 5, "%d typed" % len(screen.value), self.small, MUTED)
+        y += ROW + 7
+        rows = kb.rows() + [kb.action_row()]
+        step = (BOTTOM - y - 2) // len(rows)
+        for r, row in enumerate(rows):
+            action = r == len(rows) - 1
+            weights = [WIDE.get(name, 1) for name, _ in row] if action else [1] * len(row)
+            unit = (WIDTH - 8) / (sum(weights) if action else max(len(line) for line in kb.rows()))
+            x = 4.0
+            for i, item in enumerate(row):
+                w = unit * weights[i]
+                label = item[1] if action else item
+                active = r == kb.row and i == kb.col
+                fill = GOLD if active else SURFACE_2 if action else SURFACE
+                c.rect((int(x) + 1, y + 1, int(x + w) - 2, y + step - 2), fill=fill,
+                       outline=GOLD if active else LINE, radius=4)
+                face = self.small if action else self.bold
+                c.put((int(x + w / 2), y + step // 2), label, face, GOLD_INK if active else TEXT, "mm")
+                x += w
+            y += step
+        return "Green type · Hold green save · Red delete, or back when empty"
+
+    def sync_kb(self):
+        if getattr(self, "kb", None) is None:
+            self.kb = Keyboard()
+        return self.kb
 
     def viewport(self, c, app, screen):
         source = Canvas()
