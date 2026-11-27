@@ -86,6 +86,9 @@ def install():
     engine.Wardrive._lora_plan = lora_plan
     screens.Hardware.lora_card = staticmethod(lora_card)
     screens.Splash.refresh = 0.1
+    from . import biscuit_screen, sky_tile
+    biscuit_screen.install()
+    sky_tile.install()
     return phys
 
 
@@ -125,13 +128,13 @@ def main(argv=None):
     install()
     from quartermaster import config, faults, hardware, lora, wigle
     from quartermaster.engine import DEFAULT_ROOT
-    from quartermaster.gnss import GPS
     from quartermaster.power import Rails
     from quartermaster.ui.app import App, HardwareWatch
-    from . import listen, updates, usblora, wide
+    from . import biscuit, listen, updates, usblora, wide
     from .buttons import PagerInput
     from .awake import ScreenKeeper
     from .device import Backlight, Lights
+    from .gps import PagerGPS
     from .screen import PagerDisplay
     from .sound import BuzzerPlayer
 
@@ -163,7 +166,7 @@ def main(argv=None):
             return 2
         cleanup.callback(lights.off)
         rails = Rails(())
-        gps = GPS(cfg.get("gps_source", "auto"), candidates=gps_ports, rails=rails, power=False)
+        gps = PagerGPS(cfg.get("gps_source", "auto"), candidates=gps_ports, rails=rails, power=False)
         stopped = threading.Event()
         worker = threading.Thread(target=gps.run, args=(stopped,), daemon=True, name="gps")
         worker.start()
@@ -175,6 +178,8 @@ def main(argv=None):
                   hw=HardwareWatch(gps_ports=gps_ports), cap=cap,
                   updates=updates.check_pager)
         app.square = wide.WideUI()
+        app.biscuit = biscuit.BiscuitLink()
+        cleanup.callback(app.biscuit.stop, True)
         if isinstance(app.player, BuzzerPlayer):
             app.player.vibrate = lambda: app.cfg.get("drive_alert_tones", True)
         wigle.prune_empty(app.logs_dir)

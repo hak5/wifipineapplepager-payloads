@@ -23,7 +23,7 @@ LABEL = "Pager radio (PineAP monitor)"
 
 SO_ATTACH_FILTER = 26
 KEEP_BYTES = 4096
-LD_B_ABS, LD_B_IND, LD_W_IND, LDX_B_ABS = 0x30, 0x50, 0x40, 0xB1
+LD_B_ABS, LD_B_IND, LD_W_IND, TAX = 0x30, 0x50, 0x40, 0x07
 AND_K, JEQ_K, RET_K = 0x54, 0x15, 0x06
 OUIS = sorted(monitor.FLOCK_OUIS)
 
@@ -34,7 +34,7 @@ def program(ouis=OUIS):
     Data frames are most of what a busy monitor radio hears and the frame reader only looks at them for those
     prefixes, so the rest are dropped before they reach Python. A radiotap header of 256 bytes or more is passed on
     for the reader to judge."""
-    head = [(LD_B_ABS, 3), (JEQ_K, 0, "go", "keep"), ("go",), (LDX_B_ABS, 2), (LD_B_IND, 0), (AND_K, 0x0C),
+    head = [(LD_B_ABS, 3), (JEQ_K, 0, "go", "keep"), ("go",), (LD_B_ABS, 2), (TAX, 0), (LD_B_IND, 0), (AND_K, 0x0C),
             (JEQ_K, 0x00, "keep", "data?"), ("data?",), (JEQ_K, 0x08, "addr2", "drop"), ("addr2",)]
     for at in (10, 4):
         head.append((LD_W_IND, at))
@@ -79,8 +79,8 @@ def run(code, packet):
         try:
             if op == LD_B_ABS:
                 a = packet[k]
-            elif op == LDX_B_ABS:
-                x = packet[k]
+            elif op == TAX:
+                x = a
             elif op == LD_B_IND:
                 a = packet[x + k]
             elif op == LD_W_IND:

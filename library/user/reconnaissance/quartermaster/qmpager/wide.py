@@ -15,14 +15,14 @@ from quartermaster.ui.gfx import (AMBER, BG, CYAN, FOOTER_H, GOLD, GOLD_INK, GRE
 from quartermaster.ui.keys import Key
 from quartermaster.ui.square import SquareUI
 
-from . import PAGER_VERSION
+from . import PAGER_VERSION, biscuit, biscuit_screen
 from .keyboard import WIDE, Keyboard
 
 WIDTH, HEIGHT = 480, 222
 TOP = 24
 BOTTOM = HEIGHT - 18
 ROW = 22
-HOME_COLUMNS = 4
+HOME_COLUMNS = 5
 
 
 def pager_cards(cards):
@@ -379,6 +379,44 @@ class WideUI(SquareUI):
         if card.get("detail"):
             self.paragraph(c, card["detail"], y + 2, card.get("detail_color", MUTED), face=self.small, x0=x0)
 
+    def biscuit(self, c, app, screen):
+        screen.tick(app)
+        link = app.biscuit
+        s = link.status()
+        if not link.running:
+            y = TOP + 8
+            c.text((10, y), "Biscuit 6 GHz node", font("display", 26), GOLD, width=WIDTH - 20)
+            y = y + 38
+            if s["error"] and link.state == biscuit.FAILED:
+                y = self.paragraph(c, s["error"], y, RED, face=self.small, x0=10) + 4
+            self.paragraph(c, biscuit_screen.HELP, y, TEXT, x0=10)
+            return "Green start node · Red back"
+        word, detail, color = biscuit_screen.WORDS.get(s["state"], biscuit_screen.WORDS[biscuit.FAILED])
+        half = 252
+        tw, th = (half - 14) // 2, (BOTTOM - TOP - 12) // 2
+        tiles = [("6 GHz heard", s.get("heard", 0), GOLD), ("Sent to Biscuit", s.get("sent", 0), GREEN),
+                 ("Updates sent", s.get("updates", 0), CYAN), ("Waiting", s.get("queued", 0), MUTED)]
+        for i, (label, value, tint) in enumerate(tiles):
+            x, y = 6 + i % 2 * (tw + 4), TOP + 4 + i // 2 * (th + 4)
+            self.counter(c, (x, y, x + tw, y + th), label, value or 0, tint)
+        x0 = half
+        y = TOP + 4
+        c.text((x0, y), word, font("display", 24), color, width=WIDTH - x0 - 8)
+        y = self.paragraph(c, detail, y + 32, TEXT, face=self.small, x0=x0)
+        lines = ["Biscuit " + s["biscuit"] if s.get("biscuit") else "No Biscuit yet"]
+        if s.get("channel"):
+            lines.append("6 GHz channel %d" % s["channel"])
+        if s.get("heard_ago") is not None:
+            lines.append("Biscuit heard %ds ago" % s["heard_ago"])
+        lines.append("Reports as %s" % biscuit.FIRMWARE.decode())
+        lines.append("On for " + clock(s.get("seconds", 0)))
+        for line in lines:
+            if y + self.small.size > BOTTOM - 2:
+                break
+            c.text((x0, y + 2), line, self.small, MUTED, width=WIDTH - x0 - 8)
+            y += self.small.size + 5
+        return "Green stop node · Red menu, node keeps running"
+
     def about(self, c):
         y = self.paragraph(c, "Quartermaster " + __version__, TOP + 8, GOLD, face=self.bold)
         y = self.paragraph(c, "for the Hak5 WiFi Pineapple Pager, payload " + PAGER_VERSION, y + 2)
@@ -469,6 +507,8 @@ class WideUI(SquareUI):
             y = self.paragraph(c, "Version " + __version__, TOP + 8, GOLD, face=self.bold)
             self.paragraph(c, "Checking…" if state in ("busy", "") else text, y + 4)
             foot = "Green check · Red back"
+        elif isinstance(screen, biscuit_screen.BiscuitScreen):
+            foot = self.biscuit(c, app, screen)
         elif isinstance(screen, screens.About):
             self.about(c)
         else:
