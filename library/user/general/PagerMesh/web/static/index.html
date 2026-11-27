@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PagerMesh</title>
+<link rel="stylesheet" href="/static/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+
+<div id="login" class="screen hidden">
+  <form class="login-card" id="login-form">
+    <div class="brand">Pager<b>Mesh</b></div>
+    <div class="sub">Meshtastic on the WiFi Pineapple Pager</div>
+    <input type="password" id="pw" placeholder="Password" autocomplete="current-password" required>
+    <button class="btn primary" type="submit">Sign in</button>
+    <div class="err" id="login-err"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="brand small">Pager<b>Mesh</b></div>
+    <div class="who" id="who">-</div>
+    <div class="pills">
+      <span class="pill" id="p-link">mesh</span>
+      <span class="pill" id="p-region">region</span>
+      <span class="pill" id="p-gps">GPS</span>
+      <span class="pill" id="p-nodes">0 nodes</span>
+    </div>
+    <div class="actions">
+      <button class="btn small" id="b-pos" title="Send the Pager GPS position over the mesh">Send position</button>
+      <button class="btn small ghost" id="b-out">Sign out</button>
+    </div>
+  </header>
+  <div class="setup-bar hidden" id="setup-bar">PagerMesh setup: choose how the Pager reaches your Meshtastic radio, test it, then Save.</div>
+  <div class="warn-bar hidden" id="warn"></div>
+  <main class="layout">
+    <section class="map-wrap">
+      <div id="map"></div>
+      <select id="src" class="src" title="Basemap"></select>
+    </section>
+    <aside class="side">
+      <nav class="tabs">
+        <button class="tab on" data-tab="nodes">Nodes</button>
+        <button class="tab" data-tab="chat">Chat <span class="badge hidden" id="unread"></span></button>
+        <button class="tab" data-tab="sigint">SIGINT</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+      <div class="panel" id="t-nodes">
+        <div class="node-bar row">
+          <label class="hint">Hide nodes not heard for
+            <select id="hide-age" class="inline"><option value="0">show all</option><option value="3600">1 hour</option>
+              <option value="7200">2 hours</option><option value="21600">6 hours</option><option value="86400">24 hours</option></select></label>
+          <span class="hint" id="node-count"></span>
+        </div>
+        <div class="node-detail hidden" id="node-detail"></div>
+        <table class="nodes" id="node-table">
+          <thead><tr><th>Node</th><th>Range</th><th>Batt</th><th>SNR</th><th>Hops</th><th>Heard</th></tr></thead>
+          <tbody id="node-rows"></tbody>
+        </table>
+        <div class="empty hidden" id="no-nodes">No mesh nodes heard yet.</div>
+      </div>
+      <div class="panel hidden" id="t-chat">
+        <div class="chat-list" id="v-list">
+          <div class="chat-to row">
+            <select id="dest" title="Start a chat"></select>
+            <button class="btn small" type="button" id="b-open">Open</button>
+          </div>
+          <div class="convs" id="convs"></div>
+          <div class="chat-foot"><button class="btn small danger" type="button" id="b-delall">Delete all chats</button></div>
+        </div>
+        <div class="chat-thread hidden" id="v-thread">
+          <div class="chat-to row">
+            <button class="btn small ghost" type="button" id="b-back">&lsaquo; Chats</button>
+            <b class="th-title" id="th-title"></b>
+            <button class="btn small danger" type="button" id="b-delconv">Delete chat</button>
+          </div>
+          <div class="msgs" id="msgs"></div>
+          <div class="quick" id="quick"></div>
+          <form class="compose" id="compose">
+            <input id="text" maxlength="200" placeholder="Message" autocomplete="off">
+            <button class="btn primary" type="submit">Send</button>
+          </form>
+        </div>
+        <div class="note" id="send-note"></div>
+      </div>
+      <div class="panel hidden" id="t-sigint">
+        <div class="sig">
+          <div class="row sig-head">
+            <b id="sig-total">-</b>
+            <span class="spacer"></span>
+            <a class="btn small" id="dl-pcap" href="/api/export/pcap" download>pcap</a>
+            <a class="btn small" id="dl-csv" href="/api/export/csv" download>CSV</a>
+          </div>
+          <div class="spark" id="sig-spark" title="Packets per minute, last hour"></div>
+          <div class="chips" id="sig-ports"></div>
+          <h4>Nodes heard</h4>
+          <table class="nodes sig-nodes"><thead><tr><th>Node</th><th>Pkts</th><th>RSSI</th><th>avg</th><th>SNR</th><th>Enc</th></tr></thead>
+            <tbody id="sig-nodes"></tbody></table>
+          <h4>Last packets <label class="hint"><input type="checkbox" id="sig-trails"> show trails on the map</label></h4>
+          <div class="pkts" id="sig-pkts"></div>
+          <h4>Preset scan</h4>
+          <div class="hint">Listens on each modem preset for a while to see who is out there. The radio restarts for every preset
+            and goes back to its own settings at the end - you are off your mesh while it runs.</div>
+          <div class="chips" id="scan-presets"></div>
+          <div class="row">
+            <select id="scan-dwell" class="inline"><option value="30">30 s each</option><option value="60" selected>60 s each</option>
+              <option value="120">2 min each</option><option value="300">5 min each</option></select>
+            <button class="btn small" type="button" id="scan-start">Start scan</button>
+            <button class="btn small danger" type="button" id="scan-stop">Stop</button>
+          </div>
+          <div class="hint" id="scan-status"></div>
+          <table class="nodes"><tbody id="scan-results"></tbody></table>
+        </div>
+      </div>
+      <div class="panel hidden" id="t-settings">
+        <form class="setup" id="setup-form">
+          <h3>Radio connection</h3>
+          <div class="hint" id="conn-now"></div>
+          <label class="opt"><input type="radio" name="conn" value="mod"> <span><b>Glytch Mesh Mod</b><br><small>meshtasticd on this Pager (USB-A radio)</small></span></label>
+          <label class="opt"><input type="radio" name="conn" value="wifi"> <span><b>Wi-Fi radio</b><br><small>a Meshtastic radio with Wi-Fi on, on the same network as the Pager (ESP32 boards: Heltec V3 / V4, T-Beam, Station G2...)</small></span></label>
+          <div class="sub-fields" id="f-wifi">
+            <input id="s-host" placeholder="Radio IP address (shown on its screen or in the Meshtastic app)" autocomplete="off">
+            <input id="s-port" type="number" min="1" max="65535" value="4403">
+          </div>
+          <label class="opt"><input type="radio" name="conn" value="usb"> <span><b>USB radio</b><br><small>a Meshtastic radio plugged into the Pager's USB-A port</small></span></label>
+          <div class="sub-fields" id="f-usb">
+            <div class="row"><select id="s-dev"></select><button class="btn small" type="button" id="s-rescan">Rescan</button></div>
+          </div>
+          <div class="row">
+            <button class="btn" type="button" id="s-test">Test connection</button>
+            <button class="btn primary" type="submit">Save and connect</button>
+          </div>
+          <div class="note" id="setup-note"></div>
+        </form>
+        <div class="more-settings" id="more-settings">
+          <details class="sec" id="sec-radio">
+            <summary>Radio settings <span class="hint" id="radio-hw"></span></summary>
+            <div class="setup">
+              <h3>Name</h3>
+              <div class="row"><input id="own-long" maxlength="39" placeholder="Long name"><input id="own-short" maxlength="4" placeholder="Short" class="short"></div>
+              <div class="row"><button class="btn small primary" type="button" id="own-save">Save name</button><span class="hint">No restart needed.</span></div>
+              <div id="radio-fields"></div>
+              <div class="row">
+                <button class="btn primary" type="button" id="radio-save">Save radio settings</button>
+                <button class="btn" type="button" id="radio-reboot">Restart radio</button>
+              </div>
+              <div class="note" id="radio-note"></div>
+            </div>
+          </details>
+          <details class="sec" id="sec-chan">
+            <summary>Channels</summary>
+            <div class="setup">
+              <table class="nodes"><thead><tr><th>#</th><th>Name</th><th>Role</th><th>Key</th><th></th></tr></thead><tbody id="chan-rows"></tbody></table>
+              <div class="chan-edit hidden" id="chan-edit">
+                <h3 id="ce-title"></h3>
+                <input id="ce-name" maxlength="11" placeholder="Channel name (max 11)">
+                <div class="row"><label class="hint">Role <select id="ce-role" class="inline"><option value="1">Primary</option><option value="2">Secondary</option><option value="0">Disabled</option></select></label></div>
+                <div class="row"><label class="hint">Key <select id="ce-psk" class="inline"><option value="keep">keep the current key</option><option value="random">new random key (AES-256)</option>
+                  <option value="default">default public key</option><option value="none">no encryption</option></select></label></div>
+                <div class="row"><label class="hint"><input type="checkbox" id="ce-up"> MQTT uplink</label><label class="hint"><input type="checkbox" id="ce-down"> MQTT downlink</label></div>
+                <div class="row"><label class="hint">Position precision <select id="ce-prec" class="inline"><option value="0">off (no position)</option><option value="32">exact</option>
+                  <option value="16">~ 300 m</option><option value="13">~ 2.4 km</option><option value="11">~ 9.5 km</option></select></label></div>
+                <div class="row"><button class="btn small primary" type="button" id="ce-save">Save channel</button><button class="btn small" type="button" id="ce-cancel">Cancel</button></div>
+              </div>
+              <div class="row"><button class="btn small" type="button" id="chan-add">Add channel</button><button class="btn small" type="button" id="chan-share">Share link / QR</button></div>
+              <div class="share hidden" id="chan-qr"></div>
+              <div class="note" id="chan-note"></div>
+            </div>
+          </details>
+          <details class="sec" id="sec-app">
+            <summary>PagerMesh</summary>
+            <div class="setup">
+              <label class="hint">Direct message alert on the Pager
+                <select id="app-dm" class="inline"><option value="sound">sound + light</option><option value="popup">sound + light + popup</option><option value="off">off (like other messages)</option></select></label>
+              <label class="hint">Share the Pager's position on
+                <select id="app-pos" class="inline"></select></label>
+              <div class="hint" id="app-pos-warn"></div>
+              <div class="hint" id="app-manual"></div>
+              <div class="row"><button class="btn small" type="button" id="app-clear-manual">Clear map-set location</button></div>
+              <div class="hint">Click the map to set the Pager's location or drop a waypoint.</div>
+              <div class="note" id="app-note"></div>
+            </div>
+          </details>
+          <details class="sec" id="sec-tak">
+            <summary>Mesh &harr; TAK bridge <span class="hint" id="tak-status"></span></summary>
+            <div class="setup">
+              <div class="hint">Mesh nodes become TAK contacts; chat on the chosen mesh channel and TAK <i>All Chat Rooms</i> go both ways. Direct messages are never bridged.</div>
+              <label class="opt"><input type="checkbox" id="tak-on"> <span><b>Bridge on</b></span></label>
+              <div class="row">
+                <select id="tak-proto" class="inline"><option value="tls">TLS (8089, certificate)</option><option value="tcp">TCP (8087)</option><option value="udp">UDP (send only)</option></select>
+                <input id="tak-host" placeholder="TAK server address"><input id="tak-port" type="number" min="1" max="65535" class="short" placeholder="port">
+              </div>
+              <div class="row"><label class="hint"><input type="checkbox" id="tak-pos"> mesh nodes to TAK</label><label class="hint"><input type="checkbox" id="tak-chat"> chat both ways</label></div>
+              <label class="hint">Mesh channel <select id="tak-chan" class="inline"></select></label>
+              <div class="hint">TAK chat is only bridged to a channel with its own key, never to a public channel.</div>
+              <div class="hint" id="tak-cert"></div>
+              <div class="row"><button class="btn small primary" type="button" id="tak-save">Save bridge</button></div>
+              <div class="note" id="tak-note"></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="/static/leaflet/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
