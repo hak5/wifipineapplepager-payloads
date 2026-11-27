@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Restart Evil Portal
+# Title: Restart Evil Portal
 # Description: Restarts the Evil Portal service
 # Author: PentestPlaybook
 # Version: 1.0

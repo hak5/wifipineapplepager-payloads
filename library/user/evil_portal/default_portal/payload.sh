@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Default Portal
+# Title: Default Portal
 # Description: Activates the Default captive portal using /root/portals/current
 # Author: PentestPlaybook / 0x4B
 # Version: 2.0

@@ -2,7 +2,7 @@
 # Title: Pager Skinner
 # Description: Installs and switches between Virtual Pager UI skins.
 # Author: Amilious
-# Version: 1.1   # <-- Increment this when you make significant changes
+# Version: 1.1
 CURRENT_VERSION="1.1"   # <-- Must match the # Version: above
 
 # Unique payload name for config storage

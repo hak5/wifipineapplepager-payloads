@@ -3,6 +3,7 @@
 # Author: MonsieurMarc
 # Description: Payload to reset your SSID pool to a set of APs that you want to reuse. For example you may have a set of SSIDs that you use in your home lab.
 # Version: 1.0
+
 # Options
 # Put your desired SSIDS in the following Array
 SSIDS=("SSID1" "SSID2" "ETC")

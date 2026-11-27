@@ -1,6 +1,8 @@
 #!/bin/bash
 # Title: PagerBoy Controller
 # Author: Brandon Starkweather
+# Description: The ultimate disguise for your WiFi Pineapple Pager. Turns your mobile phone or tablet into a super-secret command center that looks just like a retro handheld console!
+# Version: 1.0
 
 # --- CONFIGURATION ---
 TARGET_FILE="/pineapple/ui/index.html"

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Title:  Process_Killer
+# Title: Process_Killer
 # Author: spywill
 # Description: Safely terminate unwanted processes by PID number 
 # Version: 1.0

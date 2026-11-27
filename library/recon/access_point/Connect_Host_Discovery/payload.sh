@@ -1,5 +1,6 @@
 #!/bin/bash
 # Title: Connect_Host_Discovery
+# Description: Connects the Pager to a selected wireless access point in client mode, validates network assignment, and performs lightweight host discovery on the connected subnet using Nmap.
 # Version: 1.3
 # Author: Stuffy24
 

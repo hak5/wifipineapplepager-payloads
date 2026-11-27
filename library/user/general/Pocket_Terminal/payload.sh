@@ -1,9 +1,9 @@
 #!/bin/bash
 # Title: Pocket Term
 # Description: Pure custom command input.
-# Controls: Up/Down to Scroll
 # Author: Zeriaklr
 # Version: 2.2
+# Controls: Up/Down to Scroll
 
 # Define and create the LOOT directory
 LOOTDIR=/root/loot/Term

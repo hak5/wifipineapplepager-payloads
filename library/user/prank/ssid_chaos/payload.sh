@@ -1,7 +1,10 @@
 #!/bin/bash
-# Title: SSID Chaos Engine v1.0
-# Author: RocketGod - https://betaskynet.com
+# Title: SSID Chaos Engine
+# Author: RocketGod
+# https://betaskynet.com
+# Description: SSID Chaos Engine is a themed SSID broadcast generator designed to weaponize curiosity, paranoia, humor, and confusion—purely at the name level.
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
+# Version: 1.0
 
 VERSION="1.0"
 LOOTDIR="/root/loot/ssid_chaos"

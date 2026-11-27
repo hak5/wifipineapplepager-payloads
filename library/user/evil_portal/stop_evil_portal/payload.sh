@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Stop Evil Portal
+# Title: Stop Evil Portal
 # Description: Stops the Evil Portal service
 # Author: PentestPlaybook
 # Version: 1.0

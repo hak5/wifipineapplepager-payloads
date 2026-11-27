@@ -1,7 +1,9 @@
 #!/bin/bash
-# Paper-Pusher v2
+# Title: Paper-Pusher
 # Hak5 WiFi Pineapple Pager port of the original "Paper-Pusher" (github.com/OSINTI4L/Paper-Pusher)
-# PaperPusher Nmap scans the LAN subnet to find paper printers with port 9100 open and sends spam to be printed via RAW printing with Netcat. The script assumes that the subnet netmask is: 255.255.255.0.
+# Description: PaperPusher Nmap scans the LAN subnet to find paper printers with port 9100 open and sends spam to be printed via RAW printing with Netcat. The script assumes that the subnet netmask is: 255.255.255.0.
+# Author: OSINTI4L
+# Version: 2.0
 
 # Ensure network connected:
 LOG blue "Ensuring WiFi Pineapple Pager is network connected.."

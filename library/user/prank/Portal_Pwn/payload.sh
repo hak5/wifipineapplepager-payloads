@@ -1,6 +1,9 @@
 #!/bin/bash
+# Title: Portal Pwn
+# Author: OSINTI4L
 # github.com/OSINTI4L
-# Portal Pwn is a payload for crashing/spamming ESP32 Marauder evil portals with a Hak5 WiFi Pineapple Pager. It works be throwing random data via cURL requests at the evil portal, overwhelming it, and crashing it.
+# Description: Portal Pwn is a payload for crashing/spamming ESP32 Marauder evil portals with a Hak5 WiFi Pineapple Pager. It works be throwing random data via cURL requests at the evil portal, overwhelming it, and crashing it.
+# Version: 1.0
 
 # Disconnect wlan0cli if connected:
 LOG blue "Checking if wlan0cli is currently connected.."

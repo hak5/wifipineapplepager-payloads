@@ -1,6 +1,7 @@
 #!/bin/bash
 # Title: External MediaTek Loader
-# Version: 2.0 (Fixed)
+# Description: A simple, robust payload for seamlessly managing external MediaTek USB Wi-Fi adapters on the WiFi Pineapple. It handles driver loading, configuration mirroring, and automatic cleanup.
+# Version: 2.0
 # Author: Huntz
 
 set -u

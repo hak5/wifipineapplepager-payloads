@@ -2,6 +2,7 @@
 # Title: Display Image on WiFi Pager  
 # Description: Display RGB565 image
 # Author: Pixel Addict
+# Version: 1.0
 
 FB_DEV="/dev/fb0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

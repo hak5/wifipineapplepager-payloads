@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# title: Favorites Manager
+# Title: Favorites Manager
 # Description: Add, remove, or update payloads in the favorites folder
 # Author: RootJunky
-# Version: 4
+# Version: 4.0
 
 BASE_DIR="/root/payloads/user"
 DEST_DIR="/root/payloads/user/1-favorites"

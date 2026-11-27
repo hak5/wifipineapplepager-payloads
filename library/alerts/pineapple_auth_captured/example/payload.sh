@@ -2,7 +2,7 @@
 # Title: Example Auth Captured Alert
 # Description: Alert human readable summary
 # Author: Hak5Darren
-# Version: 1
+# Version: 1.0
 
 ALERT "$_ALERT_AUTH_SUMMARY"
 

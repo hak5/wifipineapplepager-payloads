@@ -2,7 +2,7 @@
 # Title: SSID Handshake Capture Alert
 # Description: Alert human readable summary plus SSID
 # Author: RootJunky
-# Version: 1
+# Version: 1.0
 
 PCAP="$_ALERT_HANDSHAKE_PCAP_PATH"
 

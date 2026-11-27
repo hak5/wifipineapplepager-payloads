@@ -2,6 +2,7 @@
 # Title: MAC Spoofer
 # Author: Brandon Starkweather
 # Description: MAC Spoofer for blending with specific environments.
+# Version: 1.0
 
 # --- 1. WORKFLOW BRIEFING ---
 PROMPT "MAC SPOOFER

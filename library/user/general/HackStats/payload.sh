@@ -1,7 +1,8 @@
 #!/bin/sh
-# TITLE HACKSTATS
-# AUTHOR Unit98.1
-# DESCRIPTION Get stats on handshake & pcap captures
+# Title: HACKSTATS
+# Author: Unit98.1
+# Description: Get stats on handshake & pcap captures
+# Version: 1.0
 
 shakes=$(/root/loot/handshakes/)
 shakecount=$(find /root/loot/handshakes -maxdepth 1 -type f -name '*.22000' | wc -l)

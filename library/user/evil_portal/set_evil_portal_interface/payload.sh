@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Set Evil Portal Interface
+# Title: Set Evil Portal Interface
 # Description: Configures Evil Portal to apply to Evil WPA, Open AP, or all interfaces
 # Author: PentestPlaybook
 # Version: 2.6

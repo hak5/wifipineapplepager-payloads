@@ -2,6 +2,7 @@
 # Title: Recon Device Hunter 
 # Description: Auto-hunt a selected AP from Recon and display SSID
 # Author: RocketGod + Notorious Squirrel (sidekick)
+# Version: 1.0
 
 INPUT=/dev/input/event0
 DB_CANDIDATES=(

@@ -1,4 +1,4 @@
-// mobile2gps - Relay mobile GPS to gpsd via fake serial device
+// Mobile2GPS - Relay mobile GPS to gpsd via fake serial device
 // Converts browser geolocation data to NMEA sentences for gpsd
 package main
 
@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,18 +30,23 @@ import (
 )
 
 const (
-	httpsPort  = 1993
-	gpsdPort   = 2947
-	indexFile  = "index.html"
-	certFile   = "cert.pem"
-	keyFile    = "key.pem"
-	writePadMs = 33
+	httpsPort = 1993
+	indexFile = "index.html"
+	certFile  = "cert.pem"
+	keyFile   = "key.pem"
+	fixMaxAge = 3 * time.Second
+	// Empty time/date makes gpsd report the invalid fix immediately.
+	noFixSentence = "$GPRMC,,V,,,,,,,,,,N*53\r\n"
 )
 
 var (
-	ptmx       *os.File     // master side of pty
-	server     *http.Server // HTTP server for graceful shutdown
-	bufferPool = sync.Pool{
+	ptmx        *os.File     // master side of pty
+	server      *http.Server // HTTP server for graceful shutdown
+	fixMu       sync.Mutex   // serialize live fixes and expiry writes
+	fixTimer    *time.Timer
+	fixExpires  time.Time
+	lastFixTime int64
+	bufferPool  = sync.Pool{
 		New: func() any {
 			return new(bytes.Buffer)
 		},
@@ -61,6 +67,8 @@ func main() {
 	}
 	ptmx = master
 	slaveName := slave.Name()
+	defer master.Close()
+	defer slave.Close()
 
 	// Make slave device accessible to gpsd
 	if err := os.Chmod(slaveName, 0666); err != nil {
@@ -69,23 +77,10 @@ func main() {
 
 	log.Println("Created fake GPS device:", slaveName)
 
-	// Kill any existing gpsd to free the port
-	exec.Command("killall", "gpsd").Run()
-
-	// Start gpsd
-	gpsd := exec.Command("gpsd", "-N", "-G",
-		"-S", strconv.Itoa(gpsdPort),
-		slaveName)
-	gpsd.Stdout = os.Stdout
-	gpsd.Stderr = os.Stderr
-
-	if err := gpsd.Start(); err != nil {
-		log.Fatal("Failed to start gpsd:", err)
+	previousGPS, err := gpsRestoreArgs()
+	if err != nil {
+		log.Fatal("Failed to read GPS configuration:", err)
 	}
-	log.Println("Started gpsd on port", gpsdPort)
-
-	// Keep slave open - closing it can cause permission issues
-	// Don't defer close here - handle in shutdown
 
 	// HTTPS server
 	http.HandleFunc("/", handleRequest)
@@ -100,7 +95,9 @@ func main() {
 	// Handle shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-sigChan
 		log.Println("Shutting down...")
 
@@ -109,32 +106,98 @@ func main() {
 		defer cancel()
 		if err := server.Shutdown(ctx); err != nil {
 			log.Printf("HTTP server shutdown error: %v\n", err)
+			server.Close()
 		}
-
-		// Cleanup gpsd - graceful shutdown then force kill
-		if gpsd.Process != nil {
-			gpsd.Process.Signal(syscall.SIGTERM)
-			done := make(chan error, 1)
-			go func() { done <- gpsd.Wait() }()
-			select {
-			case <-done:
-				// gpsd exited cleanly
-			case <-time.After(2 * time.Second):
-				gpsd.Process.Kill()
-				<-done
-			}
-		}
-
-		// Close PTY
-		ptmx.Close()
-		slave.Close()
-		os.Exit(0)
 	}()
+
+	// Restore the user's GPS selection on shutdown or failed startup.
+	defer func() {
+		fixMu.Lock()
+		if fixTimer != nil {
+			fixTimer.Stop()
+		}
+		fixExpires = time.Time{}
+		fixMu.Unlock()
+		if err := configureGPS(previousGPS...); err != nil {
+			log.Println("Failed to restore GPS configuration:", err)
+		}
+	}()
+
+	// Stop the managed service and any gpsd left by older Mobile2GPS versions.
+	if output, err := exec.Command("/etc/init.d/gpsd", "stop").CombinedOutput(); err != nil {
+		log.Printf("Failed to stop gpsd: %v: %s", err, output)
+		return
+	}
+	exec.Command("/usr/bin/killall", "gpsd").Run()
+	time.Sleep(200 * time.Millisecond)
+	exec.Command("/usr/bin/killall", "-KILL", "gpsd").Run()
+
+	// The firmware selects gpsd for PineAP and manages the daemon on this PTY.
+	if err := configureGPS("GPSD", slaveName, "9600"); err != nil {
+		log.Println("Failed to configure GPS:", err)
+		return
+	}
+	// procd may still be starting gpsd when GPS_CONFIGURE returns.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:2947", 200*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			log.Println("Configured gpsd did not become available:", err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	log.Println("Configured Pager GPS to use", slaveName, "through gpsd")
 
 	log.Printf("HTTPS server listening on port %d\n", httpsPort)
 	if err := server.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
-		log.Fatal("HTTPS server error:", err)
+		log.Println("HTTPS server error:", err)
+		return
 	}
+	// ListenAndServeTLS returns before Shutdown finishes; wait before restoring GPS.
+	<-shutdownDone
+}
+
+func configureGPS(args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/usr/bin/GPS_CONFIGURE", args...)
+	cmd.WaitDelay = time.Second
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("GPS_CONFIGURE: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+// Save only the GPS selection, leaving unrelated PineAP settings alone.
+func gpsRestoreArgs() ([]string, error) {
+	native, err := exec.Command("/sbin/uci", "-q", "get", "pineapd.@pineapd[0].pineapgps").Output()
+	if err != nil {
+		return nil, err
+	}
+	mode, deviceKey := "GPSD", "gpsd.core.device"
+	switch strings.TrimSpace(string(native)) {
+	case "1", "on", "true", "yes", "enabled":
+		mode, deviceKey = "PINEAP", "pineapd.@pineapd[0].gpsdevice"
+	}
+	device, err := exec.Command("/sbin/uci", "-q", "get", deviceKey).Output()
+	if err != nil || strings.TrimSpace(string(device)) == "" {
+		return nil, fmt.Errorf("cannot read %s", deviceKey)
+	}
+	args := []string{mode, strings.TrimSpace(string(device))}
+	if mode == "GPSD" {
+		speed := "9600"
+		if output, err := exec.Command("/bin/stty", "-F", args[1], "speed").Output(); err == nil && len(bytes.TrimSpace(output)) > 0 {
+			speed = strings.TrimSpace(string(output))
+		}
+		args = append(args, speed)
+	}
+	return args, nil
 }
 
 // loadOrGenerateCert loads existing cert files or generates new ones
@@ -158,7 +221,7 @@ func loadOrGenerateCert() (tls.Certificate, error) {
 	// Get hostname for certificate subject
 	hostname, err := os.Hostname()
 	if err != nil {
-		hostname = "mobile2gps"
+		hostname = "Mobile2GPS"
 	}
 
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
@@ -258,12 +321,42 @@ func handleGPSData(w http.ResponseWriter, r *http.Request) {
 	accs := r.Form["Acc"]
 	times := r.Form["Time"]
 
-	if len(lats) == 0 {
-		http.Error(w, "No GPS data", http.StatusBadRequest)
+	// The phone sends one live fix, never a batch of historical positions.
+	if len(lats) != 1 || len(lons) != 1 || len(accs) != 1 || len(times) != 1 {
+		http.Error(w, "Expected one GPS fix", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("Received %d GPS update(s)\n", len(lats))
+	lat, err := strconv.ParseFloat(lats[0], 64)
+	if err != nil {
+		http.Error(w, "Invalid latitude", http.StatusBadRequest)
+		return
+	}
+	lon, err := strconv.ParseFloat(lons[0], 64)
+	if err != nil {
+		http.Error(w, "Invalid longitude", http.StatusBadRequest)
+		return
+	}
+	acc, err := strconv.ParseFloat(accs[0], 64)
+	if err != nil {
+		http.Error(w, "Invalid accuracy", http.StatusBadRequest)
+		return
+	}
+	msec, err := strconv.ParseInt(times[0], 10, 64)
+	if err != nil || msec <= 0 {
+		http.Error(w, "Invalid timestamp", http.StatusBadRequest)
+		return
+	}
+
+	fixMu.Lock()
+	defer fixMu.Unlock()
+	if r.Context().Err() != nil {
+		return
+	}
+	if msec <= lastFixTime {
+		http.Error(w, "GPS fix is not newer", http.StatusConflict)
+		return
+	}
 
 	// Get a buffer from the pool
 	buf := bufferPool.Get().(*bytes.Buffer)
@@ -272,58 +365,47 @@ func handleGPSData(w http.ResponseWriter, r *http.Request) {
 		bufferPool.Put(buf)
 	}()
 
-	for i := range lats {
-		if i >= len(lons) {
-			continue
-		}
-		lat, err := strconv.ParseFloat(lats[i], 64)
-		if err != nil {
-			continue
-		}
-		lon, err := strconv.ParseFloat(lons[i], 64)
-		if err != nil {
-			continue
-		}
-
-		// Parse timestamp (milliseconds since epoch)
-		var ts time.Time
-		if i < len(times) {
-			if msec, err := strconv.ParseInt(times[i], 10, 64); err == nil {
-				ts = time.UnixMilli(msec)
-			} else {
-				ts = time.Now()
-			}
+	valid := acc >= 0 && acc <= 100
+	if valid {
+		buildGPRMC(buf, lat, lon, time.UnixMilli(msec), "A", "A")
+	} else {
+		buf.WriteString(noFixSentence)
+	}
+	if _, err := ptmx.Write(buf.Bytes()); err != nil {
+		log.Printf("Error writing to PTY: %v\n", err)
+		http.Error(w, "GPS write failed", http.StatusInternalServerError)
+		return
+	}
+	log.Print(buf.String()[:buf.Len()-2])
+	lastFixTime = msec
+	if fixTimer != nil {
+		fixTimer.Stop()
+	}
+	fixExpires = time.Time{}
+	if valid {
+		// Use elapsed time since receipt, independent of the phone/Pager clock offset.
+		fixExpires = time.Now().Add(fixMaxAge)
+		if fixTimer == nil {
+			fixTimer = time.AfterFunc(fixMaxAge, expireFix)
 		} else {
-			ts = time.Now()
+			fixTimer.Reset(fixMaxAge)
 		}
-
-		// Determine validity from accuracy
-		valid := "V"
-		faa := "N"
-		if i < len(accs) {
-			if acc, err := strconv.ParseFloat(accs[i], 64); err == nil && acc <= 100 {
-				valid = "A"
-				faa = "A"
-			}
-		}
-
-		// Build NMEA sentence directly into buffer
-		buf.Reset()
-		buildGPRMC(buf, lat, lon, ts, valid, faa)
-
-		// Log NMEA sentence for debugging (trim \r\n for cleaner output)
-		nmea := buf.String()
-		log.Print(nmea[:len(nmea)-2])
-
-		// Feed to fake GPS (buffer contents already have \r\n)
-		if _, err := ptmx.Write(buf.Bytes()); err != nil {
-			log.Printf("Error writing to PTY: %v\n", err)
-			// Continue processing other updates even if one fails
-		}
-		time.Sleep(writePadMs * time.Millisecond)
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func expireFix() {
+	fixMu.Lock()
+	defer fixMu.Unlock()
+	// An older timer callback must not invalidate a newer fix.
+	if fixExpires.IsZero() || time.Now().Before(fixExpires) {
+		return
+	}
+	if _, err := ptmx.Write([]byte(noFixSentence)); err != nil {
+		log.Printf("Error invalidating GPS fix: %v\n", err)
+	}
+	fixExpires = time.Time{}
 }
 
 // buildGPRMC creates an NMEA GPRMC sentence from coordinates and writes it to the buffer

@@ -103,6 +103,21 @@ If a newly activated portal doesn't appear on your device:
 3. Wait longer - some devices cache the previous portal and take time to refresh
 4. Try "Forget Network" on your device and reconnect fresh
 
+### Credentials Not Being Captured
+If submitting credentials shows a `file_put_contents(...): Permission denied` error, or
+`credentials.json` is never created, your device is running an older build that wrote logs
+into the portal's own directory (mode 755, not writable by the PHP-FPM `nobody` worker).
+
+Credential logging now writes to the world-writable `/root/logs/` directory:
+- Captured credentials are appended as JSON lines to `/root/logs/credentials.json`
+- This works for any portal (including third-party portals such as those from `kleo/evilportals`)
+
+**To apply the fix, re-run the `install_evil_portal` payload** — it regenerates the portal
+API files with the corrected logging path. Then verify:
+```bash
+cat /root/logs/credentials.json
+```
+
 ### Debugging Any Payload
 ```bash
 # Run with verbose output

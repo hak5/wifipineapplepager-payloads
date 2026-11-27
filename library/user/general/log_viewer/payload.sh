@@ -1,6 +1,8 @@
 #!/bin/bash
 # Title: Log Viewer
 # Author: Brandon Starkweather
+# Description: High-performance log analysis tool for the WiFi Pineapple Pager.
+# Version: 1.0
 
 # --- CONFIG ---
 TARGET_PATH="/root/loot"

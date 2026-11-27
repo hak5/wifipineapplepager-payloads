@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Disable Evil Portal
+# Title: Disable Evil Portal
 # Description: Disables the Evil Portal service
 # Author: PentestPlaybook
 # Version: 1.0

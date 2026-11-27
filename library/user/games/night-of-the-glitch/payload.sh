@@ -1,7 +1,10 @@
 #!/bin/bash
 #
-# Night of the Glitch — Pager Edition 
-#Author - Notorious Squirrel ,HAK5 enthusiast.
+# Title: Night of the Glitch - Pager Edition 
+# Author: Notorious Squirrel ,HAK5 enthusiast.
+# Description: Night of the Glitch is a narrative-driven horror text adventure designed specifically for the Hak5 WiFi Pineapple Pager.
+# Version: 1.0
+
 # Controls (Pager)
 #   Corridor (hub):
 #     UP    = Open locker

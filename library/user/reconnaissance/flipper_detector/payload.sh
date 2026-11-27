@@ -1,5 +1,8 @@
 #!/bin/bash
 # Title: Flipper Detector
+# Author: nemanjan00
+# Description: Detect Flipper Zero devices via bluetooth
+# Version: 1.0
 # Device: WiFi Pineapple Pager
 
 FLIPPER_OUI="80:E1:26"

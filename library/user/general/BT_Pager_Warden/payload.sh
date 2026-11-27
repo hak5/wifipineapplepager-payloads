@@ -4,6 +4,7 @@
 # Description: Detects specific BT devices and alerts via Screen & LED. Giving you a fair warning so you can steer clear of a person if you want.
 # Device: WiFi Pineapple Pager
 # Author: oMen
+# Version: 1.0
 #
 
 # --- 1. SETUP ---

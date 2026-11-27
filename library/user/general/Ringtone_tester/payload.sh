@@ -1,100 +1,123 @@
 #!/bin/bash
 
 # Title: Ringtone_tester
-# Description: Perform a ringtone test by playing each ringtone individually
+# Description: Select a ringtone and play it in a loop until button A is pressed.
 # Author: spywill
-# Version: 1.0
-
-resp=$(CONFIRMATION_DIALOG "Title: Ringtone_tester.
-
-Perform a ringtone test by playing
-each ringtone individually.
-
-Select the checkmark to continue.")
-
-case "$resp" in
-	$DUCKYSCRIPT_USER_CONFIRMED)
-		LOG green "Selected yes continue..."
-		spinnerid=$(START_SPINNER "Checking files...")
-		;;
-	$DUCKYSCRIPT_USER_DENIED)
-		LOG red "Selected no exiting..."
-		exit 1
-		;;
-	*)
-		LOG red "Unknown response: $resp exiting..."
-		exit 1
-		;;
-esac
+# Version: 1.1
 
 RINGTONE_DIR="/mmc/root/ringtones"
-current=0
-found_ringtone=false
-ringtone_count=0
+RINGTONE_LIST="/tmp/ringtone_list_$$"
 
-# Check if directory exists
+# Confirm before starting.
+PROMPT "Ringtone Tester:
+Select a ringtone from a menu and play it continuously in a loop.
+Press button A to stop playback and return to the menu."
+
+# Check that the ringtone directory exists.
 if [ ! -d "$RINGTONE_DIR" ]; then
-	STOP_SPINNER ${spinnerid}
-	LOG red "Error: ringtone directory not found: $RINGTONE_DIR"
-	LOG yellow "Download at
-	https://github.com/hak5/wifipineapplepager-ringtones/tree/master"
-	exit 1
+	STOP_SPINNER "$spinnerid"
+	LOG red "Error: ringtone directory not found."
+	LOG yellow "Download ringtones from:"
+	LOG yellow "https://github.com/hak5/wifipineapplepager-ringtones/tree/master"
+	exit 0
 fi
 
-# Check if directory contains valid ringtone files
+# Build the ringtone list once.
+: > "$RINGTONE_LIST"
+
 for file in "$RINGTONE_DIR"/*; do
 	[ -f "$file" ] || continue
 
-	# Check RTTTL content (must contain at least two colons)
-	if grep -q ':' "$file" && [ "$(grep -o ':' "$file" | wc -l)" -ge 2 ]; then
-		found_ringtone=true
-		ringtone_count=$((ringtone_count + 1))
-	fi
+	# Check for valid RTTTL content.
+	[ "$(grep -o ':' "$file" | wc -l)" -ge 2 ] || continue
+
+	filename=$(basename "$file")
+	ringtone_name="${filename%%:*}"
+	ringtone_name="${ringtone_name%.*}"
+
+	# Save the ringtone name and its file path.
+	printf '%s|%s\n' "$ringtone_name" "$file" >> "$RINGTONE_LIST"
 done
 
-# No valid ringtones found
-if [ "$found_ringtone" = false ]; then
-	STOP_SPINNER ${spinnerid}
-	LOG red "Error: no valid ringtone files found in $RINGTONE_DIR"
-	LOG red "Expected format like:"
-	LOG red "  Achievement:d=16,o=5,b=125:c6,e6,g6,c7,e7,g7"
-	exit 1
+STOP_SPINNER "$spinnerid"
+
+# Check whether any valid ringtones were found.
+if [ ! -s "$RINGTONE_LIST" ]; then
+	rm -f "$RINGTONE_LIST"
+	LOG red "No valid ringtones found in $RINGTONE_DIR"
+	PROMPT "No valid ringtones found."
+	exit 0
 fi
 
-STOP_SPINNER ${spinnerid}
-sleep 1
+LOG green "Ringtone list ready."
 
-LOG ""
-LOG yellow "Available ringtones: $ringtone_count file(s) in $RINGTONE_DIR"
-LOG ""
+# Display the menu.
+while true; do
+	set --
 
-# Play ringtones one by one
-for file in "$RINGTONE_DIR"/*; do
-	# Skip if not a regular file
-	[ -f "$file" ] || continue
+	# Add ringtone names to the menu.
+	while IFS='|' read -r ringtone_name ringtone_file; do
+		[ -n "$ringtone_name" ] || continue
+		set -- "$@" "$ringtone_name"
+	done < "$RINGTONE_LIST"
 
-	# Skip non-RTTTL files
-	grep -q ':' "$file" || continue
+	# Select a ringtone or exit.
+	selected=$(LIST_PICKER \
+		"SELECT RINGTONE" \
+		"$@" \
+		"Exit" \
+		"Exit"
+	) || break
 
-	current=$((current + 1))
+	case "$selected" in
+		"Exit"|"")
+			LOG yellow "Exiting ringtone tester."
+			break
+		;;
+	esac
 
-	# Get filename only (no path)
-	filename="$(basename "$file")"
-	ringtone_name="${filename%%:*}"
+	# Find the selected ringtone file.
+	selected_file=""
 
-	# Display the ringtone name
-	LOG cyan "Playing: $ringtone_name   [$current/$ringtone_count]"
-
-	# Keep trying until the ringtone API accepts it
-	while true; do
-		if RINGTONE "$file" 2>/dev/null; then
+	while IFS='|' read -r ringtone_name ringtone_file; do
+		if [ "$ringtone_name" = "$selected" ]; then
+			selected_file="$ringtone_file"
 			break
 		fi
-		sleep 0.5
-	done
+	done < "$RINGTONE_LIST"
 
-	# Wait until playback finishes before moving on
-	while RINGTONE status 2>/dev/null | grep -q "playing"; do
-		sleep 0.5
-	done
+	[ -n "$selected_file" ] || continue
+
+	LOG cyan "Playing: $selected"
+
+	# Repeat the selected ringtone in the background.
+	(
+		while true; do
+			RINGTONE "$selected_file" 2>/dev/null
+
+			# Wait for the current ringtone to finish.
+			while RINGTONE status 2>/dev/null | grep -q "playing"; do
+				sleep 0.2
+			done
+
+			# Brief pause before replaying.
+			sleep 0.2
+		done
+	) &
+	play_pid=$!
+
+	# Wait for button A.
+	WAIT_FOR_BUTTON_PRESS A
+
+	# Stop the playback loop.
+	kill -9 "$play_pid" 2>/dev/null
+	wait "$play_pid" 2>/dev/null
+
+	# Stop any ringtone still playing.
+	RINGTONE stop 2>/dev/null
+	LOG yellow "Returning to ringtone menu..."
 done
+
+# Clean up the temporary list.
+rm -f "$RINGTONE_LIST"
+LOG green "Ringtone tester closed."

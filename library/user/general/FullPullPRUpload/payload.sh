@@ -2,7 +2,8 @@
 # Title: Full Pull Payload PR
 # Author: Austin (git@austin.dev)
 # Description: Downloads and overwrites payloads from a specific GitHub Pull Request
-# Version: 1.2 (pagination fix by Hackazillarex)
+# Version: 1.2 
+# Contributions: pagination fix by Hackazillarex
 
 GH_ORG="hak5"
 GH_REPO="wifipineapplepager-payloads"

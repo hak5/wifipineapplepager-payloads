@@ -2,7 +2,7 @@
 # Title: 1988
 # Description: persistent background listener that will trigger an easter egg link, lights, and sound when the OG code is entered
 # Author: m0usem0use
-# Version: 1
+# Version: 1.0
 # Device: WiFi Pineapple Pager
 
 # --- Robust Path Finding ---

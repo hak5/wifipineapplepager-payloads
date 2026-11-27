@@ -1,6 +1,8 @@
 #!/bin/bash
-# AntennaCheka v2 – Pager Visual Antenna Benchmark
-#Author - Notorious Squirrel
+# Title: AntennaCheka 
+# Description: Pager Visual Antenna Benchmark
+# Author: Notorious Squirrel
+# Version: 2.0
 
 set -u
 

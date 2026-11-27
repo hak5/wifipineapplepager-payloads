@@ -1,0 +1,24 @@
+name: dlportal generator
+
+on: [push]
+
+jobs:
+  dlportal:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        env:
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          GCP_HAK5_USER: ${{ secrets.GCP_HAK5_USER }}
+          GCP_HAK5_SM_64: ${{ secrets.GCP_HAK5_SM_64 }}
+          STORAGE: ${{ secrets.STORAGE }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          echo ${DOCKER_TOKEN} | docker login -u ${DOCKER_USERNAME} --password-stdin
+          docker run -v "/var/run/docker.sock":"/var/run/docker.sock" \
+              -v ${WORKSPACE}:/github/workspace \
+              -e SECRET_GC_NM=${GCP_HAK5_USER} \
+              -e SECRET_GC=${GCP_HAK5_SM_64} \
+              -e STORAGE=${STORAGE} \
+              hak5/pagerpayloadindexer:latest

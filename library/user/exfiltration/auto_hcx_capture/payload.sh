@@ -1,7 +1,8 @@
 #!/bin/bash
 # Title: Auto_HCX_Capture
-#Made by: MusicalVR
-#A tool for gathering a detailed baseline around you
+# Author: MusicalVR
+# Description: A tool for gathering a detailed baseline around you
+# Version: 1.0
 
 #Checking for HCX
 if ! command -v hcxdumptool &> /dev/null; then

@@ -2,6 +2,7 @@
 # Title: Blue Clues
 # Author: Brandon Starkweather
 # Description: Active Audit Tool
+# Version: 1.0
 
 # --- 1. SETUP ---
 SCRIPT_DIR=$(dirname "$0")

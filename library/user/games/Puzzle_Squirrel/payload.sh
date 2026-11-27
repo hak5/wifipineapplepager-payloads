@@ -1,6 +1,8 @@
 #!/bin/sh
 # Title: Puzzle Squirrel
 # Description: Shows links to my GitHub Pages CTFs
+# Author: Notorious Squirrel
+# Version: 1.0
 
 set -u
 

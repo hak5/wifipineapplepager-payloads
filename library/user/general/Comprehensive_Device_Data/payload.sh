@@ -2,8 +2,10 @@
 
 # Title: Comprehensive Device Data
 # Description: Full system, network, radios, USB, hardware, and connectivity status
-# Author: RocketGod - https://betaskynet.com
+# Author: RocketGod
+# https://betaskynet.com
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
+# Version: 1.0
 
 # === CLEANUP ===
 trap 'DPADLED off' EXIT INT TERM

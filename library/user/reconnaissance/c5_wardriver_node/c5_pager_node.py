@@ -1,0 +1,309 @@
+#!/usr/bin/env python3
+"""Clean-room C5 Wardriver scan-only node for the WiFi Pineapple Pager."""
+import argparse, json, os, select, socket, struct, subprocess, sys, time
+
+MAGIC=b"ENOW"; OUI=bytes.fromhex("18fe34"); BROADCAST=b"\xff"*6
+IW_BIN=os.environ.get("IW_BIN","/usr/sbin/iw")
+CORE_REQUEST=1; CORE_REPLY=2; HEARTBEAT=3; TEXT=4; RECORD_ACK=6
+CAPABILITIES=b"C5P1;ROLE=EXTERNAL;BANDS=6"
+HOME_FREQ=2437; PSC=[5,21,37,53,69,85,101,117,133,149,165,181,197,213,229]
+DEDUP_SECONDS=30; MAX_QUEUE=256; MAX_UNIQUE_DEVICES=4096; MAX_RECENT=8192
+CORE_LINK_TIMEOUT=15.0; PSC_DWELL=.20
+
+def accept_record(bssid,now,recent,queued_bssids,window=DEDUP_SECONDS):
+    """Accept one BSSID only when it is outside both dedupe lanes."""
+    if now-recent.get(bssid,-999)<window or bssid in queued_bssids:
+        return False
+    recent[bssid]=now
+    return True
+
+def bounded_wait(deadline,now,cap=.05):
+    """Return a non-negative select timeout at the edge of a receive window."""
+    return max(0.0,min(cap,deadline-now))
+
+def prune_recent(recent,now,window=DEDUP_SECONDS*4,limit=MAX_RECENT):
+    """Bound the dedupe cache by both age and entry count."""
+    cutoff=now-window
+    for bssid,when in list(recent.items()):
+        if when<cutoff: recent.pop(bssid,None)
+    if len(recent)>limit:
+        for bssid,_ in sorted(recent.items(),key=lambda item:item[1])[:len(recent)-limit]:
+            recent.pop(bssid,None)
+
+def text_message(kind,counter=0,text=b""):
+    text=text[:200]
+    return struct.pack("<4sBIH",MAGIC,kind,counter,len(text))+text.ljust(201,b"\0")
+
+def parse_text_message(payload):
+    if len(payload)!=212 or payload[:4]!=MAGIC: return None
+    kind=payload[4]; counter,n=struct.unpack_from("<IH",payload,5)
+    if n>200: return None
+    return kind,counter,payload[11:11+n]
+
+def radiotap(pkt):
+    if len(pkt)<8: return None
+    length=struct.unpack_from("<H",pkt,2)[0]
+    if length<8 or length>len(pkt): return None
+    off=4; words=[]
+    while True:
+        if off+4>length: return None
+        word=struct.unpack_from("<I",pkt,off)[0]; words.append(word); off+=4
+        if not word&0x80000000: break
+    fields={0:(8,8),1:(1,1),2:(1,1),3:(2,4),4:(2,2),5:(1,1),6:(1,1),7:(2,2),8:(2,2),9:(2,2),10:(1,1),11:(1,1),12:(1,1),13:(1,1),14:(2,2),15:(2,2),16:(1,1),17:(1,1)}
+    values={}
+    for bit in range(18):
+        if not words[0]&(1<<bit): continue
+        align,size=fields[bit]; off=(off+align-1)&~(align-1)
+        if off+size>length: return None
+        values[bit]=pkt[off:off+size]; off+=size
+    flags=values.get(1,b"\0")[0]
+    mhz=struct.unpack_from("<H",values[3],0)[0] if 3 in values else 0
+    signal=struct.unpack("<b",values[5])[0] if 5 in values else None
+    return length,flags,mhz,signal
+
+def rsn_akms(body):
+    if len(body)<8 or body[:2]!=b"\x01\x00": return None
+    pairwise_count=struct.unpack_from("<H",body,6)[0]
+    off=8+4*pairwise_count
+    if off+2>len(body): return None
+    akm_count=struct.unpack_from("<H",body,off)[0]; off+=2
+    if off+4*akm_count>len(body): return None
+    return [body[off+i*4:off+(i+1)*4] for i in range(akm_count)]
+
+def security(frame):
+    privacy=bool(frame[34]&0x10); rsn=None; wpa=False; p=36
+    while p+2<=len(frame):
+        eid,n=frame[p],frame[p+1]; p+=2
+        if p+n>len(frame): return "[UNDEFINED]"
+        body=frame[p:p+n]; p+=n
+        if eid==48: rsn=body
+        elif eid==221 and body[:4]==b"\x00\x50\xf2\x01": wpa=True
+    if rsn is not None:
+        akms=rsn_akms(rsn)
+        if akms is None: return "[UNDEFINED]"
+        types={suite[3] for suite in akms if suite[:3]==b"\x00\x0f\xac"}
+        if types&{8,9,24}: return "[WPA3_PSK]"
+        if 18 in types: return "[OWE]"
+        if types&{1,3,5,11,12,13,14,15,16,17}: return "[WPA3_ENTERPRISE]"
+        if types&{2,4,6}: return "[WPA2_PSK]"
+        return "[UNDEFINED]"
+    if wpa: return "[WPA_PSK]"
+    return "[WEP]" if privacy else "[OPEN]"
+
+def beacon_record(pkt):
+    info=radiotap(pkt)
+    if not info: return None
+    rlen,flags,mhz,rssi=info; frame=pkt[rlen:-4] if flags&0x10 else pkt[rlen:]
+    if len(frame)<36 or frame[0] not in (0x80,0x50) or rssi is None or not 5925<=mhz<=7125: return None
+    channel=(mhz-5950)//5
+    if channel<1 or channel>233 or (channel-1)%4: return None
+    ssid=None; p=36
+    while p+2<=len(frame):
+        eid,n=frame[p],frame[p+1]; p+=2
+        if p+n>len(frame): return None
+        if eid==0: ssid=frame[p:p+min(n,32)]
+        p+=n
+    if ssid is None: return None
+    return frame[16:22],channel,rssi,security(frame),ssid.replace(b",",b"_").replace(b"\n",b"_").replace(b"\r",b"_")
+
+class Radio:
+    def __init__(self,iface):
+        self.iface=iface; self.mac=bytes.fromhex(open(f"/sys/class/net/{iface}/address").read().strip().replace(":","")); self.seq=0
+        self.sock=socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(3)); self.sock.bind((iface,0))
+        self.rt=struct.pack("<BBHIBxH",0,0,12,(1<<2)|(1<<15),2,0)
+    def send(self,dst,payload):
+        self.seq=(self.seq+1)&0xfff
+        hdr=struct.pack("<HH6s6s6sH",0x00d0,0,dst,self.mac,BROADCAST,self.seq<<4)
+        body=b"\x7f"+OUI+os.urandom(4)+b"\xdd"+bytes([len(payload)+5])+OUI+b"\x04\x01"+payload
+        try:
+            self.sock.send(self.rt+hdr+body)
+            return True
+        except OSError:
+            # Channel/service transitions can briefly report ENETDOWN.
+            time.sleep(.1)
+            return False
+    def receive(self,seconds,beacons=False):
+        end=time.monotonic()+seconds
+        while time.monotonic()<end:
+            timeout=bounded_wait(end,time.monotonic())
+            if timeout<=0: break
+            ready,_,_=select.select([self.sock],[],[],timeout)
+            if not ready: continue
+            try:
+                pkt=self.sock.recv(4096)
+            except OSError:
+                # Keep the long-running payload alive across transient radio resets.
+                time.sleep(.1)
+                return
+            info=radiotap(pkt)
+            if not info: continue
+            frame=pkt[info[0]:]
+            if beacons and len(frame)>=36 and frame[0] in (0x80,0x50): yield "beacon",pkt; continue
+            if len(frame)<39 or (frame[0]&0xfc)!=0xd0: continue
+            dst,src=frame[4:10],frame[10:16]
+            if src==self.mac or dst not in (self.mac,BROADCAST): continue
+            body=frame[24:]
+            if len(body)<15 or body[0]!=0x7f or body[1:4]!=OUI or body[8]!=0xdd or body[10:13]!=OUI: continue
+            yield "message",(src,body[15:10+body[9]])
+
+def tune(iface,mhz):
+    return subprocess.run([IW_BIN,"dev",iface,"set","freq",str(mhz)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0
+
+def discover_cores(radio,iface,seconds):
+    found=set(); deadline=time.monotonic()+seconds
+    while time.monotonic()<deadline:
+        tune(iface,HOME_FREQ)
+        radio.send(BROADCAST,text_message(CORE_REQUEST,text=CAPABILITIES))
+        for kind,item in radio.receive(.45):
+            if kind!="message": continue
+            src,payload=item; parsed=parse_text_message(payload)
+            if parsed and parsed[0]==CORE_REPLY: found.add(src)
+    return sorted(found)
+
+def format_status(stats):
+    latest=stats.get("latest") or {}
+    ssid=str(latest.get("ssid") or "--").replace("\n","_").replace("\r","_")[:22]
+    channel=latest.get("channel","--"); rssi=latest.get("rssi","--")
+    state="LINKED" if stats.get("core") else "SEARCH"
+    return "\n".join((
+        f"CORE: {state}",
+        f"NET: {ssid}",
+        f"CH: {channel}  RSSI: {rssi} dBm",
+        f"SEEN: {stats.get('seen',0)}  QUEUE: {stats.get('queued',0)}",
+        f"TX: {stats.get('sent',0)}  ACK: {stats.get('acked',0)}  DROP: {stats.get('dropped',0)}",
+        "B: STOP",
+    ))
+
+def atomic_write(path,data):
+    tmp="%s.tmp.%d"%(path,os.getpid())
+    with open(tmp,"w") as f: f.write(data)
+    os.replace(tmp,path)
+
+def write_status(stats_path,status_path,stats):
+    atomic_write(stats_path,json.dumps(stats,separators=(",",":")))
+    atomic_write(status_path,format_status(stats)+"\n")
+
+def interface_state(data,iface):
+    def walk(value,key=None):
+        if isinstance(value,list):
+            for item in value:
+                found=walk(item)
+                if found is not None: return found
+        elif isinstance(value,dict):
+            names=(value.get("interface"),value.get("iface"),value.get("ifname"),value.get("name"),value.get("device"),key)
+            if iface in names:
+                hop=value.get("hoprate",value.get("hop_rate",value.get("hopRate")))
+                try: return int(hop),int(value.get("channel") or 0)
+                except (TypeError,ValueError): return None
+            for child_key,item in value.items():
+                found=walk(item,child_key)
+                if found is not None: return found
+        return None
+    return walk(data)
+
+def valid_core_reply(src,payload,wanted):
+    parsed=parse_text_message(payload)
+    if src!=wanted or not parsed or parsed[0] not in (CORE_REPLY,RECORD_ACK): return None
+    return parsed
+
+def link_expired(last_reply,now):
+    return last_reply is not None and now-last_reply>=CORE_LINK_TIMEOUT
+
+def main(argv=None):
+    ap=argparse.ArgumentParser(); ap.add_argument("--self-check",action="store_true"); ap.add_argument("--iface",default="wlan1mon"); ap.add_argument("--core"); ap.add_argument("--stats",default="/tmp/c5-pager-node.json"); ap.add_argument("--status",default="/tmp/c5-pager-node.status"); ap.add_argument("--render-stats"); ap.add_argument("--interface-state"); ap.add_argument("--discover-seconds",type=float); a=ap.parse_args(argv)
+    if a.self_check:
+        assert parse_text_message(text_message(HEARTBEAT,1,CAPABILITIES))==(HEARTBEAT,1,CAPABILITIES); return 0
+    if a.interface_state:
+        try: state=interface_state(json.load(sys.stdin),a.interface_state)
+        except (OSError,ValueError): state=None
+        if state is None or state[0] not in (0,200,1000): return 1
+        print("%d %d"%state); return 0
+    if a.render_stats:
+        try:
+            with open(a.render_stats) as f: print(format_status(json.load(f)))
+        except (OSError,ValueError): print(format_status({}))
+        return
+    radio=Radio(a.iface)
+    if a.discover_seconds is not None:
+        for mac in discover_cores(radio,a.iface,max(.5,a.discover_seconds)): print(mac.hex(":"))
+        return
+    if not a.core: ap.error("--core is required")
+    wanted=bytes.fromhex(a.core.replace(":",""))
+    core=None; last_reply=None; heartbeat=0; record_counter=struct.unpack("<I",os.urandom(4))[0]
+    recent={}; unique_devices=set(); unique_capped=False
+    queue=[]; queued_bssids=set(); attempts={}
+    sent=0; acked=0; dropped=0; deduped=0; frames=0
+    last_ack=None; last_ack_at=None; latest=None; sweeps=0
+    channel_activity={ch:0.0 for ch in PSC}; started=time.monotonic()
+    while True:
+        tune(a.iface,HOME_FREQ)
+        if core is not None and link_expired(last_reply,time.monotonic()):
+            core=None; last_reply=None
+        if core is None:
+            radio.send(BROADCAST,text_message(CORE_REQUEST,text=CAPABILITIES))
+            for kind,item in radio.receive(.35):
+                if kind=="message":
+                    src,payload=item; parsed=valid_core_reply(src,payload,wanted)
+                    if parsed and parsed[0]==CORE_REPLY:
+                        core=src; last_reply=time.monotonic()
+        else:
+            radio.send(core,text_message(HEARTBEAT,heartbeat,CAPABILITIES)); heartbeat+=1
+            drain_deadline=time.monotonic()+.5
+            while queue and time.monotonic()<drain_deadline:
+                rec=queue.pop(0); bssid,ch,rssi,auth,ssid=rec
+                line=bssid.hex(":").upper().encode()+b","+ssid+b","+auth.encode()+f",{ch},{rssi},W6".encode()
+                expected_ack=f"W6,{5950+5*ch}".encode()
+                record_counter=(record_counter+1)&0xffffffff
+                radio.send(core,text_message(TEXT,record_counter,line)); sent+=1
+                acknowledged=False
+                for kind,item in radio.receive(.15):
+                    if kind != "message": continue
+                    src,payload=item; parsed=valid_core_reply(src,payload,wanted)
+                    if parsed:
+                        last_reply=time.monotonic()
+                        if parsed[0]==RECORD_ACK and parsed[1]==record_counter and parsed[2]==expected_ack:
+                            acked+=1; last_ack=parsed[2].decode("ascii"); last_ack_at=time.monotonic(); acknowledged=True; break
+                if acknowledged:
+                    attempts.pop(bssid,None); queued_bssids.discard(bssid)
+                else:
+                    count=attempts.get(bssid,0)+1
+                    if count<3: attempts[bssid]=count; queue.append(rec)
+                    else:
+                        attempts.pop(bssid,None); queued_bssids.discard(bssid); dropped+=1
+            for kind,item in radio.receive(.15):
+                if kind=="message" and valid_core_reply(item[0],item[1],wanted): last_reply=time.monotonic()
+        sweep_activity={ch:0 for ch in PSC}
+        for ch in PSC:
+            if not tune(a.iface,5950+5*ch): continue
+            for kind,item in radio.receive(PSC_DWELL,beacons=True):
+                if kind!="beacon": continue
+                rec=beacon_record(item)
+                if not rec: continue
+                now=time.monotonic(); bssid=rec[0]; frames+=1; sweep_activity[ch]+=1
+                latest={"ssid":rec[4].decode("utf-8","replace"),"channel":rec[1],"rssi":rec[2],"bssid":bssid.hex(":")}
+                if bssid not in unique_devices:
+                    if len(unique_devices)<MAX_UNIQUE_DEVICES: unique_devices.add(bssid)
+                    else: unique_capped=True
+                if not accept_record(bssid,now,recent,queued_bssids):
+                    deduped+=1; continue
+                if len(queue)>=MAX_QUEUE:
+                    evicted=queue.pop(0); queued_bssids.discard(evicted[0]); attempts.pop(evicted[0],None); dropped+=1
+                queue.append(rec); queued_bssids.add(bssid)
+        sweeps+=1
+        for ch in PSC:
+            channel_activity[ch]=channel_activity[ch]*.65+sweep_activity[ch]
+        # Bound the short-term dedupe cache without losing the session device count.
+        prune_recent(recent,time.monotonic())
+        now=time.monotonic()
+        stats={
+            "paired_core":wanted.hex(":"),"core":core.hex(":") if core else None,
+            "devices":len(unique_devices),"devices_capped":unique_capped,
+            "seen":len(unique_devices),"queued":len(queue),"sent":sent,"acked":acked,
+            "dropped":dropped,"deduped":deduped,"frames":frames,"last_ack":last_ack,
+            "ack_age_s":None if last_ack_at is None else int(max(0,now-last_ack_at)),
+            "latest":latest,"sweeps":sweeps,"uptime_s":int(now-started),
+            "channels":PSC,"channel_activity":[round(channel_activity[ch],1) for ch in PSC],
+        }
+        write_status(a.stats,a.status,stats)
+
+if __name__=="__main__": sys.exit(main())

@@ -4,14 +4,17 @@
 # Description: Web-based payload launcher with live console output and GitHub integration
 # Author: JustSomeTrout (Trout / troot.)
 # Co-Author: Z3r0L1nk
-# Version: 1.8.5
-# Firmware: Developed for Firmware version 1.0.6
+# Version: 1.8.6
+# Firmware: Developed for Firmware version 1.0.9
 #
 # Runs uhttpd with CGI to browse and execute payloads from your browser.
 # Now with GitHub integration - run payloads directly from the official repo or PRs!
 #
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" 2>/dev/null && pwd)"
+[ -f "$SCRIPT_DIR/www/index.html" ] || SCRIPT_DIR="/root/payloads/user/remote_access/nautilus"
+[ -f "$SCRIPT_DIR/www/index.html" ] || SCRIPT_DIR="/mmc/root/payloads/user/remote_access/nautilus"
 WEB_DIR="$SCRIPT_DIR/www"
 PORT=8888
 PID_FILE="/tmp/nautilus.pid"

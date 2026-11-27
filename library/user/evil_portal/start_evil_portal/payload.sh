@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Start Evil Portal
+# Title: Start Evil Portal
 # Description: Starts the Evil Portal service
 # Author: PentestPlaybook
 # Version: 1.0

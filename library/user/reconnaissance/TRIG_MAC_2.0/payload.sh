@@ -1,7 +1,8 @@
 #!/bin/bash
 # Title: TRIG_MAC|WIRELESS TRIPWIRE
-# Version: 2.0
+# Version: 2.2.0
 # Author: THENRGLABS
+# Description: Transforms the Pager into a mobile wardriving and tracking hub with full GPS integration and refined operator feedback.
 
 # --- 1. THE TRANSPARENT STARTUP ---
 nuke_everything() {

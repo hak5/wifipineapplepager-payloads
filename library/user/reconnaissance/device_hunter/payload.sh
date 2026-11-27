@@ -1,8 +1,10 @@
 #!/bin/bash
 # Title: Device Hunter
 # Description: Track any device by signal strength
-# Author: RocketGod - https://betaskynet.com and NotPike Helped - https://bad-radio.solutions
+# Author: RocketGod & NotPike
+# https://betaskynet.com & https://bad-radio.solutions
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
+# Version: 1.0
 
 INPUT=/dev/input/event0
 

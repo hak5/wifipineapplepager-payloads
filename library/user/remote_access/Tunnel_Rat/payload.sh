@@ -1,7 +1,9 @@
 #!/bin/bash
-# Tunnel Rat
+# Title: Tunnel Rat
+# Author: OSINTI4L
 # github.com/OSINTI4L
-# Tunnel Rat is a Hak5 WiFi Pineapple Pager payload that allows remote access to the pager through a virtual private server reverse SSH tunnel. This allows the pager to be used as an implant device allowing for remote exploitation of the target network. See attached README.md for full documentation and setup.
+# Description: Tunnel Rat is a Hak5 WiFi Pineapple Pager payload that allows remote access to the pager through a virtual private server reverse SSH tunnel. This allows the pager to be used as an implant device allowing for remote exploitation of the target network. See attached README.md for full documentation and setup.
+# Version: 1.0
 # Dependencies: sshpass | VPS | Discord webhook
 # Built on WiFi Pineapple Pager firmware v1.0.6
 

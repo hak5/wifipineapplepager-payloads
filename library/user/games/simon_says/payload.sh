@@ -1,8 +1,11 @@
 #!/bin/bash
+
 # Title: Simon Says
 # Description: Memory game with lights and sounds!
-# Author: RocketGod - https://betaskynet.com
+# Author: RocketGod 
+# https://betaskynet.com
 # Crew: The Pirates' Plunder - https://discord.gg/thepirates
+# Version: 1.0
 
 LOOT_DIR="/root/loot/simon_says"
 HIGH_SCORE_FILE="$LOOT_DIR/high_score"

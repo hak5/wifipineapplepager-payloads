@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Switch Evil Portal
+# Title: Switch Evil Portal
 # Description: Switches the active Evil Portal
 # Author: 0x4B / PentestPlaybook
 # Version: 1.2

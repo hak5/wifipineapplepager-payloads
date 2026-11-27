@@ -2,7 +2,7 @@
 
 **Author:** curtthecoder - github.com/curthayman
 
-**Version:** 1.0
+**Version:** 1.1
 
 **Category:** Alerts / Handshake Captured
 

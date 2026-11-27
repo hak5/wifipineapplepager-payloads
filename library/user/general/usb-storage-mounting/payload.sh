@@ -2,7 +2,7 @@
 # Title: USB Storage Mount (blkid)
 # Description: Detects, mounts, and unmounts USB storage devices
 # Author: RootJunky
-# Version: 3
+# Version: 3.0
 
 MOUNTPOINT="/usb"
 

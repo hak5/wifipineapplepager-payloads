@@ -1,7 +1,8 @@
 #!/bin/bash
-## Title: Export Handshakes
-## Auther : BlackGrouse
-## Version: 1.2
+# Title: Export Handshakes
+# Author: BlackGrouse
+# Description: Export handshakes to USB.
+# Version: 1.2
 
 ## This file can be edited to also do the loot directory etc.
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Interface Manager
+# Title: Interface Manager
 # Description: Displays interface status and manages interface activation
 # Author: PentestPlaybook
 # Version: 1.4

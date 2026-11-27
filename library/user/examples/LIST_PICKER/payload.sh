@@ -1,7 +1,8 @@
 #!/bin/bash
-# Title: Demo LIST_PICKER
+# Title: LIST_PICKER Example
 # Author: Hak5Darren
 # Description: A simple demo of the new LIST_PICKER DuckyScript command for convenient payload navigation.
+# Version: 1.0
 
 IP_ADDRESS="8.8.8.8"
 
@@ -28,7 +29,7 @@ while true; do
 
     "About")
       # Example of a nested list
-      LIST_PICKER "This is a nested list" "Demo by @Hak5Darren" "Pager firmware by:" "@dragorn and @Korben" "<- Back" "<- Back"
+      LIST_PICKER "This is a nested list" "Demo by Hak5Darren" "Pager firmware by:" "dragorn and korben" "<- Back" "<- Back"
       # Selection is ignored, so all list items are essentially "<- Back"
       ;;
 

@@ -1,4 +1,4 @@
-#!/usr/bin
+#!/bin/bash
 
 # Title:  PORT Alert
 # Author: spywill

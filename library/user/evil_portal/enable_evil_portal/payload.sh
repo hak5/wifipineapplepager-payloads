@@ -1,5 +1,5 @@
 #!/bin/bash
-# Name: Enable Evil Portal
+# Title: Enable Evil Portal
 # Description: Enables the Evil Portal service
 # Author: PentestPlaybook
 # Version: 1.0

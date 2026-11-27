@@ -2,6 +2,7 @@
 # Title: DUMPY_REVERSE_DUCKY
 # Author: THENRGLABS
 # Version: 1.5
+# Description: Counterintelligence & Mass Storage Exfiltration for the WiFi Pineapple Pager
 # Optimized for WiFi Pineapple Pager
 
 # --- 0. SELF-HEALING (DO NOT REMOVE) ---
