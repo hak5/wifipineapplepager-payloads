@@ -59,3 +59,32 @@ class Lights:
         self.dpad((0, 0, 0))
         self.button("a", False)
         self.button("b", False)
+
+
+class Backlight:
+    def __init__(self, root="/sys/class/backlight"):
+        self.path = None
+        try:
+            found = sorted(Path(root).iterdir())
+        except OSError:
+            found = []
+        for entry in found:
+            if (entry / "brightness").exists():
+                self.path = entry
+                break
+        self.top = self._read("max_brightness") or 255
+
+    def _read(self, name):
+        try:
+            return int((self.path / name).read_text().strip()) if self.path else None
+        except (OSError, ValueError):
+            return None
+
+    def present(self):
+        return self.path is not None
+
+    def level(self):
+        return self._read("brightness")
+
+    def set(self, value):
+        return self.path is not None and write(self.path / "brightness", int(value))

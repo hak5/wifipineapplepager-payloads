@@ -35,9 +35,14 @@ def built_in_phys(sys_net="/sys/class/net"):
 def install():
     """Put the Pager's parts in place. Must run before any other part of Quartermaster is imported."""
     os.environ.setdefault("QUARTERMASTER_HOME", str(LOOT))
-    from quartermaster import ble, deepscan, flasher, hardware, meshpackets, tones, wigle
+    from quartermaster import ble, config, deepscan, flasher, hardware, meshpackets, tones, wigle
     from . import aes, ed25519, hci, listen, sound
     wigle.DISPLAY_SIZES["pager"] = "480x222"
+    from .awake import SETTING
+    if SETTING not in config.SETTINGS:
+        dict(config.SECTIONS)["SCREEN"].append(SETTING)
+        config.SETTINGS.append(SETTING)
+        config.DEFAULTS[SETTING[0]] = 0
     flasher.DAMAGED = ("Node firmware does not come with the Pager payload. Flash the node from a computer at "
                        "valleytechsolutions.github.io/Quartermaster/flasher, then plug it into the Pager.")
     ble.BleScanner = hci.HciBleScanner
@@ -125,7 +130,8 @@ def main(argv=None):
     from quartermaster.ui.app import App, HardwareWatch
     from . import listen, updates, usblora, wide
     from .buttons import PagerInput
-    from .device import Lights
+    from .awake import ScreenKeeper
+    from .device import Backlight, Lights
     from .screen import PagerDisplay
     from .sound import BuzzerPlayer
 
@@ -176,6 +182,11 @@ def main(argv=None):
         def stop(*_):
             app.running = False
         keyboard.on_quit = stop
+        keeper = ScreenKeeper(Backlight(), lambda: app.cfg.get("screen_timeout", 0))
+        keyboard.on_input = keeper.touch
+        lit = threading.Thread(target=keeper.run, args=(stopped,), daemon=True, name="screen")
+        lit.start()
+        cleanup.callback(keeper.restore)
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             signal.signal(sig, stop)
         app.run()

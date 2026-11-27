@@ -41,6 +41,9 @@ and controls made for the D-pad and the two buttons.
 | Red | Back. On a Drive Alert it hides the alert. |
 | Hold red for 2 seconds | Leave Quartermaster and give the screen back to the Pager. |
 
+The screen stays lit while Quartermaster runs. To let it turn off, pick a time under **Settings > Screen timeout**.
+Any button wakes it, and that press does nothing else.
+
 ## Upload keys
 
 Keys are never written in `payload.sh`. Enter them under **Keys** on the Pager with the on-screen keyboard, or open

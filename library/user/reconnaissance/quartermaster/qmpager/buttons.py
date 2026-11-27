@@ -36,6 +36,7 @@ class PagerInput:
         self.fired = set()
         self.quit = False
         self.on_quit = None
+        self.on_input = None
 
     def read_events(self):
         events = []
@@ -88,7 +89,7 @@ class PagerInput:
                 self.quit = True
                 if self.on_quit:
                     self.on_quit()
-            elif name in ("UP", "DOWN", "LEFT", "RIGHT") and age >= REPEAT_DELAY:
+            elif name in ("UP", "DOWN", "LEFT", "RIGHT") and age >= REPEAT_DELAY and name not in self.fired:
                 count = int((age - REPEAT_DELAY) / REPEAT_EVERY) + 1
                 last = getattr(self, "_repeats", {}).get(name, 0)
                 if count > last:
@@ -104,6 +105,13 @@ class PagerInput:
             timeout = min(timeout, 0.05) if timeout is not None else 0.05
         ready, _, _ = select.select([self.fd], [], [], timeout)
         events = self.read_events() if ready else []
+        if events and self.on_input and self.on_input():
+            now = self.clock()
+            for name, value in events:
+                if value == 1:
+                    self.down[name] = now
+                    self.fired.add(name)
+            return []
         return self.feed(events, self.clock())
 
     def flush(self):
