@@ -1,0 +1,28 @@
+{
+  "app": {
+    "file": "quartermaster-node-1.1.0-app.bin",
+    "offset": 131072,
+    "sha256": "0c440889c7712fa01b2e93d9f74b286f14b2339fb50db6d7ab2c9032bb633cd3",
+    "size": 1006304
+  },
+  "bootloader_offset": 8192,
+  "chip": "esp32c5",
+  "flash_freq": "80m",
+  "flash_mode": "dio",
+  "flash_size": "4MB",
+  "merged": {
+    "file": "quartermaster-node-1.1.0-merged.bin",
+    "offset": 0,
+    "sha256": "46abb7f852ef61450413975cece37d6604fe49032adad8c28338881d60827c10",
+    "size": 1137376
+  },
+  "partition_offsets": {
+    "nvs": 36864,
+    "ota_0": 131072,
+    "ota_1": 1900544,
+    "otadata": 61440,
+    "phy_init": 69632
+  },
+  "partition_table_offset": 32768,
+  "version": "1.1.0"
+}
