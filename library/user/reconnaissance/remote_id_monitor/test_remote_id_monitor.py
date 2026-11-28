@@ -257,6 +257,31 @@ class DecoderTests(unittest.TestCase):
             stderr=rid.subprocess.STDOUT, text=True, timeout=3, check=False,
         )
 
+    def test_pineap_gps_status_detects_searching_hardware_and_fix(self):
+        searching = rid.parse_pineap_gps_status(
+            "Fix=0 Location=0,0 Protocol=nmea Baud=9600 / "
+            "Readiness=no signal SatsTracked=0 SatsStrong=0 SignalQuality=0%")
+        self.assertEqual(searching["state"], "searching")
+        self.assertTrue(searching["detected"])
+        self.assertEqual(searching["readiness"], "no signal")
+        fixed = rid.parse_pineap_gps_status(
+            "Fix=1 / Location=38.1234,-77.5678 / Protocol=nmea / Baud=9600 / "
+            "Readiness=ready / SatsTracked=9 / SatsStrong=7 / SignalQuality=80%")
+        self.assertEqual(fixed["state"], "fix")
+        self.assertEqual(fixed["point"], (38.1234, -77.5678))
+        self.assertEqual(rid.parse_pineap_gps_status("unexpected successful response")["state"],
+                         "unavailable")
+        command = mock.Mock(returncode=1, stdout=(
+            "Fix=0 Location=0,0 Protocol=nmea Baud=9600\n"
+            "Readiness=no signal SatsTracked=0 SatsStrong=0 SignalQuality=0%"))
+        with mock.patch.object(rid.subprocess, "run", return_value=command):
+            live = rid.pineap_gps_status()
+        self.assertEqual(live["state"], "searching")
+        self.assertTrue(live["detected"])
+
+    def test_pager_active_timeout_matches_marauder(self):
+        self.assertEqual(rid.LOST_AFTER_SECONDS, 30)
+
     def test_btmon_extended_report(self):
         service = b"\xfa\xff\x0d\x09" + basic_id()
         ad = bytes([len(service) + 1, 0x16]) + service
@@ -373,6 +398,12 @@ class DecoderTests(unittest.TestCase):
                 "mac": "8c:1e:d9:d1:cb:bc",
                 "transports": ["wifi-beacon"],
                 "last_seen": 10,
+                "has_location": True,
+                "latitude_e7": 400000000,
+                "longitude_e7": -740000000,
+                "has_operator_location": True,
+                "operator_latitude_e7": 400001000,
+                "operator_longitude_e7": -740001000,
             }
             state.write_text(json.dumps({"status": "stopped", "started": 1, "records": [record]}))
             rendered = rid.render_state(state, censor=True)
@@ -381,6 +412,12 @@ class DecoderTests(unittest.TestCase):
             self.assertNotIn(record["uas_id"], rendered)
             self.assertIn("MAC: 8c:1e:XX:XX:XX:XX", detail)
             self.assertIn("Operator: OPEXXXXXXXXX", detail)
+            self.assertNotIn("40.", detail)
+            self.assertIn("[censored]", detail)
+            censored_state = dict(record, distance_m=123.0, bearing_deg=45.0)
+            state.write_text(json.dumps({"status": "scanning", "started": 1,
+                                         "records": [censored_state]}))
+            self.assertNotIn("123m", rid.render_state(state, censor=True))
             self.assertEqual(json.loads(state.read_text())["records"][0]["uas_id"], record["uas_id"])
             rid.save_censor_setting(settings, False)
             self.assertFalse(rid.load_censor_setting(settings))
